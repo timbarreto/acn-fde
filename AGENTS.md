@@ -23,7 +23,9 @@ backend, account system, API, or database.
 - `src/types.ts`: shared question, exam, and persistence types.
 - `src/lib/exam.ts`: question selection, scoring, and exam utilities.
 - `src/lib/utils.ts`: shared UI utilities, including `cn`.
-- `src/data/questions.json`: question bank.
+- `src/data/questions.json`: original question bank.
+- `src/data/questions/`: additional questions grouped by GH-600 domain.
+- `src/data/questions.ts`: assembles the complete question bank.
 - `src/data/domains.ts`: domain labels, weights, colors, and icons.
 - `src/components/ui/`: reusable UI primitives.
 - `src/index.css`: global styles and Tailwind layers.
@@ -65,11 +67,11 @@ the change involves user interaction or persisted state.
 
 ## Content and persistence
 
-Questions in `src/data/questions.json` must conform to the `Question` interface
-in `src/types.ts`. Keep question IDs stable and unique. Option IDs referenced by
-`correctAnswers` must exist on that question, and `single` questions must have
-one correct answer. Use original wording and link sources to authoritative
-documentation.
+Questions in `src/data/questions.json` and `src/data/questions/*.json` must
+conform to the `Question` interface in `src/types.ts`. Keep question IDs stable
+and unique. Option IDs referenced by `correctAnswers` must exist on that
+question, and `single` questions must have one correct answer. Use original
+wording and link sources to authoritative documentation.
 
 Domain IDs are the closed set defined by `DomainId`; update the type, metadata,
 selection logic, and related content together if that set changes.
