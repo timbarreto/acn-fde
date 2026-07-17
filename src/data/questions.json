@@ -610,5 +610,617 @@
     "correctAnswers": ["a"],
     "explanation": "Defense in depth matters. Hooks can intercept agent behavior, while rulesets or branch protection enforce the final repository policy even if an advisory layer fails.",
     "source": { "label": "GitHub Copilot hooks reference — HTTP hook failure behavior", "url": "https://docs.github.com/en/copilot/reference/hooks-reference#http-hooks" }
+  },
+  {
+    "id": "arch-006",
+    "domain": "architecture",
+    "objective": "Identify agent architecture anti-patterns",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A team asks an agent to 'modernize checkout,' gives it unrestricted repository and production access, and defines no acceptance criteria. What is the primary architecture flaw?",
+    "options": [
+      { "id": "a", "text": "The task uses natural language instead of YAML" },
+      { "id": "b", "text": "The repository does not contain enough workflow artifacts" },
+      { "id": "c", "text": "The scope and autonomy are unbounded, with no measurable success criteria" },
+      { "id": "d", "text": "The agent has not been instructed to use multiple models" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "The request combines vague scope, excessive authority, and no testable definition of success. A sound agent task bounds the work, limits permissions, and defines reviewable outputs and validation.",
+    "source": { "label": "Microsoft Learn — GH-600 skills measured", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "arch-007",
+    "domain": "architecture",
+    "objective": "Validate agent-generated plans",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two elements make an agent-generated implementation plan genuinely reviewable before execution? Select two.",
+    "options": [
+      { "id": "a", "text": "The agent's private reasoning trace" },
+      { "id": "b", "text": "Permission for the agent to merge its own eventual pull request" },
+      { "id": "c", "text": "A mapping from planned steps to requirements and identified risks" },
+      { "id": "d", "text": "Validation steps plus explicit stop or escalation conditions" }
+    ],
+    "correctAnswers": ["c", "d"],
+    "explanation": "A useful plan exposes what will change, why each step is needed, how risk is handled, and how success or a stop condition will be recognized. Hidden reasoning and self-approval do not create reviewable control.",
+    "source": { "label": "GitHub Docs — Research, plan, and iterate with Copilot", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/research-plan-iterate#create-a-plan" }
+  },
+  {
+    "id": "arch-008",
+    "domain": "architecture",
+    "objective": "Separate planning and execution roles",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A security-sensitive refactor must be approved before any files change. Which design best separates planning from execution?",
+    "options": [
+      { "id": "a", "text": "A fully privileged agent creates a plan and immediately executes it on the default branch" },
+      { "id": "b", "text": "The same agent is told in its prompt to pause, but no approval gate is enforced" },
+      { "id": "c", "text": "CI is disabled until the refactor is complete so the plan is not interrupted" },
+      { "id": "d", "text": "A read/search planner writes a durable plan, a human approves it, and a bounded implementer then receives edit and execute capabilities" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Separating a read-only planning stage from a later, approved implementation stage makes intent reviewable before state changes occur. The implementer should receive only the capabilities needed for the approved scope.",
+    "source": { "label": "GitHub Docs — Create a plan before code changes", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/research-plan-iterate#create-a-plan" }
+  },
+  {
+    "id": "arch-009",
+    "domain": "architecture",
+    "objective": "Define measurable inputs and outputs",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "An issue only says, 'Add caching to the catalog API.' Which two additions most improve the agent task contract? Select two.",
+    "options": [
+      { "id": "a", "text": "Grant access to every production cache so the agent can discover the intended behavior" },
+      { "id": "b", "text": "Specify validation commands and a measurable performance or cache-hit target" },
+      { "id": "c", "text": "Require the agent to use the largest available model" },
+      { "id": "d", "text": "Name the affected endpoint, required cache behavior, and API compatibility constraint" }
+    ],
+    "correctAnswers": ["b", "d"],
+    "explanation": "A bounded target, explicit constraints, and measurable validation turn an ambiguous request into an executable and evaluable task. Broad access and model size do not substitute for a clear contract.",
+    "source": { "label": "GitHub Docs — Making sure issues are well scoped", "url": "https://docs.github.com/en/copilot/tutorials/cloud-agent/get-the-best-results#making-sure-your-issues-are-well-scoped" }
+  },
+  {
+    "id": "arch-010",
+    "domain": "architecture",
+    "objective": "Design human intervention patterns",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Which human-intervention design best balances delivery speed with control?",
+    "options": [
+      { "id": "a", "text": "Require approval before every repository read or search operation" },
+      { "id": "b", "text": "Let the agent approve its own production deployment after tests pass" },
+      { "id": "c", "text": "Automate tests and scans, but require a human approval before an irreversible production action" },
+      { "id": "d", "text": "Remove approvals and rely only on a prompt that says to be careful" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "Low-risk, reversible validation can run automatically. Irreversible or production-sensitive actions should cross an enforceable human approval gate rather than relying on agent self-approval or prompt guidance.",
+    "source": { "label": "Microsoft Learn — GH-600 guardrails and human-in-the-loop objectives", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "arch-011",
+    "domain": "architecture",
+    "objective": "Produce inspectable implementation evidence",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which deliverable gives a reviewer the strongest evidence that an agent met its task contract?",
+    "options": [
+      { "id": "a", "text": "A chat message that says the task is complete" },
+      { "id": "b", "text": "A model confidence score with no repository changes attached" },
+      { "id": "c", "text": "A temporary session note visible only to the agent" },
+      { "id": "d", "text": "A draft pull request containing the scoped diff, validation results, and known risks" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "A draft pull request ties the implementation to a diff and can include checks, test output, and risk notes. It is durable, inspectable, and compatible with normal SDLC review controls.",
+    "source": { "label": "GitHub Docs — About Copilot cloud agent", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent" }
+  },
+  {
+    "id": "arch-012",
+    "domain": "architecture",
+    "objective": "Assign appropriate autonomy",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two autonomy assignments are appropriately scoped? Select two.",
+    "options": [
+      { "id": "a", "text": "A disputed legal-policy decision is delegated to an agent with no human review" },
+      { "id": "b", "text": "A production IAM agent receives unrestricted access and permission to approve its own changes" },
+      { "id": "c", "text": "A bounded documentation fix may edit a branch and open a pull request under required checks" },
+      { "id": "d", "text": "A dependency inventory agent receives only read and search capabilities" }
+    ],
+    "correctAnswers": ["c", "d"],
+    "explanation": "Read-only analysis needs read/search only, while a bounded, reversible documentation change can use controlled write capabilities within a pull-request workflow. Legal judgments and self-approved production IAM changes require human authority and stronger controls.",
+    "source": { "label": "GitHub Docs — Choosing the right tasks for Copilot cloud agent", "url": "https://docs.github.com/en/copilot/tutorials/cloud-agent/get-the-best-results#choosing-the-right-type-of-tasks-to-give-to-copilot" }
+  },
+  {
+    "id": "tools-009",
+    "domain": "tools",
+    "objective": "Restrict custom-agent tools",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A custom-agent file omits the tools property. What should you assume about the agent's available tools?",
+    "options": [
+      { "id": "a", "text": "The file is invalid and the agent cannot load" },
+      { "id": "b", "text": "The agent receives only read and search" },
+      { "id": "c", "text": "All available tools may be enabled, so an explicit list is needed for least privilege" },
+      { "id": "d", "text": "No tools are enabled until a user approves each one" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "When tools is omitted, the custom agent can receive all available tools. To enforce least privilege, declare an explicit list; tools: [] is the form that disables tools.",
+    "source": { "label": "GitHub Docs — Custom-agent tools", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#tools" }
+  },
+  {
+    "id": "tools-010",
+    "domain": "tools",
+    "objective": "Validate custom-agent frontmatter",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which custom-agent frontmatter property is required?",
+    "options": [
+      { "id": "a", "text": "name" },
+      { "id": "b", "text": "model" },
+      { "id": "c", "text": "target" },
+      { "id": "d", "text": "description" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "description is required because it defines the purpose and capabilities of the custom agent. name, model, and target are optional or surface-dependent.",
+    "source": { "label": "GitHub Docs — Custom-agent YAML frontmatter properties", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#yaml-frontmatter-properties" }
+  },
+  {
+    "id": "tools-011",
+    "domain": "tools",
+    "objective": "Select MCP transports",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "An MCP configuration has a top-level url for a modern remote Streamable HTTP endpoint. Which type should it use?",
+    "options": [
+      { "id": "a", "text": "local" },
+      { "id": "b", "text": "stdio" },
+      { "id": "c", "text": "http" },
+      { "id": "d", "text": "command" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "A top-level URL denotes a remote transport. Modern Streamable HTTP MCP servers use type: http; local or stdio configurations launch a process with command and args.",
+    "source": { "label": "GitHub Docs — MCP server configuration", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#mcp-server-configuration-details" }
+  },
+  {
+    "id": "tools-012",
+    "domain": "tools",
+    "objective": "Reference MCP secrets safely",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A Copilot cloud-agent MCP server needs an API token from repository configuration. Which secret name follows the required naming convention?",
+    "options": [
+      { "id": "a", "text": "MCP_TOKEN" },
+      { "id": "b", "text": "GITHUB_MCP_TOKEN" },
+      { "id": "c", "text": "AGENT_SECRET_API" },
+      { "id": "d", "text": "COPILOT_MCP_SERVICE_TOKEN" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Secrets and variables referenced by MCP configuration for Copilot cloud agent must use names that begin with COPILOT_MCP_. The value should be stored as an Agents secret or variable rather than written into the agent file.",
+    "source": { "label": "GitHub Docs — MCP secrets and variables for Copilot coding agent", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers" }
+  },
+  {
+    "id": "tools-013",
+    "domain": "tools",
+    "objective": "Distinguish MCP and network controls",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which two statements correctly distinguish MCP governance from network governance? Select two.",
+    "options": [
+      { "id": "a", "text": "A firewall allowlist chooses which custom-agent tool aliases appear in frontmatter" },
+      { "id": "b", "text": "A firewall controls network destinations or egress" },
+      { "id": "c", "text": "An MCP registry grants branch-administration permissions" },
+      { "id": "d", "text": "An MCP registry or allowlist limits which MCP servers are approved for use" }
+    ],
+    "correctAnswers": ["b", "d"],
+    "explanation": "MCP policy governs which MCP servers and tools may be used. Firewall policy governs network reachability. Neither control grants repository branch permissions.",
+    "source": { "label": "GitHub Docs — Managing MCP use in your enterprise", "url": "https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-mcp-usage" }
+  },
+  {
+    "id": "tools-014",
+    "domain": "tools",
+    "objective": "Operate on the correct pull-request branch",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A pull_request workflow must inspect the custom-agent file exactly as it exists on the pull request source branch. Which checkout ref is most appropriate?",
+    "options": [
+      { "id": "a", "text": "${{ github.base_ref }}" },
+      { "id": "b", "text": "${{ github.run_id }}" },
+      { "id": "c", "text": "${{ github.ref_name }}" },
+      { "id": "d", "text": "${{ github.head_ref }}" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "For a pull_request event, github.head_ref identifies the source branch. Checking out that ref avoids accidentally evaluating only the base branch or an unrelated run identifier.",
+    "source": { "label": "GitHub Actions — Contexts reference", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context" }
+  },
+  {
+    "id": "tools-015",
+    "domain": "tools",
+    "objective": "Choose local versus cloud execution",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Which statement correctly distinguishes /delegate from --autopilot in Copilot CLI?",
+    "options": [
+      { "id": "a", "text": "/delegate resumes the latest local session, while --autopilot opens an MCP server" },
+      { "id": "b", "text": "/delegate runs a matrix workflow, while --autopilot creates a ruleset" },
+      { "id": "c", "text": "/delegate sends work to Copilot cloud agent, while --autopilot continues autonomous work in the local CLI environment" },
+      { "id": "d", "text": "/delegate and --autopilot are equivalent spellings for the same mode" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "/delegate hands a task to the cloud agent, which can work through a GitHub pull-request flow. --autopilot keeps the autonomous continuation in the local CLI or runner environment.",
+    "source": { "label": "GitHub Docs — Copilot CLI command reference", "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference" }
+  },
+  {
+    "id": "tools-016",
+    "domain": "tools",
+    "objective": "Implement robust tool error handling",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "A read-only API call receives a rate-limit response, while a separate non-idempotent production write times out after the request may have reached the server. Which two responses are safest? Select two.",
+    "options": [
+      { "id": "a", "text": "Retry both operations indefinitely with no delay" },
+      { "id": "b", "text": "Grant a broader token so the errors are less likely" },
+      { "id": "c", "text": "Use a bounded backoff that respects rate-limit guidance for the read-only call" },
+      { "id": "d", "text": "Reconcile the write outcome or escalate before retrying the ambiguous non-idempotent operation" }
+    ],
+    "correctAnswers": ["c", "d"],
+    "explanation": "A rate-limited read can usually use bounded, policy-aware backoff. An ambiguous non-idempotent write can duplicate a side effect, so its outcome must be reconciled or escalated before another attempt.",
+    "source": { "label": "GitHub Docs — REST API best practices and rate-limit handling", "url": "https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#handle-rate-limit-errors-appropriately" }
+  },
+  {
+    "id": "memory-006",
+    "domain": "memory",
+    "objective": "Select durable memory for reusable facts",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A repository convention must guide future tasks and multiple contributors. Where should it be kept?",
+    "options": [
+      { "id": "a", "text": "Only in the current chat turn" },
+      { "id": "b", "text": "In a temporary shell environment variable" },
+      { "id": "c", "text": "In repository custom instructions or repository-scoped memory, with periodic validation against the codebase" },
+      { "id": "d", "text": "Inside a production credential" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "A reusable repository fact belongs in durable repository-level guidance or memory, not transient prompt context. Because repositories change, the fact should still be checked for staleness.",
+    "source": { "label": "GitHub Docs — Copilot Memory", "url": "https://docs.github.com/en/copilot/concepts/agents/copilot-memory" }
+  },
+  {
+    "id": "memory-007",
+    "domain": "memory",
+    "objective": "Expire and prune stale memory",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "An agent stores the fact, 'The legacy API remains active until September 30.' Which two controls reduce the chance that this becomes harmful stale memory? Select two.",
+    "options": [
+      { "id": "a", "text": "Mark it as permanent so it is never reconsidered" },
+      { "id": "b", "text": "Copy the fact into every prompt and suppress conflicting evidence" },
+      { "id": "c", "text": "Attach an expiration or review date to the temporary fact" },
+      { "id": "d", "text": "Validate it against current repository or system state and prune or replace it when obsolete" }
+    ],
+    "correctAnswers": ["c", "d"],
+    "explanation": "Time-bound facts need lifecycle metadata and revalidation. Expiration, review, and pruning prevent a formerly correct fact from silently driving incorrect future actions.",
+    "source": { "label": "Microsoft Learn — GH-600 memory expiration and pruning objective", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "memory-008",
+    "domain": "memory",
+    "objective": "Restore execution dependencies after resume",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "A Copilot SDK session is resumed after the process restarts. Which two items may need to be supplied or recreated even though the session transcript persists? Select two.",
+    "options": [
+      { "id": "a", "text": "The stable session identifier used for resume" },
+      { "id": "b", "text": "Previously persisted session events" },
+      { "id": "c", "text": "In-memory state held by custom tools or process-local connections" },
+      { "id": "d", "text": "Provider or API credentials" }
+    ],
+    "correctAnswers": ["c", "d"],
+    "explanation": "Session persistence restores the durable conversation and execution record, but secrets are not a session store and process-local tool state does not survive a restart. The application must reconnect and rehydrate those dependencies safely.",
+    "source": { "label": "GitHub Docs — Copilot SDK session persistence", "url": "https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/session-persistence" }
+  },
+  {
+    "id": "memory-009",
+    "domain": "memory",
+    "objective": "Resolve cross-agent state conflicts",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "An agent receives plan.md created at commit X, but the working branch is now at commit Y. What should it do first?",
+    "options": [
+      { "id": "a", "text": "Assume the plan is authoritative and overwrite the newer branch" },
+      { "id": "b", "text": "Resume an unrelated older session to recover more context" },
+      { "id": "c", "text": "Delete the plan because all handoff artifacts become invalid after one commit" },
+      { "id": "d", "text": "Verify the active ref, re-read affected files, and reconcile the handoff against the current branch before editing" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "The handoff is evidence, not a guarantee that repository state is unchanged. Revalidating the current ref and files prevents stale assumptions from causing conflicting or destructive edits.",
+    "source": { "label": "GitHub Docs — About Copilot cloud agent", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent" }
+  },
+  {
+    "id": "eval-007",
+    "domain": "evaluation",
+    "objective": "Classify reasoning and environment failures",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "An agent produces a correct implementation plan, but npm ci fails with E401 before any tests run. How should the failure be classified first?",
+    "options": [
+      { "id": "a", "text": "A model-reasoning failure" },
+      { "id": "b", "text": "A memory-pruning failure" },
+      { "id": "c", "text": "An environment or package-authentication failure" },
+      { "id": "d", "text": "A multi-agent coordination failure" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "E401 during dependency installation is evidence of an authentication or environment problem. The plan may still be sound; fix setup, package credentials, or secret availability before tuning the model.",
+    "source": { "label": "npm Docs — Private packages in CI/CD", "url": "https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow/#set-the-token-as-an-environment-variable-on-the-cicd-server" }
+  },
+  {
+    "id": "eval-008",
+    "domain": "evaluation",
+    "objective": "Align evaluation with intended outcomes",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "All unit tests pass, but dependency review flags a newly introduced dependency with a known critical vulnerability. Has the agent met the intended success criteria?",
+    "options": [
+      { "id": "a", "text": "Yes, because unit tests are the only valid evaluation signal" },
+      { "id": "b", "text": "Yes, if the agent explains that it did not author the dependency" },
+      { "id": "c", "text": "Yes, because security checks are optional for agent-authored code" },
+      { "id": "d", "text": "No; functional correctness passed, but the security and dependency-risk criteria did not" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Evaluation should match the full intended outcome. Passing behavior tests does not override a failed security control; the dependency risk must be remediated or explicitly adjudicated before success is claimed.",
+    "source": { "label": "GitHub Docs — About dependency review", "url": "https://docs.github.com/en/code-security/concepts/supply-chain-security/about-dependency-review" }
+  },
+  {
+    "id": "eval-009",
+    "domain": "evaluation",
+    "objective": "Combine quantitative and qualitative evaluation",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two signals together provide both quantitative and qualitative evaluation of an agent change? Select two.",
+    "options": [
+      { "id": "a", "text": "The number of tokens used by the agent, without a target" },
+      { "id": "b", "text": "Reviewer findings with severity and rationale" },
+      { "id": "c", "text": "The length of the pull request title" },
+      { "id": "d", "text": "A measured test-pass rate or latency threshold" }
+    ],
+    "correctAnswers": ["b", "d"],
+    "explanation": "Measured pass rates or performance thresholds provide quantitative evidence. Structured reviewer findings provide qualitative evidence about correctness, maintainability, and risk.",
+    "source": { "label": "Microsoft Learn — GH-600 evaluation criteria and metrics", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "eval-010",
+    "domain": "evaluation",
+    "objective": "Trace the causal failure in logs",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A workflow ends with “artifact not found,” but an earlier step shows the compiler failed and therefore never created the artifact. What is the best diagnostic conclusion?",
+    "options": [
+      { "id": "a", "text": "Tune the model because the final error mentions an artifact" },
+      { "id": "b", "text": "Treat the earliest compiler failure as the likely root cause and the missing artifact as a downstream symptom" },
+      { "id": "c", "text": "Increase artifact retention so the compiler succeeds" },
+      { "id": "d", "text": "Ignore the compiler output and rerun only the upload step" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Root-cause analysis follows the causal chain. The upload failed because its input was never produced; the first actionable failure is the compile error, not the later missing-file symptom.",
+    "source": { "label": "GitHub Docs — Viewing workflow run logs", "url": "https://docs.github.com/en/actions/how-tos/monitor-workflows/view-workflow-run-history" }
+  },
+  {
+    "id": "eval-011",
+    "domain": "evaluation",
+    "objective": "Tune tool capability",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "An agent is expected to run tests, but its custom-agent profile only grants read, search, and edit. What is the most direct tuning change?",
+    "options": [
+      { "id": "a", "text": "Replace repository instructions with a longer prompt" },
+      { "id": "b", "text": "Disable the test requirement" },
+      { "id": "c", "text": "Give the agent every available MCP tool" },
+      { "id": "d", "text": "Add execute while keeping the rest of the tool scope narrow" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Running tests requires shell execution. Adding the execute capability addresses the missing capability directly without unnecessarily broadening unrelated tools or weakening validation.",
+    "source": { "label": "GitHub Docs — Custom-agent tool aliases", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#tool-aliases" }
+  },
+  {
+    "id": "eval-012",
+    "domain": "evaluation",
+    "objective": "Tune state and continuity",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "After a resume, an agent repeatedly redoes completed work even though the commits already exist. Which tuning area should be investigated first?",
+    "options": [
+      { "id": "a", "text": "The color of the workflow summary" },
+      { "id": "b", "text": "The model name, before inspecting any state evidence" },
+      { "id": "c", "text": "Session continuity and durable completion markers such as commits, checklists, or handoff artifacts" },
+      { "id": "d", "text": "The number of reviewers required for production" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "Repeated work after resume points to missing, stale, or unread state. Verify the resumed session and ensure completed steps are represented in durable artifacts the agent can re-read.",
+    "source": { "label": "GitHub Docs — Copilot SDK session persistence", "url": "https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/session-persistence" }
+  },
+  {
+    "id": "eval-013",
+    "domain": "evaluation",
+    "objective": "Run controlled before-and-after evaluation",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Before rolling revised agent instructions out broadly, which evaluation design provides the strongest evidence that they improved performance?",
+    "options": [
+      { "id": "a", "text": "Use different tasks before and after, then compare subjective impressions" },
+      { "id": "b", "text": "Deploy immediately and count how many people notice a change" },
+      { "id": "c", "text": "Compare only response length because it is easy to measure" },
+      { "id": "d", "text": "Run a representative fixed task suite, record a baseline, and compare the same success and error metrics after the change" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "A controlled before-and-after comparison reduces confounding. The task set and metrics should stay consistent so changes in correctness, security, efficiency, and error rates can be attributed more credibly to the tuning change.",
+    "source": { "label": "Microsoft Learn — GH-600 evaluation and tuning objectives", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "orchestration-007",
+    "domain": "orchestration",
+    "objective": "Apply reviewer-verifier patterns",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "One agent implements a change and a second, independent agent checks it against acceptance criteria and security requirements. Which coordination pattern is this?",
+    "options": [
+      { "id": "a", "text": "Shared-memory swarm" },
+      { "id": "b", "text": "Reviewer or verifier" },
+      { "id": "c", "text": "Uncontrolled parallel editing" },
+      { "id": "d", "text": "Single-agent autopilot" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "The second agent is not implementing the same work in parallel; it independently verifies the first agent’s result. This separation can improve error detection and accountability.",
+    "source": { "label": "Azure Architecture Center — AI agent orchestration patterns", "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns" }
+  },
+  {
+    "id": "orchestration-008",
+    "domain": "orchestration",
+    "objective": "Preserve evidence from matrix agents",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A matrix runs reviewer, auditor, and test agents. What is the effect of strategy.fail-fast: false?",
+    "options": [
+      { "id": "a", "text": "Every matrix job is forced to pass" },
+      { "id": "b", "text": "The jobs execute serially in matrix order" },
+      { "id": "c", "text": "A failed matrix job does not automatically cancel the other in-progress matrix jobs" },
+      { "id": "d", "text": "All matrix jobs share the same output file automatically" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "With fail-fast disabled, other matrix jobs can finish and produce their own logs or artifacts even when one variant fails. This preserves more diagnostic and review evidence.",
+    "source": { "label": "GitHub Actions workflow syntax — strategy.fail-fast", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategyfail-fast" }
+  },
+  {
+    "id": "orchestration-009",
+    "domain": "orchestration",
+    "objective": "Resolve contradictory agent outputs",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Two specialist agents reach opposite conclusions about whether a change introduces an authorization flaw. What should the coordinator do?",
+    "options": [
+      { "id": "a", "text": "Accept whichever answer arrived first" },
+      { "id": "b", "text": "Use a majority vote even though there are only two opinions" },
+      { "id": "c", "text": "Discard both outputs and merge without a security conclusion" },
+      { "id": "d", "text": "Preserve both rationales, run targeted validation, and escalate to a qualified human when the evidence remains ambiguous" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Conflicting specialist results are a signal to gather discriminating evidence, not to hide the disagreement. Targeted tests, logs, or human review should resolve a security-sensitive ambiguity.",
+    "source": { "label": "Microsoft Learn — GH-600 multi-agent conflict-resolution objective", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "orchestration-010",
+    "domain": "orchestration",
+    "objective": "Perform post-hoc multi-agent analysis",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two evidence sets are most useful for reconstructing a multi-agent workflow after a failure? Select two.",
+    "options": [
+      { "id": "a", "text": "Unrecorded private thoughts from each agent" },
+      { "id": "b", "text": "The marketing names of the models without run metadata" },
+      { "id": "c", "text": "Pull request commits, checks, workflow artifacts, and job dependencies" },
+      { "id": "d", "text": "Agent session IDs, timestamps, and tool or handoff logs" }
+    ],
+    "correctAnswers": ["c", "d"],
+    "explanation": "Correlating session and workflow identifiers with commits, dependencies, checks, and artifacts reveals execution order, ownership, handoffs, and the point of failure. Unrecorded reasoning cannot support post-hoc analysis.",
+    "source": { "label": "GitHub Docs — Risks and mitigations for Copilot cloud agent", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/risks-and-mitigations" }
+  },
+  {
+    "id": "orchestration-011",
+    "domain": "orchestration",
+    "objective": "Update agent versions safely",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A custom-agent profile must change while a long-running workflow is already using the previous behavior. Which approach best preserves continuity?",
+    "options": [
+      { "id": "a", "text": "Overwrite all historical artifacts so only the new behavior remains visible" },
+      { "id": "b", "text": "Version the agent configuration, use the new version for new work, and let the active run finish or be explicitly stopped with its evidence preserved" },
+      { "id": "c", "text": "Silently change the profile and assume the active run adopts every change mid-session" },
+      { "id": "d", "text": "Delete the old profile and all logs immediately" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Versioned rollout keeps active execution understandable and reproducible. Existing work should finish under its known configuration or be deliberately stopped; new work can then use the revised agent.",
+    "source": { "label": "GitHub Docs — Versioning custom agents", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#versioning" }
+  },
+  {
+    "id": "orchestration-012",
+    "domain": "orchestration",
+    "objective": "Retire agents safely",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "What is the safest way to retire an obsolete agent that has participated in audited workflows?",
+    "options": [
+      { "id": "a", "text": "Delete every historical record so users cannot invoke it accidentally" },
+      { "id": "b", "text": "Leave it invocable but add a comment saying it is deprecated" },
+      { "id": "c", "text": "Give it broader permissions so it can migrate its own history" },
+      { "id": "d", "text": "Remove its ability to receive new work while retaining relevant configuration, logs, and artifacts according to policy" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Retirement should stop new assignments without destroying the evidence needed to explain prior work. Historical configuration and execution artifacts support audit, incident analysis, and continuity.",
+    "source": { "label": "Microsoft Learn — GH-600 agent update, retirement, and continuity objective", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "guardrails-007",
+    "domain": "guardrails",
+    "objective": "Right-size approval gates",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Which approval policy is best aligned with risk?",
+    "options": [
+      { "id": "a", "text": "Require a human to approve every read-only repository search" },
+      { "id": "b", "text": "Allow irreversible production actions with no approval when tests pass" },
+      { "id": "c", "text": "Allow an agent to approve its own compliance exceptions" },
+      { "id": "d", "text": "Automate bounded read-only analysis, but require human approval for irreversible or policy-sensitive actions" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Approval friction should track consequence. Low-risk analysis can proceed automatically, while irreversible, production, compliance, or policy decisions should require authorized human review.",
+    "source": { "label": "Microsoft Learn — GH-600 guardrails and accountability", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "guardrails-008",
+    "domain": "guardrails",
+    "objective": "Scope workflow token permissions",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "A workflow must push a new branch and open a pull request using GITHUB_TOKEN. Which two write permissions are the minimal relevant ones? Select two.",
+    "options": [
+      { "id": "a", "text": "administration: write" },
+      { "id": "b", "text": "pull-requests: write" },
+      { "id": "c", "text": "security-events: write" },
+      { "id": "d", "text": "contents: write" }
+    ],
+    "correctAnswers": ["b", "d"],
+    "explanation": "Pushing a branch requires contents write permission, and creating or updating a pull request requires pull-requests write permission. Unrelated administrative or security-event write scopes should remain disabled.",
+    "source": { "label": "GitHub Actions — Assigning permissions to jobs", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions" }
+  },
+  {
+    "id": "guardrails-009",
+    "domain": "guardrails",
+    "objective": "Prevent secret exposure at push time",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which GitHub control can block a detected secret before the push is accepted?",
+    "options": [
+      { "id": "a", "text": "A longer Copilot prompt" },
+      { "id": "b", "text": "Artifact retention" },
+      { "id": "c", "text": "Secret scanning push protection" },
+      { "id": "d", "text": "Copilot Memory" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "Push protection checks pushes for supported secret patterns and can block the push before the credential is committed to the remote repository. It complements broader secret-scanning detection and response.",
+    "source": { "label": "GitHub Docs — Push protection for repositories and organizations", "url": "https://docs.github.com/en/code-security/secret-scanning/introduction/about-push-protection" }
+  },
+  {
+    "id": "guardrails-010",
+    "domain": "guardrails",
+    "objective": "Authorize irreversible production actions",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "An agent proposes rotating production signing keys. Which control design is strongest?",
+    "options": [
+      { "id": "a", "text": "Let the agent approve the rotation because it generated the plan" },
+      { "id": "b", "text": "Put the keys in the prompt so the agent can act without workflow configuration" },
+      { "id": "c", "text": "Rely on a repository instruction that says production changes are sensitive" },
+      { "id": "d", "text": "Use narrowly scoped credentials, an authorized environment or change approval, logged execution, and a rollback or recovery procedure" }
+    ],
+    "correctAnswers": ["d"],
+    "explanation": "Production key rotation is irreversible or high impact. Strong control combines least privilege, explicit human authorization, auditable execution, and recovery planning; instructions alone are not enforcement.",
+    "source": { "label": "GitHub Actions environments — Deployment protection rules", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments" }
   }
 ]
