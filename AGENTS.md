@@ -27,6 +27,7 @@ backend, account system, API, or database.
 - `src/data/domains.ts`: domain labels, weights, colors, and icons.
 - `src/components/ui/`: reusable UI primitives.
 - `src/index.css`: global styles and Tailwind layers.
+- `public/`: static assets (favicon, Open Graph cover, touch icon).
 - `FDE/` and `GH-600/`: source material and study documentation.
 
 ## Development commands
