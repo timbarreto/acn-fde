@@ -73,7 +73,7 @@ function App() {
   }
 
   const startAttempt = (mode: ExamMode, domain?: DomainId) => {
-    const selected = selectQuestions(questions, mode, domain)
+    const selected = selectQuestions(questions, mode, domain, saved.attempts)
     const durationMinutes = mode === "full" ? 45 : mode === "quick" ? 15 : Math.max(10, selected.length * 2)
     const label = mode === "full" ? "Full practice exam" : mode === "quick" ? "Quick knowledge check" : `${domainMap[domain!].short} drill`
     const attempt: ActiveAttempt = {
