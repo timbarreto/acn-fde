@@ -337,7 +337,7 @@ function Dashboard({
       </section>
 
       <section className="border-y bg-muted/45">
-        <div className="container grid gap-6 py-14 lg:grid-cols-[1fr_1fr] lg:py-16">
+        <div className="container max-w-3xl py-14 lg:py-16">
           <Card className="overflow-hidden shadow-none">
             <div className="h-1.5 bg-[#e46f51]" />
             <CardHeader>
@@ -350,19 +350,6 @@ function Dashboard({
             </CardHeader>
             <CardContent>
               <Button onClick={() => onDomain(focus.id)}>Start focused drill <ArrowRight className="h-4 w-4" /></Button>
-            </CardContent>
-          </Card>
-          <Card className="overflow-hidden bg-primary text-primary-foreground shadow-none">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Layers3 className="h-5 w-5" /></div>
-                <Badge className="bg-white/10 text-white">Beyond the exam</Badge>
-              </div>
-              <CardTitle className="pt-4 text-white">Prepare for the consultant role, too.</CardTitle>
-              <CardDescription className="text-white/70">The learning map separates certifiable GH-600 knowledge from hands-on delivery evidence: context engineering, champion enablement, metrics, and a capstone.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="secondary" onClick={onResources}>Open readiness path <ArrowRight className="h-4 w-4" /></Button>
             </CardContent>
           </Card>
         </div>
@@ -729,12 +716,11 @@ function Resources({ onPractice }: { onPractice: () => void }) {
     { number: "03", title: "Configure tools, MCP, and execution", description: "Work through custom agents, tool scope, MCP servers, allowlists, cloud setup, CLI automation, credentials, and firewalls.", resource: "Tooling, MCP, and Agent Execution Environments", url: "https://learn.microsoft.com/en-us/training/modules/agent-tooling-mcp-execution-environments/", domains: "Domain 2" },
     { number: "04", title: "Evaluate, govern, and recover", description: "Use tests, scans, logs, artifacts, session state, rulesets, hooks, approvals, and audit events as evidence and controls.", resource: "Official GH-600 study guide", url: "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600", domains: "Domains 3–6" },
   ]
-  const deliverables = ["Agent-ready repository configuration", "CCA issue-to-PR evidence", "CCR grounded in team guidelines", "Two least-privilege MCP integrations", "Tailored Agentic SDLC playbook", "Metrics baseline and change report", "Independent handoff runbook"]
   return (
     <div>
       <section className="border-b bg-[#f7f3eb]">
         <div className="container grid gap-8 py-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-end lg:py-18">
-          <div><Eyebrow>Study + role readiness</Eyebrow><h1 className="section-title text-4xl lg:text-5xl">Learn the blueprint. Then prove the work.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">GH-600 is a strong technical match for the Agentic Engineering Consultant role, but certification does not replace Staff+ engineering depth, customer delivery, or hands-on evidence.</p></div>
+          <div><Eyebrow>GH-600 study path</Eyebrow><h1 className="section-title text-4xl lg:text-5xl">Learn the blueprint. Practice the decisions.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">Follow a focused route through the official learning material, then use practice modes and answer review to strengthen each exam domain.</p></div>
           <div className="rounded-2xl border border-[#e7dcca] bg-white/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-[#267a70]" /><p className="text-sm leading-6 text-muted-foreground"><strong className="text-foreground">Published exam profile:</strong> expertise operating, integrating, supervising, and governing agents in production-grade SDLC workflows, with GitHub as the system of record and control plane.</p></div></div>
         </div>
       </section>
@@ -746,15 +732,7 @@ function Resources({ onPractice }: { onPractice: () => void }) {
           ))}
         </div>
       </section>
-      <section className="border-y bg-primary text-primary-foreground">
-        <div className="container grid gap-10 py-14 lg:grid-cols-[0.85fr_1.15fr] lg:items-center lg:py-16">
-          <div><Badge className="bg-white/10 text-white">Integrated capstone</Badge><h2 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-white">Passing proves knowledge. A capstone proves delivery.</h2><p className="mt-4 leading-7 text-white/70">The role learning map recommends one realistic repository exercise that combines architecture, context engineering, governance, adoption evidence, and handoff.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {deliverables.map((item) => <div key={item} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.06] p-3 text-sm font-semibold"><CheckCircle2 className="h-4 w-4 shrink-0 text-[#8fd1c3]" />{item}</div>)}
-          </div>
-        </div>
-      </section>
-      <section className="container py-14 text-center lg:py-16"><h2 className="font-display text-3xl font-extrabold tracking-tight">Ready to test the first pass?</h2><p className="mx-auto mt-3 max-w-xl text-muted-foreground">Use a full exam to establish your baseline, then alternate focused drills with hands-on labs.</p><Button size="lg" className="mt-6" onClick={onPractice}>Choose a practice mode <ArrowRight className="h-4 w-4" /></Button></section>
+      <section className="container border-t py-14 text-center lg:py-16"><h2 className="font-display text-3xl font-extrabold tracking-tight">Ready to test the first pass?</h2><p className="mx-auto mt-3 max-w-xl text-muted-foreground">Use a full exam to establish your baseline, then alternate focused drills with answer review.</p><Button size="lg" className="mt-6" onClick={onPractice}>Choose a practice mode <ArrowRight className="h-4 w-4" /></Button></section>
     </div>
   )
 }

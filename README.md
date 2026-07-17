@@ -1,6 +1,6 @@
 # Agentic Ready — GH-600 Practice
 
-An unofficial, offline-first practice exam for the **GitHub Certified: Agentic AI Developer (GH-600)** credential and the related Agentic Engineering Consultant learning path.
+An unofficial, offline-first practice exam for the **GitHub Certified: Agentic AI Developer (GH-600)** credential.
 
 ## What is included
 
@@ -11,7 +11,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Single-answer and multiple-answer scenarios
 - Per-domain scoring, answer explanations, and source links
 - Saved attempts, bookmarks, incorrect-answer review, and resume support
-- A study sequence and capstone checklist derived from `FDE/RoleDescriptionLearningMap.md`
+- A focused study sequence mapped to the published exam domains
 - No account, API, database, or backend
 
 ## Stack
@@ -39,6 +39,24 @@ npm run lint
 npm run build
 npm run preview
 ```
+
+## Deploy to Cloudflare
+
+The production build can be deployed as a Cloudflare Workers Static Assets
+application. Authenticate Wrangler once, then build and deploy:
+
+```bash
+npx wrangler login
+npm run deploy
+```
+
+Wrangler prints the deployed `workers.dev` URL when the upload completes. The
+deployment uses `wrangler.jsonc` to serve the Vite output in `dist/` and return
+the SPA shell for application routes.
+
+To use a custom domain, deploy the Worker first, then add the hostname under
+**Workers & Pages > agentic-ready-gh-600 > Settings > Domains & Routes** in the
+Cloudflare dashboard. The domain must belong to an active Cloudflare zone.
 
 ## Content model
 
