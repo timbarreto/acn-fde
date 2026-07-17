@@ -298,9 +298,11 @@ function Dashboard({
       <section className="hero-grid border-b border-border/80 bg-surface">
         <div className="container grid gap-10 py-14 lg:grid-cols-[1.35fr_0.65fr] lg:items-center lg:py-20">
           <div className="max-w-3xl">
-            <Badge variant="outline" className="mb-5 border-primary/40 bg-primary/10 text-brand-bright">
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Built for the current GH-600 blueprint
-            </Badge>
+            <a href="https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" target="_blank" rel="noreferrer" className="mb-5 inline-block rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Badge variant="outline" className="border-primary/40 bg-primary/10 text-brand-bright transition hover:border-primary hover:bg-primary/20">
+                <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Built for the current GH-600 blueprint
+              </Badge>
+            </a>
             <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl">
               Practice the judgment behind <span className="text-brand-gradient">agentic systems.</span>
             </h1>
