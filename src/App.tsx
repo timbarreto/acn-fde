@@ -36,7 +36,7 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
-import { answersMatch, calculateScore, domainScore, formatDuration, PASS_SCORE, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, PASS_SCORE, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedState, Question } from "@/types"
@@ -289,8 +289,9 @@ function Dashboard({
   onResources: () => void
 }) {
   const attempts = saved.attempts
-  const readiness = attempts.length ? Math.round(domains.reduce((total, domain) => total + domainScore(attempts, questions, domain.id), 0) / domains.length) : 0
-  const answered = attempts.reduce((total, attempt) => total + attempt.questionIds.length, 0)
+  const progressAttempts = saved.activeAttempt ? [saved.activeAttempt, ...attempts] : attempts
+  const readiness = readinessScore(progressAttempts, questions)
+  const answered = countAnswered(progressAttempts)
   const best = attempts.length ? Math.max(...attempts.map((attempt) => attempt.score)) : 0
 
   return (
@@ -335,8 +336,8 @@ function Dashboard({
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {domains.map((domain) => {
-            const score = domainScore(attempts, questions, domain.id)
-            const tested = attempts.some((attempt) => attempt.questionIds.some((id) => questionMap.get(id)?.domain === domain.id))
+            const { score, answered: domainAnswered } = domainProgress(progressAttempts, questions, domain.id)
+            const tested = domainAnswered > 0
             return (
               <button key={domain.id} onClick={() => onDomain(domain.id)} className="group rounded-xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-start justify-between gap-3">
@@ -378,7 +379,7 @@ function ReadinessCard({ score, answered, best }: { score: number; answered: num
         <div className="flex items-start justify-between">
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Readiness signal</div>
-            <div className="mt-1 text-sm text-muted-foreground">Across all six domains</div>
+            <div className="mt-1 text-sm text-muted-foreground">Across the full question bank</div>
           </div>
           <BarChart3 className="h-5 w-5 text-success" />
         </div>
