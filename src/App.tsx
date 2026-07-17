@@ -386,7 +386,7 @@ function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domains?: DomainId[]
       </div>
       <div className="mt-10 grid gap-5 lg:grid-cols-3">
         <ModeCard icon={Trophy} eyebrow="Best simulation" title="Full practice exam" description="30 weighted questions across all six domains. Timed and scored after submission." meta="45 min · 30 questions" onClick={() => onStart("full")} accent />
-        <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A balanced random set for a fast confidence check between study sessions." meta="15 min · 10 questions" onClick={() => onStart("quick")} />
+        <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A random set for a fast confidence check between study sessions. Limited to your selected domains when any are chosen." meta={selectedDomains.length ? "15 min · up to 10 questions from selected domains" : "15 min · 10 questions"} onClick={() => onStart("quick", selectedDomains)} />
         <ModeCard icon={Target} eyebrow="Close a gap" title="Focused domain drill" description="Practice every question available in the blueprint domains you select." meta={selectedDomains.length ? `${selectedCount} questions · adaptive time` : "Select at least one domain below"} onClick={() => onStart("domain", selectedDomains)} disabled={!selectedDomains.length} />
       </div>
       <Card className="mt-6 shadow-none">

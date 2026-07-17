@@ -75,14 +75,28 @@ describe("selectQuestions in domain mode", () => {
   })
 })
 
-describe("selectQuestions in other modes", () => {
-  it("ignores the domain selection in quick mode", () => {
+describe("selectQuestions in quick mode", () => {
+  it("limits the set to a single selected domain", () => {
     const selected = selectQuestions(bank, "quick", ["tools"])
+    expect(selected).toHaveLength(2)
+    expect(selected.every((question) => question.domain === "tools")).toBe(true)
+  })
+
+  it("limits the set to multiple selected domains", () => {
+    const selected = selectQuestions(bank, "quick", ["tools", "memory"])
+    expect(selected).toHaveLength(4)
+    expect(selected.every((question) => ["tools", "memory"].includes(question.domain))).toBe(true)
+  })
+
+  it("draws from the whole bank when no domains are selected", () => {
+    const selected = selectQuestions(bank, "quick", [])
     expect(selected).toHaveLength(10)
     expect(selected.some((question) => question.domain !== "tools")).toBe(true)
   })
+})
 
-  it("ignores the domain selection in full mode", () => {
+describe("selectQuestions in full mode", () => {
+  it("ignores the domain selection", () => {
     const selected = selectQuestions(bank, "full", ["tools"])
     expect(selected).toHaveLength(bank.length)
     expect(new Set(selected.map((question) => question.domain))).toEqual(new Set(allDomains))

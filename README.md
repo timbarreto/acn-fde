@@ -5,7 +5,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 ## What is included
 
 - A 36-question local bank covering all six published GH-600 domains
-- Full, quick, and focused-domain practice modes, with multi-domain drills
+- Full, quick, and focused-domain practice modes, with multi-domain selection for drills and quick checks
 - Least-recently-seen question queues that prioritize unseen material across modes
 - Timed attempts with question navigation and flags
 - Single-answer and multiple-answer scenarios

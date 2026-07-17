@@ -42,7 +42,10 @@ export function selectQuestions(questions: Question[], mode: ExamMode, domains?:
   const queue = queueByLastSeen(questions, attempts)
 
   if (mode === "domain") return domains?.length ? queue.filter((question) => domains.includes(question.domain)) : []
-  if (mode === "quick") return queue.slice(0, 10)
+  if (mode === "quick") {
+    const pool = domains?.length ? queue.filter((question) => domains.includes(question.domain)) : queue
+    return pool.slice(0, 10)
+  }
 
   const selectedIds = new Set(
     fullExamDistribution.flatMap(([examDomain, count]) =>
