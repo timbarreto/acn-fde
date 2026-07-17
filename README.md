@@ -13,6 +13,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Instant feedback that reveals the correct answer and explanation as you check each question
 - Saved attempts, bookmarks, incorrect-answer review, and resume support
 - A focused study sequence mapped to the published exam domains
+- Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account, API, database, or backend
 
 ## Stack

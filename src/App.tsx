@@ -37,10 +37,9 @@ import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import { answersMatch, calculateScore, domainScore, formatDuration, PASS_SCORE, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedState, Question } from "@/types"
-
-type View = "dashboard" | "setup" | "exam" | "results" | "review" | "resources"
 
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
@@ -58,19 +57,47 @@ function loadState(): PersistedState {
 
 function App() {
   const [saved, setSaved] = useState<PersistedState>(loadState)
-  const [view, setView] = useState<View>(saved.activeAttempt ? "dashboard" : "dashboard")
+  const [view, setView] = useState<AppView>(() => resolveNavigation(window.location.pathname, {
+    hasActiveAttempt: Boolean(saved.activeAttempt),
+    hasCompletedAttempt: saved.attempts.length > 0,
+  }).view)
   const [result, setResult] = useState<CompletedAttempt | null>(saved.attempts[0] ?? null)
   const [mobileNav, setMobileNav] = useState(false)
+  const hasActiveAttempt = Boolean(saved.activeAttempt)
+  const hasCompletedAttempt = saved.attempts.length > 0
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))
   }, [saved])
 
-  const navigate = (next: View) => {
+  const navigate = useCallback((next: AppView) => {
+    const pathname = getPathForView(next)
+    if (window.location.pathname !== pathname || window.location.search || window.location.hash) {
+      window.history.pushState(null, "", pathname)
+    }
     setView(next)
     setMobileNav(false)
     window.scrollTo({ top: 0, behavior: "smooth" })
-  }
+  }, [])
+
+  useEffect(() => {
+    const syncLocation = () => {
+      const resolved = resolveNavigation(window.location.pathname, {
+        hasActiveAttempt,
+        hasCompletedAttempt,
+      })
+      if (window.location.pathname !== resolved.pathname || window.location.search || window.location.hash) {
+        window.history.replaceState(null, "", resolved.pathname)
+      }
+      setView(resolved.view)
+      setMobileNav(false)
+      window.scrollTo({ top: 0 })
+    }
+
+    syncLocation()
+    window.addEventListener("popstate", syncLocation)
+    return () => window.removeEventListener("popstate", syncLocation)
+  }, [hasActiveAttempt, hasCompletedAttempt])
 
   const startAttempt = (mode: ExamMode, domains?: DomainId[]) => {
     const selected = selectQuestions(questions, mode, domains, saved.attempts)
@@ -90,7 +117,7 @@ function App() {
       domains,
     }
     setSaved((current) => ({ ...current, activeAttempt: attempt }))
-    setView("exam")
+    navigate("exam")
   }
 
   const updateAttempt = (attempt: ActiveAttempt) => {
@@ -109,9 +136,8 @@ function App() {
       attempts: [completed, ...current.attempts].slice(0, 30),
     }))
     setResult(completed)
-    setView("results")
-    window.scrollTo({ top: 0, behavior: "smooth" })
-  }, [])
+    navigate("results")
+  }, [navigate])
 
   const toggleBookmark = (id: string) => {
     setSaved((current) => ({
@@ -196,12 +222,12 @@ function TopNav({
   mobileOpen,
   onMobileOpen,
 }: {
-  view: View
-  onNavigate: (view: View) => void
+  view: AppView
+  onNavigate: (view: AppView) => void
   mobileOpen: boolean
   onMobileOpen: (open: boolean) => void
 }) {
-  const items: { view: View; label: string; icon: typeof Home }[] = [
+  const items: { view: AppView; label: string; icon: typeof Home }[] = [
     { view: "dashboard", label: "Dashboard", icon: Home },
     { view: "setup", label: "Practice", icon: CircleHelp },
     { view: "review", label: "Review", icon: History },
