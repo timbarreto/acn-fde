@@ -265,7 +265,6 @@ function Dashboard({
   const readiness = attempts.length ? Math.round(domains.reduce((total, domain) => total + domainScore(attempts, questions, domain.id), 0) / domains.length) : 0
   const answered = attempts.reduce((total, attempt) => total + attempt.questionIds.length, 0)
   const best = attempts.length ? Math.max(...attempts.map((attempt) => attempt.score)) : 0
-  const focus = [...domains].sort((a, b) => domainScore(attempts, questions, a.id) - domainScore(attempts, questions, b.id))[0]
 
   return (
     <>
@@ -336,24 +335,6 @@ function Dashboard({
         </div>
       </section>
 
-      <section className="border-y bg-muted/45">
-        <div className="container max-w-3xl py-14 lg:py-16">
-          <Card className="overflow-hidden shadow-none">
-            <div className="h-1.5 bg-[#e46f51]" />
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#fbe8e1] text-[#d66046]"><Target className="h-5 w-5" /></div>
-                <Badge variant="outline">Recommended next</Badge>
-              </div>
-              <CardTitle className="pt-4">Strengthen {focus.short}</CardTitle>
-              <CardDescription>{attempts.length ? `Your current accuracy here is ${domainScore(attempts, questions, focus.id)}%. A focused drill will target the weakest signal in your history.` : "Take a focused domain drill to establish your first baseline."}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => onDomain(focus.id)}>Start focused drill <ArrowRight className="h-4 w-4" /></Button>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
     </>
   )
 }
