@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { answersMatch, calculateScore, countAnswered, domainProgress, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, progressFromAttempts, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import type { ActiveAttempt, DomainId, Question } from "@/types"
 
 const allDomains: DomainId[] = ["architecture", "tools", "memory", "evaluation", "orchestration", "guardrails"]
@@ -146,112 +146,74 @@ describe("calculateScore", () => {
   })
 })
 
-describe("domainProgress", () => {
-  it("starts at zero when nothing has been answered", () => {
-    expect(domainProgress([], bank, "tools")).toEqual({ answered: 0, correct: 0, score: 0 })
+describe("progressFromAttempts", () => {
+  it("collects answers from every attempt with the newest answer winning", () => {
+    const older = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["b"] } })
+    const newer = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
+    expect(progressFromAttempts([newer, older])).toEqual({ "tools-1": ["a"] })
   })
 
-  it("scores the correct share of all questions in the domain, not just the answered ones", () => {
-    const firstAnswer = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"] } })
-    expect(domainProgress([firstAnswer], bank, "tools")).toEqual({ answered: 1, correct: 1, score: 50 })
-
-    const bothCorrect = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"], "tools-2": ["a"] } })
-    expect(domainProgress([bothCorrect], bank, "tools")).toEqual({ answered: 2, correct: 2, score: 100 })
-  })
-
-  it("tracks progress question by question within an in-progress attempt", () => {
-    const firstAnswer = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"] } })
-    expect(domainProgress([firstAnswer], bank, "tools").answered).toBe(1)
-
-    const secondAnswer = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"], "tools-2": ["b"] } })
-    expect(domainProgress([secondAnswer], bank, "tools")).toEqual({ answered: 2, correct: 1, score: 50 })
-  })
-
-  it("ignores questions that have not been answered yet", () => {
-    const attempt = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: {} })
-    expect(domainProgress([attempt], bank, "tools")).toEqual({ answered: 0, correct: 0, score: 0 })
+  it("keeps answers from attempts that were never completed", () => {
+    const abandoned = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"] } })
+    const later = makeAttempt({ questionIds: ["memory-1"], answers: { "memory-1": ["a"] } })
+    expect(progressFromAttempts([later, abandoned])).toEqual({ "tools-1": ["a"], "memory-1": ["a"] })
   })
 
   it("ignores cleared answers", () => {
     const attempt = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": [] } })
-    expect(domainProgress([attempt], bank, "tools").answered).toBe(0)
+    expect(progressFromAttempts([attempt])).toEqual({})
+  })
+})
+
+describe("domainProgress", () => {
+  it("starts at zero when nothing has been answered", () => {
+    expect(domainProgress({}, bank, "tools")).toEqual({ answered: 0, correct: 0, score: 0 })
   })
 
-  it("aggregates answers across completed and in-progress attempts", () => {
-    const completed = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    const active = makeAttempt({ questionIds: ["tools-2"], answers: { "tools-2": ["b"] } })
-    expect(domainProgress([completed, active], bank, "tools")).toEqual({ answered: 2, correct: 1, score: 50 })
+  it("scores the correct share of all questions in the domain, not just the answered ones", () => {
+    expect(domainProgress({ "tools-1": ["a"] }, bank, "tools")).toEqual({ answered: 1, correct: 1, score: 50 })
+    expect(domainProgress({ "tools-1": ["a"], "tools-2": ["a"] }, bank, "tools")).toEqual({ answered: 2, correct: 2, score: 100 })
   })
 
-  it("lets the latest answer per question win", () => {
-    const older = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    const newer = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["b"] } })
-    expect(domainProgress([newer, older], bank, "tools")).toEqual({ answered: 1, correct: 0, score: 0 })
-    expect(domainProgress([older, newer], bank, "tools")).toEqual({ answered: 1, correct: 1, score: 50 })
+  it("tracks cumulative progress across exams", () => {
+    const progress = { "tools-1": ["a"], "memory-1": ["a"], "memory-2": ["b"] }
+    expect(domainProgress(progress, bank, "memory")).toEqual({ answered: 2, correct: 1, score: 50 })
+  })
+
+  it("ignores cleared answers", () => {
+    expect(domainProgress({ "tools-1": [] }, bank, "tools").answered).toBe(0)
   })
 
   it("only counts questions from the requested domain", () => {
-    const attempt = makeAttempt({ questionIds: ["tools-1", "memory-1"], answers: { "tools-1": ["b"], "memory-1": ["a"] } })
-    expect(domainProgress([attempt], bank, "memory")).toEqual({ answered: 1, correct: 1, score: 50 })
+    expect(domainProgress({ "tools-1": ["a"] }, bank, "memory")).toEqual({ answered: 0, correct: 0, score: 0 })
   })
 })
 
 describe("countAnswered", () => {
-  it("returns zero when there are no attempts", () => {
-    expect(countAnswered([])).toBe(0)
+  it("returns zero when nothing has been answered", () => {
+    expect(countAnswered({}, bank)).toBe(0)
   })
 
-  it("counts each answered question once across attempts", () => {
-    const first = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"], "tools-2": ["b"] } })
-    const repeat = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    expect(countAnswered([first, repeat])).toBe(2)
+  it("counts every answered question once", () => {
+    expect(countAnswered({ "tools-1": ["a"], "tools-2": ["b"], "memory-1": [] }, bank)).toBe(2)
   })
 
-  it("ignores unanswered and cleared questions", () => {
-    const attempt = makeAttempt({ questionIds: ["tools-1", "tools-2", "memory-1"], answers: { "tools-1": ["a"], "tools-2": [] } })
-    expect(countAnswered([attempt])).toBe(1)
-  })
-
-  it("includes answers from an in-progress attempt", () => {
-    const active = makeAttempt({ questionIds: ["memory-1"], answers: { "memory-1": ["a"] } })
-    expect(countAnswered([active])).toBe(1)
+  it("ignores questions that are no longer in the bank", () => {
+    expect(countAnswered({ ghost: ["a"], "tools-1": ["a"] }, bank)).toBe(1)
   })
 })
 
 describe("readinessScore", () => {
   it("returns zero when nothing has been answered", () => {
-    expect(readinessScore([], bank)).toBe(0)
+    expect(readinessScore({}, bank)).toBe(0)
   })
 
   it("measures the demonstrated-correct share of the whole bank", () => {
-    const oneCorrect = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    expect(readinessScore([oneCorrect], bank)).toBe(Math.round(100 / bank.length))
-
-    const twoCorrect = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"], "tools-2": ["a"] } })
-    expect(readinessScore([twoCorrect], bank)).toBe(Math.round(200 / bank.length))
+    expect(readinessScore({ "tools-1": ["a"] }, bank)).toBe(Math.round(100 / bank.length))
+    expect(readinessScore({ "tools-1": ["a"], "tools-2": ["a"] }, bank)).toBe(Math.round(200 / bank.length))
   })
 
-  it("does not reward a single domain like an average of domain accuracies would", () => {
-    const oneCorrect = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    expect(readinessScore([oneCorrect], bank)).toBeLessThan(Math.round(100 / allDomains.length))
-  })
-
-  it("counts each question once no matter how many times it was answered", () => {
-    const first = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    const repeat = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    expect(readinessScore([repeat, first], bank)).toBe(Math.round(100 / bank.length))
-  })
-
-  it("lets the latest answer per question win", () => {
-    const older = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    const newer = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["b"] } })
-    expect(readinessScore([newer, older], bank)).toBe(0)
-    expect(readinessScore([older, newer], bank)).toBe(Math.round(100 / bank.length))
-  })
-
-  it("keeps an earlier correct result when a newer attempt has not answered the question yet", () => {
-    const completed = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    const active = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: {} })
-    expect(readinessScore([active, completed], bank)).toBe(Math.round(100 / bank.length))
+  it("does not count wrong answers", () => {
+    expect(readinessScore({ "tools-1": ["b"] }, bank)).toBe(0)
   })
 })

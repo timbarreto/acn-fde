@@ -44,4 +44,5 @@ export interface PersistedState {
   activeAttempt: ActiveAttempt | null
   attempts: CompletedAttempt[]
   bookmarks: string[]
+  progress: Record<string, string[]>
 }

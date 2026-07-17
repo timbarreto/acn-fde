@@ -36,7 +36,7 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
-import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, PASS_SCORE, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, PASS_SCORE, progressFromAttempts, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedState, Question } from "@/types"
@@ -44,12 +44,18 @@ import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedStat
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 const STORAGE_KEY = "agentic-ready-gh600-v1"
-const defaultState: PersistedState = { activeAttempt: null, attempts: [], bookmarks: [] }
+const defaultState: PersistedState = { activeAttempt: null, attempts: [], bookmarks: [], progress: {} }
 
 function loadState(): PersistedState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? { ...defaultState, ...JSON.parse(raw) } : defaultState
+    if (!raw) return defaultState
+    const parsed = { ...defaultState, ...JSON.parse(raw) } as PersistedState
+    if (!Object.keys(parsed.progress).length) {
+      const attempts = parsed.activeAttempt ? [parsed.activeAttempt, ...parsed.attempts] : parsed.attempts
+      parsed.progress = progressFromAttempts(attempts)
+    }
+    return parsed
   } catch {
     return defaultState
   }
@@ -121,7 +127,13 @@ function App() {
   }
 
   const updateAttempt = (attempt: ActiveAttempt) => {
-    setSaved((current) => ({ ...current, activeAttempt: attempt }))
+    setSaved((current) => {
+      const progress = { ...current.progress }
+      Object.entries(attempt.answers).forEach(([id, answer]) => {
+        if (answer.length) progress[id] = answer
+      })
+      return { ...current, activeAttempt: attempt, progress }
+    })
   }
 
   const completeAttempt = useCallback((attempt: ActiveAttempt) => {
@@ -289,9 +301,8 @@ function Dashboard({
   onResources: () => void
 }) {
   const attempts = saved.attempts
-  const progressAttempts = saved.activeAttempt ? [saved.activeAttempt, ...attempts] : attempts
-  const readiness = readinessScore(progressAttempts, questions)
-  const answered = countAnswered(progressAttempts)
+  const readiness = readinessScore(saved.progress, questions)
+  const answered = countAnswered(saved.progress, questions)
   const best = attempts.length ? Math.max(...attempts.map((attempt) => attempt.score)) : 0
 
   return (
@@ -336,7 +347,7 @@ function Dashboard({
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {domains.map((domain) => {
-            const { score, answered: domainAnswered } = domainProgress(progressAttempts, questions, domain.id)
+            const { score, answered: domainAnswered } = domainProgress(saved.progress, questions, domain.id)
             const tested = domainAnswered > 0
             return (
               <button key={domain.id} onClick={() => onDomain(domain.id)} className="group rounded-xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
