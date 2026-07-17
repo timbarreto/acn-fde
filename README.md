@@ -1,6 +1,6 @@
 # Agentic Ready — GH-600 Practice
 
-An unofficial, offline-first practice exam for the **GitHub Certified: Agentic AI Developer (GH-600)** credential and the related Agentic Engineering Consultant learning path.
+An unofficial, offline-first practice exam for the **GitHub Certified: Agentic AI Developer (GH-600)** credential.
 
 ## What is included
 
@@ -11,7 +11,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Single-answer and multiple-answer scenarios
 - Per-domain scoring, answer explanations, and source links
 - Saved attempts, bookmarks, incorrect-answer review, and resume support
-- A study sequence and capstone checklist derived from `FDE/RoleDescriptionLearningMap.md`
+- A study sequence linked to official learning modules and the GH-600 study guide
 - No account, API, database, or backend
 
 ## Stack
