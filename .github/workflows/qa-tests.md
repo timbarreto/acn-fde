@@ -11,12 +11,20 @@ permissions:
   contents: read
 strict: true
 timeout-minutes: 30
+engine:
+  id: copilot
+  env:
+    COPILOT_PROVIDER_BASE_URL: https://openrouter.ai/api/v1
+    COPILOT_PROVIDER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    COPILOT_PROVIDER_TYPE: openai
+    COPILOT_MODEL: deepseek/deepseek-v4-flash
 network:
   allowed:
     - defaults
     - node
     - playwright
     - local
+    - openrouter.ai
 tools:
   bash: ["*"]
 safe-outputs:
