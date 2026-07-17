@@ -2,29 +2,50 @@ import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, Question } fr
 
 export const PASS_SCORE = 70
 
-export function shuffled<T>(items: T[]) {
-  return [...items]
-    .map((value) => ({ value, sort: Math.random() }))
-    .sort((a, b) => a.sort - b.sort)
-    .map(({ value }) => value)
+const fullExamDistribution: Array<[DomainId, number]> = [
+  ["architecture", 5],
+  ["tools", 6],
+  ["memory", 4],
+  ["evaluation", 5],
+  ["orchestration", 5],
+  ["guardrails", 5],
+]
+
+function queueByLastSeen(questions: Question[], attempts: CompletedAttempt[]) {
+  const lastSeen = new Map<string, number>()
+
+  attempts.forEach((attempt) => {
+    attempt.questionIds.forEach((id) => {
+      lastSeen.set(id, Math.max(lastSeen.get(id) ?? 0, attempt.completedAt))
+    })
+  })
+
+  return questions
+    .map((question) => ({
+      question,
+      lastSeen: lastSeen.get(question.id) ?? 0,
+      sort: Math.random(),
+    }))
+    .sort((a, b) => a.lastSeen - b.lastSeen || a.sort - b.sort)
+    .map(({ question }) => question)
 }
 
-function sampleByDomain(questions: Question[], domain: DomainId, count: number) {
-  return shuffled(questions.filter((question) => question.domain === domain)).slice(0, count)
-}
+export function selectQuestions(questions: Question[], mode: ExamMode, domain?: DomainId, attempts: CompletedAttempt[] = []) {
+  const queue = queueByLastSeen(questions, attempts)
 
-export function selectQuestions(questions: Question[], mode: ExamMode, domain?: DomainId) {
-  if (mode === "domain" && domain) return shuffled(questions.filter((question) => question.domain === domain))
-  if (mode === "quick") return shuffled(questions).slice(0, 10)
+  if (mode === "domain" && domain) return queue.filter((question) => question.domain === domain)
+  if (mode === "quick") return queue.slice(0, 10)
 
-  return shuffled([
-    ...sampleByDomain(questions, "architecture", 5),
-    ...sampleByDomain(questions, "tools", 6),
-    ...sampleByDomain(questions, "memory", 4),
-    ...sampleByDomain(questions, "evaluation", 5),
-    ...sampleByDomain(questions, "orchestration", 5),
-    ...sampleByDomain(questions, "guardrails", 5),
-  ])
+  const selectedIds = new Set(
+    fullExamDistribution.flatMap(([examDomain, count]) =>
+      queue
+        .filter((question) => question.domain === examDomain)
+        .slice(0, count)
+        .map((question) => question.id),
+    ),
+  )
+
+  return queue.filter((question) => selectedIds.has(question.id))
 }
 
 export function answersMatch(answer: string[] | undefined, correct: string[]) {
