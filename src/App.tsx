@@ -36,21 +36,26 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
-import { answersMatch, calculateScore, domainScore, formatDuration, PASS_SCORE, selectQuestions } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, PASS_SCORE, progressFromAttempts, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedState, Question } from "@/types"
-
-type View = "dashboard" | "setup" | "exam" | "results" | "review" | "resources"
 
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 const STORAGE_KEY = "agentic-ready-gh600-v1"
-const defaultState: PersistedState = { activeAttempt: null, attempts: [], bookmarks: [] }
+const defaultState: PersistedState = { activeAttempt: null, attempts: [], bookmarks: [], progress: {} }
 
 function loadState(): PersistedState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? { ...defaultState, ...JSON.parse(raw) } : defaultState
+    if (!raw) return defaultState
+    const parsed = { ...defaultState, ...JSON.parse(raw) } as PersistedState
+    if (!Object.keys(parsed.progress).length) {
+      const attempts = parsed.activeAttempt ? [parsed.activeAttempt, ...parsed.attempts] : parsed.attempts
+      parsed.progress = progressFromAttempts(attempts)
+    }
+    return parsed
   } catch {
     return defaultState
   }
@@ -58,24 +63,53 @@ function loadState(): PersistedState {
 
 function App() {
   const [saved, setSaved] = useState<PersistedState>(loadState)
-  const [view, setView] = useState<View>(saved.activeAttempt ? "dashboard" : "dashboard")
+  const [view, setView] = useState<AppView>(() => resolveNavigation(window.location.pathname, {
+    hasActiveAttempt: Boolean(saved.activeAttempt),
+    hasCompletedAttempt: saved.attempts.length > 0,
+  }).view)
   const [result, setResult] = useState<CompletedAttempt | null>(saved.attempts[0] ?? null)
   const [mobileNav, setMobileNav] = useState(false)
+  const hasActiveAttempt = Boolean(saved.activeAttempt)
+  const hasCompletedAttempt = saved.attempts.length > 0
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))
   }, [saved])
 
-  const navigate = (next: View) => {
+  const navigate = useCallback((next: AppView) => {
+    const pathname = getPathForView(next)
+    if (window.location.pathname !== pathname || window.location.search || window.location.hash) {
+      window.history.pushState(null, "", pathname)
+    }
     setView(next)
     setMobileNav(false)
     window.scrollTo({ top: 0, behavior: "smooth" })
-  }
+  }, [])
 
-  const startAttempt = (mode: ExamMode, domain?: DomainId) => {
-    const selected = selectQuestions(questions, mode, domain, saved.attempts)
+  useEffect(() => {
+    const syncLocation = () => {
+      const resolved = resolveNavigation(window.location.pathname, {
+        hasActiveAttempt,
+        hasCompletedAttempt,
+      })
+      if (window.location.pathname !== resolved.pathname || window.location.search || window.location.hash) {
+        window.history.replaceState(null, "", resolved.pathname)
+      }
+      setView(resolved.view)
+      setMobileNav(false)
+      window.scrollTo({ top: 0 })
+    }
+
+    syncLocation()
+    window.addEventListener("popstate", syncLocation)
+    return () => window.removeEventListener("popstate", syncLocation)
+  }, [hasActiveAttempt, hasCompletedAttempt])
+
+  const startAttempt = (mode: ExamMode, domains?: DomainId[]) => {
+    const selected = selectQuestions(questions, mode, domains, saved.attempts)
+    if (!selected.length) return
     const durationMinutes = mode === "full" ? 45 : mode === "quick" ? 15 : Math.max(10, selected.length * 2)
-    const label = mode === "full" ? "Full practice exam" : mode === "quick" ? "Quick knowledge check" : `${domainMap[domain!].short} drill`
+    const label = mode === "full" ? "Full practice exam" : mode === "quick" ? "Quick knowledge check" : domains!.length === 1 ? `${domainMap[domains![0]].short} drill` : `Focused drill · ${domains!.length} domains`
     const attempt: ActiveAttempt = {
       id: crypto.randomUUID(),
       mode,
@@ -86,14 +120,20 @@ function App() {
       currentIndex: 0,
       startedAt: Date.now(),
       durationMinutes,
-      domain,
+      domains,
     }
     setSaved((current) => ({ ...current, activeAttempt: attempt }))
-    setView("exam")
+    navigate("exam")
   }
 
   const updateAttempt = (attempt: ActiveAttempt) => {
-    setSaved((current) => ({ ...current, activeAttempt: attempt }))
+    setSaved((current) => {
+      const progress = { ...current.progress }
+      Object.entries(attempt.answers).forEach(([id, answer]) => {
+        if (answer.length) progress[id] = answer
+      })
+      return { ...current, activeAttempt: attempt, progress }
+    })
   }
 
   const completeAttempt = useCallback((attempt: ActiveAttempt) => {
@@ -108,9 +148,8 @@ function App() {
       attempts: [completed, ...current.attempts].slice(0, 30),
     }))
     setResult(completed)
-    setView("results")
-    window.scrollTo({ top: 0, behavior: "smooth" })
-  }, [])
+    navigate("results")
+  }, [navigate])
 
   const toggleBookmark = (id: string) => {
     setSaved((current) => ({
@@ -143,7 +182,7 @@ function App() {
             saved={saved}
             onStart={() => navigate("setup")}
             onResume={() => navigate("exam")}
-            onDomain={(domain) => startAttempt("domain", domain)}
+            onDomain={(domain) => startAttempt("domain", [domain])}
             onReview={() => navigate("review")}
             onResources={() => navigate("resources")}
           />
@@ -155,7 +194,7 @@ function App() {
             bookmarks={saved.bookmarks}
             onBookmark={toggleBookmark}
             onDashboard={() => navigate("dashboard")}
-            onRetry={() => startAttempt(result.mode, result.domain)}
+            onRetry={() => startAttempt(result.mode, result.domains)}
             onReview={() => navigate("review")}
           />
         )}
@@ -170,7 +209,7 @@ function App() {
 function Brand() {
   return (
     <div className="flex items-center gap-3">
-      <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground">
+      <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-white">
         <Waymark />
       </div>
       <div>
@@ -195,12 +234,12 @@ function TopNav({
   mobileOpen,
   onMobileOpen,
 }: {
-  view: View
-  onNavigate: (view: View) => void
+  view: AppView
+  onNavigate: (view: AppView) => void
   mobileOpen: boolean
   onMobileOpen: (open: boolean) => void
 }) {
-  const items: { view: View; label: string; icon: typeof Home }[] = [
+  const items: { view: AppView; label: string; icon: typeof Home }[] = [
     { view: "dashboard", label: "Dashboard", icon: Home },
     { view: "setup", label: "Practice", icon: CircleHelp },
     { view: "review", label: "Review", icon: History },
@@ -262,21 +301,22 @@ function Dashboard({
   onResources: () => void
 }) {
   const attempts = saved.attempts
-  const readiness = attempts.length ? Math.round(domains.reduce((total, domain) => total + domainScore(attempts, questions, domain.id), 0) / domains.length) : 0
-  const answered = attempts.reduce((total, attempt) => total + attempt.questionIds.length, 0)
+  const readiness = readinessScore(saved.progress, questions)
+  const answered = countAnswered(saved.progress, questions)
   const best = attempts.length ? Math.max(...attempts.map((attempt) => attempt.score)) : 0
-  const focus = [...domains].sort((a, b) => domainScore(attempts, questions, a.id) - domainScore(attempts, questions, b.id))[0]
 
   return (
     <>
-      <section className="hero-grid border-b border-border/80 bg-[#f7f3eb]">
+      <section className="hero-grid border-b border-border/80 bg-surface">
         <div className="container grid gap-10 py-14 lg:grid-cols-[1.35fr_0.65fr] lg:items-center lg:py-20">
           <div className="max-w-3xl">
-            <Badge variant="outline" className="mb-5 border-primary/20 bg-white/70 text-primary">
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Built for the current GH-600 blueprint
-            </Badge>
+            <a href="https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" target="_blank" rel="noreferrer" className="mb-5 inline-block rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Badge variant="outline" className="border-primary/40 bg-primary/10 text-brand-bright transition hover:border-primary hover:bg-primary/20">
+                <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Built for the current GH-600 blueprint
+              </Badge>
+            </a>
             <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl">
-              Practice the judgment behind <span className="text-[#df684c]">agentic systems.</span>
+              Practice the judgment behind <span className="text-brand-gradient">agentic systems.</span>
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
               Scenario-based drills for operating, supervising, evaluating, and governing AI agents with GitHub as the control plane.
@@ -287,10 +327,10 @@ function Dashboard({
               ) : (
                 <Button size="lg" onClick={onStart}><Play className="h-4 w-4 fill-current" /> Start a practice exam</Button>
               )}
-              <Button size="lg" variant="outline" className="bg-white/60" onClick={onResources}>View study path <ArrowRight className="h-4 w-4" /></Button>
+              <Button size="lg" variant="outline" onClick={onResources}>View study path <ArrowRight className="h-4 w-4" /></Button>
             </div>
             <p className="mt-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <ShieldCheck className="h-4 w-4 text-[#267a70]" /> Unofficial practice tool · progress stays in this browser
+              <ShieldCheck className="h-4 w-4 text-success" /> Unofficial practice tool · progress stays in this browser
             </p>
           </div>
           <ReadinessCard score={readiness} answered={answered} best={best} />
@@ -307,10 +347,10 @@ function Dashboard({
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {domains.map((domain) => {
-            const score = domainScore(attempts, questions, domain.id)
-            const tested = attempts.some((attempt) => attempt.questionIds.some((id) => questionMap.get(id)?.domain === domain.id))
+            const { score, answered: domainAnswered } = domainProgress(saved.progress, questions, domain.id)
+            const tested = domainAnswered > 0
             return (
-              <button key={domain.id} onClick={() => onDomain(domain.id)} className="group rounded-2xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <button key={domain.id} onClick={() => onDomain(domain.id)} className="group rounded-xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-start justify-between gap-3">
                   <div className="grid h-11 w-11 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}>
                     <domain.icon className="h-5 w-5" />
@@ -328,7 +368,7 @@ function Dashboard({
                 </div>
                 <div className="mt-4 flex items-center justify-between border-t pt-4 text-sm font-semibold text-muted-foreground">
                   <span>{questions.filter((question) => question.domain === domain.id).length} questions</span>
-                  <span className="flex items-center gap-1 text-primary opacity-0 transition group-hover:opacity-100">Practice <ChevronRight className="h-4 w-4" /></span>
+                  <span className="flex items-center gap-1 text-brand-bright opacity-0 transition group-hover:opacity-100">Practice <ChevronRight className="h-4 w-4" /></span>
                 </div>
               </button>
             )
@@ -336,37 +376,6 @@ function Dashboard({
         </div>
       </section>
 
-      <section className="border-y bg-muted/45">
-        <div className="container grid gap-6 py-14 lg:grid-cols-[1fr_1fr] lg:py-16">
-          <Card className="overflow-hidden shadow-none">
-            <div className="h-1.5 bg-[#e46f51]" />
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#fbe8e1] text-[#d66046]"><Target className="h-5 w-5" /></div>
-                <Badge variant="outline">Recommended next</Badge>
-              </div>
-              <CardTitle className="pt-4">Strengthen {focus.short}</CardTitle>
-              <CardDescription>{attempts.length ? `Your current accuracy here is ${domainScore(attempts, questions, focus.id)}%. A focused drill will target the weakest signal in your history.` : "Take a focused domain drill to establish your first baseline."}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => onDomain(focus.id)}>Start focused drill <ArrowRight className="h-4 w-4" /></Button>
-            </CardContent>
-          </Card>
-          <Card className="overflow-hidden bg-primary text-primary-foreground shadow-none">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Layers3 className="h-5 w-5" /></div>
-                <Badge className="bg-white/10 text-white">Beyond the exam</Badge>
-              </div>
-              <CardTitle className="pt-4 text-white">Prepare for the consultant role, too.</CardTitle>
-              <CardDescription className="text-white/70">The learning map separates certifiable GH-600 knowledge from hands-on delivery evidence: context engineering, champion enablement, metrics, and a capstone.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="secondary" onClick={onResources}>Open readiness path <ArrowRight className="h-4 w-4" /></Button>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
     </>
   )
 }
@@ -375,21 +384,21 @@ function ReadinessCard({ score, answered, best }: { score: number; answered: num
   const circumference = 2 * Math.PI * 54
   const offset = circumference - (score / 100) * circumference
   return (
-    <Card className="relative overflow-hidden border-white/70 bg-white/85 shadow-soft">
-      <div className="absolute right-0 top-0 h-24 w-24 rounded-bl-[70px] bg-[#dff1ed]" />
+    <Card className="relative overflow-hidden border-border bg-card shadow-soft">
+      <div className="absolute right-0 top-0 h-24 w-24 rounded-bl-[70px] bg-primary/10" />
       <CardContent className="relative p-7">
         <div className="flex items-start justify-between">
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Readiness signal</div>
-            <div className="mt-1 text-sm text-muted-foreground">Across all six domains</div>
+            <div className="mt-1 text-sm text-muted-foreground">Across the full question bank</div>
           </div>
-          <BarChart3 className="h-5 w-5 text-[#267a70]" />
+          <BarChart3 className="h-5 w-5 text-success" />
         </div>
         <div className="my-7 flex justify-center">
           <div className="relative h-36 w-36">
             <svg className="h-36 w-36 -rotate-90" viewBox="0 0 128 128" aria-label={`${score}% readiness`}>
-              <circle cx="64" cy="64" r="54" fill="none" stroke="#e9e7e1" strokeWidth="10" />
-              <circle cx="64" cy="64" r="54" fill="none" stroke="#267a70" strokeWidth="10" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} />
+              <circle cx="64" cy="64" r="54" fill="none" stroke="#232a37" strokeWidth="10" />
+              <circle cx="64" cy="64" r="54" fill="none" stroke="#ec008c" strokeWidth="10" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} />
             </svg>
             <div className="absolute inset-0 grid place-items-center text-center">
               <div><span className="font-display text-4xl font-extrabold">{score}</span><span className="text-sm font-bold text-muted-foreground">%</span><div className="text-[11px] font-semibold text-muted-foreground">overall</div></div>
@@ -405,8 +414,9 @@ function ReadinessCard({ score, answered, best }: { score: number; answered: num
   )
 }
 
-function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domain?: DomainId) => void }) {
-  const [selectedDomain, setSelectedDomain] = useState<DomainId>("tools")
+function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domains?: DomainId[]) => void }) {
+  const [selectedDomains, setSelectedDomains] = useState<DomainId[]>([])
+  const selectedCount = questions.filter((question) => selectedDomains.includes(question.domain)).length
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
       <div className="max-w-2xl">
@@ -416,47 +426,52 @@ function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domain?: DomainId) =
       </div>
       <div className="mt-10 grid gap-5 lg:grid-cols-3">
         <ModeCard icon={Trophy} eyebrow="Best simulation" title="Full practice exam" description="30 weighted questions across all six domains. Timed and scored after submission." meta="45 min · 30 questions" onClick={() => onStart("full")} accent />
-        <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A balanced random set for a fast confidence check between study sessions." meta="15 min · 10 questions" onClick={() => onStart("quick")} />
-        <ModeCard icon={Target} eyebrow="Close a gap" title="Focused domain drill" description="Practice every question available in one blueprint domain." meta={`${questions.filter((q) => q.domain === selectedDomain).length} questions · adaptive time`} onClick={() => onStart("domain", selectedDomain)} />
+        <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A random set for a fast confidence check between study sessions. Limited to your selected domains when any are chosen." meta={selectedDomains.length ? "15 min · up to 10 questions from selected domains" : "15 min · 10 questions"} onClick={() => onStart("quick", selectedDomains)} />
+        <ModeCard icon={Target} eyebrow="Close a gap" title="Focused domain drill" description="Practice every question available in the blueprint domains you select." meta={selectedDomains.length ? `${selectedCount} questions · adaptive time` : "Select at least one domain below"} onClick={() => onStart("domain", selectedDomains)} disabled={!selectedDomains.length} />
       </div>
       <Card className="mt-6 shadow-none">
         <CardHeader>
-          <CardTitle className="text-lg">Domain for focused practice</CardTitle>
-          <CardDescription>Choose one area. The largest exam domain is Tools & environments.</CardDescription>
+          <CardTitle className="text-lg">Domains for focused practice</CardTitle>
+          <CardDescription>Click to select one or more areas. Double-click to unselect.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {domains.map((domain) => (
-            <button
-              key={domain.id}
-              onClick={() => setSelectedDomain(domain.id)}
-              className={cn("flex items-center gap-3 rounded-xl border p-3 text-left transition", selectedDomain === domain.id ? "border-primary bg-primary/[0.04] ring-1 ring-primary" : "hover:bg-muted")}
-            >
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ color: domain.color, background: domain.soft }}><domain.icon className="h-4 w-4" /></div>
-              <div className="min-w-0"><div className="truncate text-sm font-bold">{domain.short}</div><div className="text-xs text-muted-foreground">{domain.weight}</div></div>
-              {selectedDomain === domain.id && <Check className="ml-auto h-4 w-4 text-primary" />}
-            </button>
-          ))}
+          {domains.map((domain) => {
+            const selected = selectedDomains.includes(domain.id)
+            return (
+              <button
+                key={domain.id}
+                onClick={() => setSelectedDomains((current) => selectDomain(current, domain.id))}
+                onDoubleClick={() => setSelectedDomains((current) => unselectDomain(current, domain.id))}
+                aria-pressed={selected}
+                className={cn("flex items-center gap-3 rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected ? "border-primary bg-primary/10 ring-1 ring-primary" : "hover:bg-muted")}
+              >
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ color: domain.color, background: domain.soft }}><domain.icon className="h-4 w-4" /></div>
+                <div className="min-w-0"><div className="truncate text-sm font-bold">{domain.short}</div><div className="text-xs text-muted-foreground">{domain.weight}</div></div>
+                {selected && <Check className="ml-auto h-4 w-4 text-primary" />}
+              </button>
+            )
+          })}
         </CardContent>
       </Card>
-      <div className="mt-6 rounded-xl border border-[#e8d39d] bg-[#fff8e7] p-4 text-sm leading-6 text-[#6f5721]">
+      <div className="mt-6 rounded-xl border border-warning-border bg-warning-soft p-4 text-sm leading-6 text-warning">
         <strong>Exam note:</strong> This is an original, unofficial question bank based on the published skills outline and linked documentation—not Microsoft exam content or a prediction of exact questions.
       </div>
     </div>
   )
 }
 
-function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, accent = false }: { icon: typeof Trophy; eyebrow: string; title: string; description: string; meta: string; onClick: () => void; accent?: boolean }) {
+function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, accent = false, disabled = false }: { icon: typeof Trophy; eyebrow: string; title: string; description: string; meta: string; onClick: () => void; accent?: boolean; disabled?: boolean }) {
   return (
-    <Card className={cn("flex flex-col overflow-hidden shadow-none transition hover:-translate-y-0.5 hover:shadow-soft", accent && "border-primary bg-primary text-primary-foreground")}>
+    <Card className={cn("flex flex-col overflow-hidden shadow-none transition hover:-translate-y-0.5 hover:shadow-soft", accent && "border-transparent bg-brand-gradient text-white")}>
       <CardHeader className="flex-1">
-        <div className={cn("mb-4 grid h-12 w-12 place-items-center rounded-xl bg-muted text-primary", accent && "bg-white/10 text-white")}><Icon className="h-5 w-5" /></div>
-        <div className={cn("text-xs font-bold uppercase tracking-[0.17em] text-[#df684c]", accent && "text-[#ffb199]")}>{eyebrow}</div>
+        <div className={cn("mb-4 grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-brand-bright", accent && "bg-white/10 text-white")}><Icon className="h-5 w-5" /></div>
+        <div className={cn("text-xs font-bold uppercase tracking-[0.17em] text-brand-bright", accent && "text-white/75")}>{eyebrow}</div>
         <CardTitle className={cn("pt-2", accent && "text-white")}>{title}</CardTitle>
         <CardDescription className={cn(accent && "text-white/70")}>{description}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className={cn("mb-5 flex items-center gap-2 text-xs font-semibold text-muted-foreground", accent && "text-white/65")}><Clock3 className="h-4 w-4" />{meta}</div>
-        <Button variant={accent ? "secondary" : "default"} className="w-full" onClick={onClick}>Begin <ArrowRight className="h-4 w-4" /></Button>
+        <Button variant="secondary" className={cn("w-full", accent && "bg-white font-bold text-[#b3007a] hover:bg-white/90")} onClick={onClick} disabled={disabled}>Begin <ArrowRight className="h-4 w-4" /></Button>
       </CardContent>
     </Card>
   )
@@ -465,12 +480,15 @@ function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, acce
 function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onExit }: { attempt: ActiveAttempt; bookmarks: string[]; onUpdate: (attempt: ActiveAttempt) => void; onComplete: (attempt: ActiveAttempt) => void; onBookmark: (id: string) => void; onExit: () => void }) {
   const [now, setNow] = useState(Date.now())
   const [mapOpen, setMapOpen] = useState(false)
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const currentId = attempt.questionIds[attempt.currentIndex]
   const question = questionMap.get(currentId)!
   const answer = attempt.answers[currentId] ?? []
   const remaining = Math.max(0, Math.ceil((attempt.startedAt + attempt.durationMinutes * 60_000 - now) / 1000))
   const answeredCount = Object.values(attempt.answers).filter((values) => values.length).length
   const domain = domainMap[question.domain]
+  const isRevealed = Boolean(revealed[currentId])
+  const isCurrentCorrect = answersMatch(answer, question.correctAnswers)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -482,6 +500,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
   }, [remaining, onComplete, attempt])
 
   const choose = (optionId: string) => {
+    if (isRevealed) return
     const next = question.type === "single"
       ? [optionId]
       : answer.includes(optionId) ? answer.filter((id) => id !== optionId) : [...answer, optionId]
@@ -492,8 +511,8 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
   const toggleFlag = () => onUpdate({ ...attempt, flagged: attempt.flagged.includes(currentId) ? attempt.flagged.filter((id) => id !== currentId) : [...attempt.flagged, currentId] })
 
   return (
-    <div className="min-h-screen bg-[#f6f5f1] text-foreground">
-      <header className="sticky top-0 z-40 border-b bg-white">
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-40 border-b bg-card">
         <div className="container flex h-[72px] items-center justify-between gap-4">
           <button onClick={onExit} className="hidden rounded-xl text-left focus-visible:ring-2 sm:block"><Brand /></button>
           <div className="min-w-0 flex-1 sm:flex-none">
@@ -501,7 +520,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
             <div className="text-xs text-muted-foreground">Question {attempt.currentIndex + 1} of {attempt.questionIds.length}</div>
           </div>
           <div className="flex items-center gap-2">
-            <div className={cn("flex h-10 items-center gap-2 rounded-lg border bg-background px-3 font-mono text-sm font-bold", remaining < 300 && "border-destructive/40 bg-red-50 text-destructive")}><Clock3 className="h-4 w-4" />{formatDuration(remaining)}</div>
+            <div className={cn("flex h-10 items-center gap-2 rounded-lg border bg-background px-3 font-mono text-sm font-bold", remaining < 300 && "border-danger-border bg-danger-soft text-danger")}><Clock3 className="h-4 w-4" />{formatDuration(remaining)}</div>
             <Button variant="outline" className="hidden sm:flex" onClick={onExit}>Save & exit</Button>
             <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMapOpen(!mapOpen)} aria-label="Toggle question map"><Layers3 className="h-4 w-4" /></Button>
           </div>
@@ -517,7 +536,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
               <Badge variant="outline" className="capitalize">{question.difficulty}</Badge>
               <span className="text-xs font-medium text-muted-foreground">{question.objective}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={toggleFlag} className={cn(attempt.flagged.includes(currentId) && "text-[#d06448]")}>
+            <Button variant="ghost" size="sm" onClick={toggleFlag} className={cn(attempt.flagged.includes(currentId) && "text-danger")}>
               <Flag className={cn("h-4 w-4", attempt.flagged.includes(currentId) && "fill-current")} /> <span className="hidden sm:inline">Flag</span>
             </Button>
           </div>
@@ -533,24 +552,61 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
               <div className="mt-8 grid gap-3">
                 {question.options.map((option, index) => {
                   const selected = answer.includes(option.id)
+                  const correctOption = question.correctAnswers.includes(option.id)
                   return (
                     <button
                       key={option.id}
                       onClick={() => choose(option.id)}
-                      className={cn("group flex w-full items-start gap-4 rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected ? "border-primary bg-primary/[0.045] ring-1 ring-primary" : "hover:border-primary/30 hover:bg-muted/50")}
+                      disabled={isRevealed}
+                      className={cn(
+                        "group flex w-full items-start gap-4 rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isRevealed
+                          ? correctOption
+                            ? "border-success bg-success-soft ring-1 ring-success"
+                            : selected
+                              ? "border-danger bg-danger-soft ring-1 ring-danger"
+                              : "opacity-70"
+                            : selected
+                              ? "border-primary bg-primary/10 ring-1 ring-primary"
+                            : "hover:border-primary/30 hover:bg-muted/50",
+                      )}
                     >
-                      <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg border text-xs font-bold transition", selected ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground group-hover:border-primary/30")}>
-                        {selected ? <Check className="h-4 w-4" /> : String.fromCharCode(65 + index)}
+                      <span className={cn(
+                        "grid h-8 w-8 shrink-0 place-items-center rounded-lg border text-xs font-bold transition",
+                        isRevealed
+                          ? correctOption
+                            ? "border-success bg-success text-background"
+                            : selected
+                              ? "border-danger bg-danger text-background"
+                              : "bg-background text-muted-foreground"
+                          : selected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "bg-background text-muted-foreground group-hover:border-primary/30",
+                      )}>
+                        {isRevealed ? (correctOption ? <Check className="h-4 w-4" /> : selected ? <X className="h-4 w-4" /> : String.fromCharCode(65 + index)) : selected ? <Check className="h-4 w-4" /> : String.fromCharCode(65 + index)}
                       </span>
                       <span className="pt-1 text-[15px] font-medium leading-6">{option.text}</span>
                     </button>
                   )
                 })}
               </div>
+              {isRevealed && (
+                <div className="mt-6 rounded-xl border bg-muted/60 p-5">
+                  <div className={cn("flex items-center gap-2 text-sm font-bold", isCurrentCorrect ? "text-success" : "text-danger")}>
+                    {isCurrentCorrect ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                    {isCurrentCorrect ? "Correct" : "Not quite"}
+                  </div>
+                  <p className="mt-2 text-sm leading-6">{question.explanation}</p>
+                  <a href={question.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
+                </div>
+              )}
             </CardContent>
           </Card>
-          <div className="mt-5 flex items-center justify-between gap-3">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <Button variant="outline" disabled={attempt.currentIndex === 0} onClick={() => setIndex(attempt.currentIndex - 1)}><ArrowLeft className="h-4 w-4" /> Previous</Button>
+            {!isRevealed && (
+              <Button variant="secondary" disabled={!answer.length} onClick={() => setRevealed((current) => ({ ...current, [currentId]: true }))}>Check answer <CheckCircle2 className="h-4 w-4" /></Button>
+            )}
             {attempt.currentIndex === attempt.questionIds.length - 1 ? (
               <Button onClick={() => onComplete(attempt)}>Submit exam <CheckCircle2 className="h-4 w-4" /></Button>
             ) : (
@@ -558,7 +614,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
             )}
           </div>
         </main>
-        <aside className={cn("h-fit rounded-2xl border bg-white p-5 shadow-soft lg:sticky lg:top-28 lg:block", mapOpen ? "block" : "hidden")}>
+        <aside className={cn("h-fit rounded-xl border bg-card p-5 shadow-soft lg:sticky lg:top-28 lg:block", mapOpen ? "block" : "hidden")}>
           <div className="flex items-center justify-between">
             <div><h2 className="font-display text-sm font-bold">Question map</h2><p className="mt-1 text-xs text-muted-foreground">{answeredCount} of {attempt.questionIds.length} answered</p></div>
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMapOpen(false)}><X className="h-4 w-4" /></Button>
@@ -571,7 +627,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
               return (
                 <button key={id} onClick={() => { setIndex(index); setMapOpen(false) }} className={cn("relative grid aspect-square place-items-center rounded-lg border text-xs font-bold transition", isCurrent ? "border-primary ring-2 ring-primary/20" : "hover:bg-muted", isAnswered && !isCurrent && "border-primary/20 bg-primary text-primary-foreground")}>
                   {index + 1}
-                  {attempt.flagged.includes(id) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#e46f51]" />}
+                  {attempt.flagged.includes(id) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-danger" />}
                 </button>
               )
             })}
@@ -581,7 +637,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
             <Bookmark className={cn("h-4 w-4", bookmarks.includes(currentId) && "fill-primary text-primary")} />
             {bookmarks.includes(currentId) ? "Bookmarked" : "Bookmark this question"}
           </button>
-          <div className="mt-4 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">Your answer is saved immediately. Explanations appear after submission.</div>
+          <div className="mt-4 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">Select an answer, then check it to see the correct answer and explanation.</div>
         </aside>
       </div>
     </div>
@@ -596,10 +652,10 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
       <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
-        <Card className={cn("overflow-hidden text-center shadow-none", passed ? "border-[#a7d7cd]" : "border-[#efb7a8]")}>
-          <div className={cn("h-2", passed ? "bg-[#267a70]" : "bg-[#e46f51]")} />
+        <Card className={cn("overflow-hidden text-center shadow-none", passed ? "border-success-border" : "border-danger-border")}>
+          <div className={cn("h-2", passed ? "bg-success" : "bg-danger")} />
           <CardContent className="p-8">
-            <div className={cn("mx-auto grid h-16 w-16 place-items-center rounded-2xl", passed ? "bg-[#dff1ed] text-[#267a70]" : "bg-[#fbe8e1] text-[#d66046]")}>
+            <div className={cn("mx-auto grid h-16 w-16 place-items-center rounded-xl", passed ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
               {passed ? <Trophy className="h-8 w-8" /> : <Target className="h-8 w-8" />}
             </div>
             <div className="mt-5 text-sm font-bold uppercase tracking-[0.16em] text-muted-foreground">{passed ? "Passing signal" : "Keep building"}</div>
@@ -645,7 +701,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
             return (
               <Card key={id} className="shadow-none">
                 <button onClick={() => setExpanded(open ? null : id)} className="flex w-full items-start gap-4 p-5 text-left">
-                  {correct ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#267a70]" /> : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#d66046]" />}
+                  {correct ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />}
                   <div className="flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Question {index + 1} · {domainMap[question.domain].short}</div><div className="font-semibold leading-6">{question.prompt}</div></div>
                   <ChevronDown className={cn("h-5 w-5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
                 </button>
@@ -657,7 +713,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
                     </div>
                     <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6">{question.explanation}</p></div>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                      <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
+                      <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
                       <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? "Saved" : "Save for later"}</Button>
                     </div>
                   </div>
@@ -672,7 +728,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
 }
 
 function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
-  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-[#b8ded6] bg-[#edf8f5]" : "border-[#efc3b8] bg-[#fff2ee]")}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
+  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
 }
 
 function Review({ saved, onBookmark, onPractice }: { saved: PersistedState; onBookmark: (id: string) => void; onPractice: () => void }) {
@@ -701,7 +757,7 @@ function Review({ saved, onBookmark, onPractice }: { saved: PersistedState; onBo
       {filter === "history" ? (
         <div className="mt-7 space-y-3">
           {saved.attempts.length ? saved.attempts.map((attempt) => (
-            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-[#dff1ed] text-[#267a70]" : "bg-[#fbe8e1] text-[#d66046]")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{new Date(attempt.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {attempt.questionIds.length} questions</div></div></div><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></CardContent></Card>
+            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{new Date(attempt.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {attempt.questionIds.length} questions</div></div></div><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></CardContent></Card>
           )) : <EmptyState title="No attempts yet" description="Complete a practice set and your scores will appear here." onAction={onPractice} />}
         </div>
       ) : (
@@ -719,7 +775,7 @@ function Review({ saved, onBookmark, onPractice }: { saved: PersistedState; onBo
 }
 
 function EmptyState({ title, description, onAction }: { title: string; description: string; onAction: () => void }) {
-  return <div className="rounded-2xl border border-dashed bg-muted/30 px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><BookOpen className="h-5 w-5" /></div><h2 className="mt-4 font-display text-lg font-bold">{title}</h2><p className="mt-2 text-sm text-muted-foreground">{description}</p><Button className="mt-5" onClick={onAction}>Start practice</Button></div>
+  return <div className="rounded-xl border border-dashed bg-muted/30 px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><BookOpen className="h-5 w-5" /></div><h2 className="mt-4 font-display text-lg font-bold">{title}</h2><p className="mt-2 text-sm text-muted-foreground">{description}</p><Button className="mt-5" onClick={onAction}>Start practice</Button></div>
 }
 
 function Resources({ onPractice }: { onPractice: () => void }) {
@@ -729,47 +785,38 @@ function Resources({ onPractice }: { onPractice: () => void }) {
     { number: "03", title: "Configure tools, MCP, and execution", description: "Work through custom agents, tool scope, MCP servers, allowlists, cloud setup, CLI automation, credentials, and firewalls.", resource: "Tooling, MCP, and Agent Execution Environments", url: "https://learn.microsoft.com/en-us/training/modules/agent-tooling-mcp-execution-environments/", domains: "Domain 2" },
     { number: "04", title: "Evaluate, govern, and recover", description: "Use tests, scans, logs, artifacts, session state, rulesets, hooks, approvals, and audit events as evidence and controls.", resource: "Official GH-600 study guide", url: "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600", domains: "Domains 3–6" },
   ]
-  const deliverables = ["Agent-ready repository configuration", "CCA issue-to-PR evidence", "CCR grounded in team guidelines", "Two least-privilege MCP integrations", "Tailored Agentic SDLC playbook", "Metrics baseline and change report", "Independent handoff runbook"]
   return (
     <div>
-      <section className="border-b bg-[#f7f3eb]">
+      <section className="hero-grid border-b bg-surface">
         <div className="container grid gap-8 py-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-end lg:py-18">
-          <div><Eyebrow>Study + role readiness</Eyebrow><h1 className="section-title text-4xl lg:text-5xl">Learn the blueprint. Then prove the work.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">GH-600 is a strong technical match for the Agentic Engineering Consultant role, but certification does not replace Staff+ engineering depth, customer delivery, or hands-on evidence.</p></div>
-          <div className="rounded-2xl border border-[#e7dcca] bg-white/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-[#267a70]" /><p className="text-sm leading-6 text-muted-foreground"><strong className="text-foreground">Published exam profile:</strong> expertise operating, integrating, supervising, and governing agents in production-grade SDLC workflows, with GitHub as the system of record and control plane.</p></div></div>
+          <div><Eyebrow>GH-600 study path</Eyebrow><h1 className="section-title text-4xl lg:text-5xl">Learn the blueprint. Practice the decisions.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">Follow a focused route through the official learning material, then use practice modes and answer review to strengthen each exam domain.</p></div>
+          <div className="rounded-xl border border-border bg-card p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-success" /><p className="text-sm leading-6 text-muted-foreground"><strong className="text-foreground">Published exam profile:</strong> expertise operating, integrating, supervising, and governing agents in production-grade SDLC workflows, with GitHub as the system of record and control plane.</p></div></div>
         </div>
       </section>
       <section className="container max-w-5xl py-14 lg:py-18">
         <div><Eyebrow>Recommended sequence</Eyebrow><h2 className="section-title">A focused route through the material.</h2></div>
         <div className="mt-8 space-y-4">
           {steps.map((step) => (
-            <Card key={step.number} className="shadow-none"><CardContent className="grid gap-5 p-6 sm:grid-cols-[56px_1fr_auto] sm:items-center"><div className="font-display text-2xl font-extrabold text-[#d66046]">{step.number}</div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-bold">{step.title}</h3><Badge variant="secondary">{step.domains}</Badge></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.description}</p><a href={step.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">{step.resource} <ExternalLink className="h-3.5 w-3.5" /></a></div><FileText className="hidden h-5 w-5 text-muted-foreground sm:block" /></CardContent></Card>
+            <Card key={step.number} className="shadow-none"><CardContent className="grid gap-5 p-6 sm:grid-cols-[56px_1fr_auto] sm:items-center"><div className="font-display text-2xl font-extrabold text-brand-bright">{step.number}</div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-bold">{step.title}</h3><Badge variant="secondary">{step.domains}</Badge></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.description}</p><a href={step.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">{step.resource} <ExternalLink className="h-3.5 w-3.5" /></a></div><FileText className="hidden h-5 w-5 text-muted-foreground sm:block" /></CardContent></Card>
           ))}
         </div>
       </section>
-      <section className="border-y bg-primary text-primary-foreground">
-        <div className="container grid gap-10 py-14 lg:grid-cols-[0.85fr_1.15fr] lg:items-center lg:py-16">
-          <div><Badge className="bg-white/10 text-white">Integrated capstone</Badge><h2 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-white">Passing proves knowledge. A capstone proves delivery.</h2><p className="mt-4 leading-7 text-white/70">The role learning map recommends one realistic repository exercise that combines architecture, context engineering, governance, adoption evidence, and handoff.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {deliverables.map((item) => <div key={item} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.06] p-3 text-sm font-semibold"><CheckCircle2 className="h-4 w-4 shrink-0 text-[#8fd1c3]" />{item}</div>)}
-          </div>
-        </div>
-      </section>
-      <section className="container py-14 text-center lg:py-16"><h2 className="font-display text-3xl font-extrabold tracking-tight">Ready to test the first pass?</h2><p className="mx-auto mt-3 max-w-xl text-muted-foreground">Use a full exam to establish your baseline, then alternate focused drills with hands-on labs.</p><Button size="lg" className="mt-6" onClick={onPractice}>Choose a practice mode <ArrowRight className="h-4 w-4" /></Button></section>
+      <section className="container border-t py-14 text-center lg:py-16"><h2 className="font-display text-3xl font-extrabold tracking-tight">Ready to test the first pass?</h2><p className="mx-auto mt-3 max-w-xl text-muted-foreground">Use a full exam to establish your baseline, then alternate focused drills with answer review.</p><Button size="lg" className="mt-6" onClick={onPractice}>Choose a practice mode <ArrowRight className="h-4 w-4" /></Button></section>
     </div>
   )
 }
 
 function Eyebrow({ children }: { children: ReactNode }) {
-  return <div className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#d66046]">{children}</div>
+  return <div className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-brand-bright">{children}</div>
 }
 
 function Footer() {
   return (
-    <footer className="border-t bg-[#f7f5f0]">
+    <footer className="border-t bg-surface">
       <div className="container flex flex-col gap-5 py-8 sm:flex-row sm:items-center sm:justify-between">
         <Brand />
         <p className="max-w-xl text-xs leading-5 text-muted-foreground">Unofficial study aid. Not affiliated with or endorsed by Microsoft or GitHub. GH-600, GitHub, and Copilot are trademarks of their respective owners.</p>
-        <a href="https://learn.microsoft.com/en-us/credentials/certifications/agentic-ai-developer/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-primary hover:underline"><Github className="h-4 w-4" /> Official credential</a>
+        <a href="https://learn.microsoft.com/en-us/credentials/certifications/agentic-ai-developer/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-brand-bright hover:underline"><Github className="h-4 w-4" /> Official credential</a>
       </div>
     </footer>
   )

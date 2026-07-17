@@ -32,7 +32,7 @@ export interface ActiveAttempt {
   currentIndex: number
   startedAt: number
   durationMinutes: number
-  domain?: DomainId
+  domains?: DomainId[]
 }
 
 export interface CompletedAttempt extends ActiveAttempt {
@@ -44,4 +44,5 @@ export interface PersistedState {
   activeAttempt: ActiveAttempt | null
   attempts: CompletedAttempt[]
   bookmarks: string[]
+  progress: Record<string, string[]>
 }

@@ -30,11 +30,22 @@ function queueByLastSeen(questions: Question[], attempts: CompletedAttempt[]) {
     .map(({ question }) => question)
 }
 
-export function selectQuestions(questions: Question[], mode: ExamMode, domain?: DomainId, attempts: CompletedAttempt[] = []) {
+export function selectDomain(domains: DomainId[], domain: DomainId) {
+  return domains.includes(domain) ? domains : [...domains, domain]
+}
+
+export function unselectDomain(domains: DomainId[], domain: DomainId) {
+  return domains.filter((id) => id !== domain)
+}
+
+export function selectQuestions(questions: Question[], mode: ExamMode, domains?: DomainId[], attempts: CompletedAttempt[] = []) {
   const queue = queueByLastSeen(questions, attempts)
 
-  if (mode === "domain" && domain) return queue.filter((question) => question.domain === domain)
-  if (mode === "quick") return queue.slice(0, 10)
+  if (mode === "domain") return domains?.length ? queue.filter((question) => domains.includes(question.domain)) : []
+  if (mode === "quick") {
+    const pool = domains?.length ? queue.filter((question) => domains.includes(question.domain)) : queue
+    return pool.slice(0, 10)
+  }
 
   const selectedIds = new Set(
     fullExamDistribution.flatMap(([examDomain, count]) =>
@@ -61,20 +72,46 @@ export function calculateScore(attempt: Pick<ActiveAttempt, "questionIds" | "ans
   return Math.round((correct / attempt.questionIds.length) * 100) || 0
 }
 
-export function domainScore(attempts: CompletedAttempt[], questions: Question[], domain: DomainId) {
-  const questionMap = new Map(questions.map((question) => [question.id, question]))
-  let total = 0
-  let correct = 0
-  attempts.forEach((attempt) => {
-    attempt.questionIds.forEach((id) => {
-      const question = questionMap.get(id)
-      if (question?.domain === domain) {
-        total += 1
-        if (answersMatch(attempt.answers[id], question.correctAnswers)) correct += 1
-      }
+export function progressFromAttempts(attempts: ActiveAttempt[]) {
+  const progress: Record<string, string[]> = {}
+  const oldestFirst = [...attempts].reverse()
+  oldestFirst.forEach((attempt) => {
+    Object.entries(attempt.answers).forEach(([id, answer]) => {
+      if (answer.length) progress[id] = answer
     })
   })
-  return total ? Math.round((correct / total) * 100) : 0
+  return progress
+}
+
+export function countAnswered(progress: Record<string, string[]>, questions: Question[]) {
+  const known = new Set(questions.map((question) => question.id))
+  return Object.entries(progress).filter(([id, answer]) => answer.length > 0 && known.has(id)).length
+}
+
+export function readinessScore(progress: Record<string, string[]>, questions: Question[]) {
+  if (!questions.length) return 0
+  const questionMap = new Map(questions.map((question) => [question.id, question]))
+  let correct = 0
+  Object.entries(progress).forEach(([id, answer]) => {
+    const question = questionMap.get(id)
+    if (question && answer.length && answersMatch(answer, question.correctAnswers)) correct += 1
+  })
+  return Math.round((correct / questions.length) * 100)
+}
+
+export function domainProgress(progress: Record<string, string[]>, questions: Question[], domain: DomainId) {
+  const questionMap = new Map(questions.map((question) => [question.id, question]))
+  const total = questions.filter((question) => question.domain === domain).length
+  let answered = 0
+  let correct = 0
+  Object.entries(progress).forEach(([id, answer]) => {
+    const question = questionMap.get(id)
+    if (question?.domain === domain && answer.length) {
+      answered += 1
+      if (answersMatch(answer, question.correctAnswers)) correct += 1
+    }
+  })
+  return { answered, correct, score: total ? Math.round((correct / total) * 100) : 0 }
 }
 
 export function formatDuration(seconds: number) {

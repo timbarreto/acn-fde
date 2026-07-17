@@ -27,6 +27,7 @@ backend, account system, API, or database.
 - `src/data/domains.ts`: domain labels, weights, colors, and icons.
 - `src/components/ui/`: reusable UI primitives.
 - `src/index.css`: global styles and Tailwind layers.
+- `public/`: static assets (favicon, Open Graph cover, touch icon).
 - `FDE/` and `GH-600/`: source material and study documentation.
 
 ## Development commands
@@ -36,14 +37,18 @@ Run commands from the repository root.
 ```bash
 npm install       # Install dependencies
 npm run dev       # Start the Vite development server
+npm run test      # Run Vitest unit tests
 npm run lint      # Run ESLint
 npm run build     # Type-check and create a production build
 npm run preview   # Serve the production build locally
 ```
 
-There is currently no automated test command. For code changes, run
-`npm run lint` and `npm run build`. Manually exercise the affected flow when
-the change involves user interaction or persisted state.
+Unit tests use Vitest and live next to the code they cover (for example,
+`src/lib/exam.test.ts`). The Playwright QA suite in `src/qa-tests` runs with
+`npm run test:qa`; do not run the QA suite unless the operator explicitly
+asks. For code changes, run `npm run test`, `npm run lint`, and
+`npm run build`. Manually exercise the affected flow when the change involves
+user interaction or persisted state.
 
 ## Implementation conventions
 

@@ -4,24 +4,24 @@
 
 @layer base {
   :root {
-    --background: 42 24% 98%;
-    --foreground: 198 34% 15%;
-    --card: 0 0% 100%;
-    --card-foreground: 198 34% 15%;
-    --primary: 198 34% 15%;
-    --primary-foreground: 42 30% 98%;
-    --secondary: 42 20% 92%;
-    --secondary-foreground: 198 34% 15%;
-    --muted: 42 18% 94%;
-    --muted-foreground: 199 10% 43%;
-    --accent: 13 73% 60%;
+    --background: 224 21% 5%;
+    --foreground: 210 20% 96%;
+    --card: 222 18% 8%;
+    --card-foreground: 210 20% 96%;
+    --primary: 328 100% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 221 15% 14%;
+    --secondary-foreground: 210 20% 92%;
+    --muted: 221 13% 12%;
+    --muted-foreground: 217 10% 62%;
+    --accent: 262 80% 66%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 6 65% 52%;
+    --destructive: 0 74% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 40 15% 85%;
-    --input: 40 15% 85%;
-    --ring: 198 34% 20%;
-    --radius: 0.85rem;
+    --border: 220 13% 17%;
+    --input: 220 13% 20%;
+    --ring: 328 100% 55%;
+    --radius: 0.5rem;
   }
 
   * {
@@ -43,21 +43,31 @@
   }
 
   ::selection {
-    background: #f2b4a4;
-    color: #172a33;
+    background: rgba(236, 0, 140, 0.4);
+    color: #ffffff;
   }
 }
 
 @layer components {
   .section-title {
-    @apply font-display text-3xl font-extrabold leading-tight tracking-[-0.035em] sm:text-4xl;
+    @apply font-display text-3xl font-extrabold leading-tight tracking-[-0.03em] sm:text-4xl;
   }
 
   .hero-grid {
     background-image:
-      linear-gradient(rgba(23, 42, 51, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(23, 42, 51, 0.035) 1px, transparent 1px);
-    background-size: 32px 32px;
+      radial-gradient(56rem 28rem at 88% -12%, rgba(236, 0, 140, 0.14), transparent 62%),
+      radial-gradient(48rem 24rem at -12% 112%, rgba(124, 58, 237, 0.12), transparent 62%),
+      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: auto, auto, 34px 34px, 34px 34px;
+  }
+
+  .bg-brand-gradient {
+    background-image: linear-gradient(100deg, #ec008c 0%, #7c3aed 100%);
+  }
+
+  .text-brand-gradient {
+    @apply bg-gradient-to-r from-[#ff2e9a] to-[#8b5cf6] bg-clip-text text-transparent;
   }
 }
 
