@@ -10,7 +10,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Single-answer and multiple-answer scenarios
 - Per-domain scoring, answer explanations, and source links
 - Saved attempts, bookmarks, incorrect-answer review, and resume support
-- A study sequence and capstone checklist derived from `RoleDescriptionLearningMap.md`
+- A study sequence and capstone checklist derived from `FDE/RoleDescriptionLearningMap.md`
 - No account, API, database, or backend
 
 ## Stack
