@@ -25,6 +25,8 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 
 ## Run locally
 
+Node.js 22.12 or newer is required.
+
 ```bash
 npm install
 npm run dev
@@ -38,6 +40,24 @@ Open the URL printed by Vite (normally `http://localhost:5173`).
 npm run lint
 npm run build
 npm run preview
+```
+
+## Deploy to Cloudflare Workers
+
+The application is configured for Cloudflare Workers Static Assets. To connect
+the repository from **Workers & Pages**, import the Git repository and use:
+
+- Application name: `agentic-ready-gh-600`
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+- Root directory: `/`
+
+Cloudflare will serve the Vite output from `dist/` and fall back to `index.html`
+for browser navigation. For an authenticated deployment from a local machine,
+run:
+
+```bash
+npm run deploy
 ```
 
 ## Content model
