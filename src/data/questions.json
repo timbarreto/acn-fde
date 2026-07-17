@@ -14,7 +14,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "The retry task has bounded scope, explicit constraints, testable success criteria, and a reviewable code diff. Policy, legal, and irreversible production decisions require human judgment.",
-    "source": { "label": "GH-600 study guide — Domain 1", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Choosing the right tasks for Copilot cloud agent", "url": "https://docs.github.com/en/copilot/tutorials/cloud-agent/get-the-best-results#choosing-the-right-type-of-tasks-to-give-to-copilot" }
   },
   {
     "id": "arch-002",
@@ -31,7 +31,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "Cross-repository, security-sensitive work benefits from a distinct planning phase. The plan should be captured as a reviewable artifact and approved before state-changing execution begins.",
-    "source": { "label": "GH-600 study guide — planning and execution", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Create a plan before code changes", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/research-plan-iterate#create-a-plan" }
   },
   {
     "id": "arch-003",
@@ -48,7 +48,7 @@
     ],
     "correctAnswers": ["a", "c"],
     "explanation": "GitHub-native artifacts such as PR history, logs, checks, and workflow artifacts make actions inspectable. Hidden reasoning and ephemeral summaries are not reliable audit evidence.",
-    "source": { "label": "GH-600 study guide — observability", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Auditable and traceable cloud-agent work", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/risks-and-mitigations#administrators-can-lose-sight-of-agents-work" }
   },
   {
     "id": "arch-004",
@@ -65,7 +65,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Read and search provide the minimum capabilities needed. Least privilege reduces the chance that a low-risk analysis task can change repository state.",
-    "source": { "label": "GH-600 study guide — autonomy levels", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Custom-agent tool aliases", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#tool-aliases" }
   },
   {
     "id": "arch-005",
@@ -82,7 +82,7 @@
     ],
     "correctAnswers": ["c"],
     "explanation": "Explicit outputs, constraints, and success signals make the task executable and the result measurable. Model choice does not compensate for an ambiguous task contract.",
-    "source": { "label": "GH-600 study guide — skills measured", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Well-scoped tasks and acceptance criteria", "url": "https://docs.github.com/en/copilot/tutorials/cloud-agent/get-the-best-results#making-sure-your-issues-are-well-scoped" }
   },
   {
     "id": "tools-001",
@@ -99,7 +99,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": ".github/copilot-instructions.md is the standard repository-wide instruction file. Path-specific instructions live under .github/instructions/.",
-    "source": { "label": "GitHub Docs — repository instructions", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions" }
+    "source": { "label": "GitHub Docs — Creating repository custom instructions", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions#creating-custom-instructions" }
   },
   {
     "id": "tools-002",
@@ -116,7 +116,7 @@
     ],
     "correctAnswers": ["a", "c"],
     "explanation": "read and search support inspection; agent supports delegation to another agent. edit is required to modify files and execute is required to run shell commands.",
-    "source": { "label": "GitHub Docs — custom agents configuration", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration" }
+    "source": { "label": "GitHub Docs — Custom-agent tool aliases", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#tool-aliases" }
   },
   {
     "id": "tools-003",
@@ -133,7 +133,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Repository custom agents can declare MCP servers in the mcp-servers frontmatter field and expose narrowly scoped server tools in the agent's tools list.",
-    "source": { "label": "GitHub Docs — MCP and cloud agent", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/mcp-and-cloud-agent" }
+    "source": { "label": "GitHub Docs — Custom-agent MCP server configuration", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#mcp-server-configuration-details" }
   },
   {
     "id": "tools-004",
@@ -150,7 +150,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "CI is non-interactive. --no-ask-user prevents the process from waiting for user input; permissions still need to be configured separately.",
-    "source": { "label": "GitHub Docs — Copilot CLI reference", "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference" }
+    "source": { "label": "GitHub Docs — Running Copilot CLI programmatically", "url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically#tips-for-using-copilot-cli-programmatically" }
   },
   {
     "id": "tools-005",
@@ -167,7 +167,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "copilot-setup-steps.yml customizes the cloud agent's environment. Its required job name is copilot-setup-steps.",
-    "source": { "label": "GitHub Docs — customize cloud-agent environment", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/customize-the-agent-environment" }
+    "source": { "label": "GitHub Docs — Copilot setup steps workflow", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/customize-the-agent-environment#customizing-copilots-development-environment-with-copilot-setup-steps" }
   },
   {
     "id": "tools-006",
@@ -184,7 +184,7 @@
     ],
     "correctAnswers": ["a", "c"],
     "explanation": "Least privilege applies to both capability and identity: expose only the needed MCP operation and use a credential limited to the required read scope.",
-    "source": { "label": "GitHub Docs — configure MCP servers", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers" }
+    "source": { "label": "GitHub Docs — Custom-agent MCP tools and secrets", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#mcp-server-configuration-details" }
   },
   {
     "id": "tools-007",
@@ -201,7 +201,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "/fleet decomposes a prompt into parallel subagent tasks. /delegate hands work to the cloud agent, while /mcp and /session inspect configuration and state.",
-    "source": { "label": "GitHub Docs — Copilot CLI fleet", "url": "https://docs.github.com/en/copilot/concepts/agents/copilot-cli/fleet" }
+    "source": { "label": "GitHub Docs — Running tasks in parallel with /fleet", "url": "https://docs.github.com/en/copilot/concepts/agents/copilot-cli/fleet#how-fleet-works" }
   },
   {
     "id": "tools-008",
@@ -218,7 +218,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "E401 points to authentication. Correct the setup, package credentials, or secret configuration rather than expanding agent capability or changing the model.",
-    "source": { "label": "GH-600 public study guide — error analysis", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "npm Docs — Private packages in CI/CD", "url": "https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow/#set-the-token-as-an-environment-variable-on-the-cicd-server" }
   },
   {
     "id": "memory-001",
@@ -235,7 +235,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "Durable GitHub artifacts and PR comments are shareable and auditable. Session-only context cannot reliably support cross-job or human handoff.",
-    "source": { "label": "GH-600 study guide — memory and state", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Passing data between workflow jobs", "url": "https://docs.github.com/en/actions/tutorials/store-and-share-data#passing-data-between-jobs-in-a-workflow" }
   },
   {
     "id": "memory-002",
@@ -252,7 +252,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "The reused session ID, resume flag, and loaded session-state event log are direct evidence that execution continued from an existing session.",
-    "source": { "label": "GH-600 public study guide — CLI session state", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Copilot SDK — Session resume and persistence", "url": "https://github.com/github/copilot-sdk/blob/main/docs/features/session-persistence.md#quick-start-creating-a-resumable-session" }
   },
   {
     "id": "memory-003",
@@ -269,7 +269,7 @@
     ],
     "correctAnswers": ["a", "c"],
     "explanation": "Refreshing repository state corrects stale assumptions; branch isolation and durable handoffs limit conflicting context across agents.",
-    "source": { "label": "GH-600 study guide — context drift", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Copilot cloud agent workflow transparency", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent#benefits-over-traditional-ai-workflows" }
   },
   {
     "id": "memory-004",
@@ -286,7 +286,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "Reusable memory and resumable session execution solve different continuity problems. Neither should be treated as secret storage, and stored facts should be checked for staleness.",
-    "source": { "label": "GH-600 study guide — memory strategies", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Types and validation of Copilot memories", "url": "https://docs.github.com/en/copilot/concepts/agents/copilot-memory#types-of-memories" }
   },
   {
     "id": "memory-005",
@@ -303,7 +303,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "disconnect() ends the live connection while keeping session data. deleteSession() permanently removes the persisted session.",
-    "source": { "label": "GitHub Docs — Copilot SDK session persistence", "url": "https://docs.github.com/en/copilot-sdk" }
+    "source": { "label": "GitHub Copilot SDK — Disconnecting versus deleting sessions", "url": "https://github.com/github/copilot-sdk/blob/main/docs/features/session-persistence.md#disconnecting-from-a-session-disconnect" }
   },
   {
     "id": "eval-001",
@@ -320,7 +320,7 @@
     ],
     "correctAnswers": ["a", "b"],
     "explanation": "Tests provide behavioral evidence, while CodeQL supplies vulnerability findings. Plan length and response speed do not establish correctness or security.",
-    "source": { "label": "GH-600 study guide — evaluation signals", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Code scanning and CodeQL analysis", "url": "https://docs.github.com/en/code-security/concepts/code-scanning/code-scanning#about-codeql-analysis" }
   },
   {
     "id": "eval-002",
@@ -337,7 +337,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Wrong-file edits indicate overly broad scope or insufficient path guidance. Restrict capability and supply precise, path-specific context.",
-    "source": { "label": "GH-600 study guide — tuning levers", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Custom-agent tool restrictions", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration#tools" }
   },
   {
     "id": "eval-003",
@@ -354,7 +354,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "if-no-files-found: error turns a missing expected artifact into a failing step, making the absent evaluation output visible and enforceable.",
-    "source": { "label": "GitHub Docs — upload-artifact", "url": "https://github.com/actions/upload-artifact" }
+    "source": { "label": "actions/upload-artifact — Missing-file behavior", "url": "https://github.com/actions/upload-artifact/blob/main/README.md#customization-if-no-files-are-found" }
   },
   {
     "id": "eval-004",
@@ -371,7 +371,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "The scan is evaluation evidence. Correct the vulnerability and preserve the required control; agent-authored code should meet the same governance bar as human-authored code.",
-    "source": { "label": "GitHub Docs — code scanning", "url": "https://docs.github.com/en/code-security/code-scanning/introduction-to-code-scanning/about-code-scanning" }
+    "source": { "label": "GitHub Docs — Fixing code scanning alerts manually", "url": "https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/resolve-alerts#fixing-an-alert-manually" }
   },
   {
     "id": "eval-005",
@@ -388,7 +388,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Repeated convention or style errors point first to missing or stale instructions. Enforcement controls remain important, but they do not teach the correct local pattern.",
-    "source": { "label": "GH-600 study guide — tuning behavior", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Docs — Repository and path-specific custom instructions", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions#creating-custom-instructions" }
   },
   {
     "id": "eval-006",
@@ -405,7 +405,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "artifact.destroy is the audit event used to investigate manual workflow-artifact deletion; actor and timestamp fields identify who performed it and when.",
-    "source": { "label": "GitHub Docs — enterprise audit events", "url": "https://docs.github.com/en/enterprise-cloud@latest/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/audit-log-events-for-your-enterprise" }
+    "source": { "label": "GitHub Docs — artifact.destroy audit event", "url": "https://docs.github.com/en/enterprise-cloud@latest/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/audit-log-events-for-your-enterprise#artifact" }
   },
   {
     "id": "orchestration-001",
@@ -422,7 +422,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Multi-agent coordination is valuable when decomposition is clean, specialists add value, and results have a defined merge or consolidation path.",
-    "source": { "label": "GH-600 study guide — multi-agent coordination", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "Azure Architecture Center — Start with the right level of agent complexity", "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns#start-with-the-right-level-of-complexity" }
   },
   {
     "id": "orchestration-002",
@@ -439,7 +439,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "needs creates explicit job dependencies. The consolidation step can then consume outputs or artifacts after both upstream jobs complete successfully.",
-    "source": { "label": "GitHub Docs — workflow syntax", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax" }
+    "source": { "label": "GitHub Actions workflow syntax — jobs.<job_id>.needs", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds" }
   },
   {
     "id": "orchestration-003",
@@ -456,7 +456,7 @@
     ],
     "correctAnswers": ["a", "c"],
     "explanation": "Clear ownership and isolated workspaces prevent overlapping changes. Handoffs and a controlled consolidation path then make conflicts visible and resolvable.",
-    "source": { "label": "GH-600 study guide — agent isolation", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "VS Code Copilot CLI sessions — Isolation modes", "url": "https://code.visualstudio.com/docs/agents/agent-types/copilot-cli#_isolation-modes" }
   },
   {
     "id": "orchestration-004",
@@ -473,7 +473,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Concurrency groups scope overlap control. A newer run in the same group can replace an older in-progress run, which is useful for superseded work on the same PR branch.",
-    "source": { "label": "GitHub Docs — Actions concurrency", "url": "https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency" }
+    "source": { "label": "GitHub Actions workflow syntax — concurrency", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency" }
   },
   {
     "id": "orchestration-005",
@@ -490,7 +490,7 @@
     ],
     "correctAnswers": ["a", "b"],
     "explanation": "A durable handoff should let another agent or human understand decisions, scope, current state, and evidence. Credentials must not be copied into artifacts.",
-    "source": { "label": "GH-600 study guide — multi-agent observability", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "Microsoft Agent Framework Workflows — Handoff context synchronization", "url": "https://learn.microsoft.com/en-us/agent-framework/workflows/orchestrations/handoff#context-synchronization" }
   },
   {
     "id": "orchestration-006",
@@ -507,7 +507,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "Isolate the failed unit, retain evidence for diagnosis, and apply a targeted retry or human-in-the-loop escalation. Successful, reviewable work need not be discarded.",
-    "source": { "label": "GH-600 study guide — multi-agent recovery", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "Azure Durable Task for AI agents — Production challenges and recovery", "url": "https://learn.microsoft.com/en-us/azure/durable-task/sdks/durable-task-for-ai-agents#production-challenges-durable-execution-solves" }
   },
   {
     "id": "guardrails-001",
@@ -524,7 +524,7 @@
     ],
     "correctAnswers": ["b"],
     "explanation": "Rulesets and branch protection enforce repository policy. Instructions guide behavior but do not provide a hard merge control.",
-    "source": { "label": "GitHub Docs — rulesets", "url": "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets" }
+    "source": { "label": "GitHub rulesets — Require a pull request before merging", "url": "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-a-pull-request-before-merging" }
   },
   {
     "id": "guardrails-002",
@@ -541,7 +541,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Deployment environments can require reviewers before jobs access protected environment secrets or proceed with a sensitive deployment.",
-    "source": { "label": "GitHub Docs — deployments and environments", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments" }
+    "source": { "label": "GitHub Actions environments — Required reviewers", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments#required-reviewers" }
   },
   {
     "id": "guardrails-003",
@@ -558,7 +558,7 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "preToolUse can deny the tool and supply a reason. Cloud agents are non-interactive, so an ask decision is treated like denial and is not the preferred explicit policy response.",
-    "source": { "label": "GitHub Docs — hooks reference", "url": "https://docs.github.com/en/copilot/reference/hooks-reference" }
+    "source": { "label": "GitHub Copilot hooks reference — preToolUse decision control", "url": "https://docs.github.com/en/copilot/reference/hooks-reference#pretooluse-decision-control" }
   },
   {
     "id": "guardrails-004",
@@ -575,7 +575,7 @@
     ],
     "correctAnswers": ["a", "b"],
     "explanation": "Secret scanning detects credentials, and CodeQL/code scanning detects vulnerability patterns. Dependency review assesses dependency changes; repository policy is enforced by rulesets, not instructions.",
-    "source": { "label": "GitHub Docs — code security", "url": "https://docs.github.com/en/code-security" }
+    "source": { "label": "GitHub security features — Secret Protection and Code Security", "url": "https://docs.github.com/en/code-security/getting-started/github-security-features" }
   },
   {
     "id": "guardrails-005",
@@ -592,7 +592,7 @@
     ],
     "correctAnswers": ["a", "b"],
     "explanation": "The session view exposes agent progress, and workflow changes may be waiting at an intentional approval gate. Neither condition justifies bypassing governance.",
-    "source": { "label": "GitHub Docs — troubleshoot cloud agent", "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent" }
+    "source": { "label": "GitHub Copilot cloud agent — Troubleshooting stalled pull request work", "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent" }
   },
   {
     "id": "guardrails-006",
@@ -609,6 +609,6 @@
     ],
     "correctAnswers": ["a"],
     "explanation": "Defense in depth matters. Hooks can intercept agent behavior, while rulesets or branch protection enforce the final repository policy even if an advisory layer fails.",
-    "source": { "label": "GH-600 study guide — guardrails", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+    "source": { "label": "GitHub Copilot hooks reference — HTTP hook failure behavior", "url": "https://docs.github.com/en/copilot/reference/hooks-reference#http-hooks" }
   }
 ]
