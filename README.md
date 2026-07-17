@@ -5,11 +5,12 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 ## What is included
 
 - A 36-question local bank covering all six published GH-600 domains
-- Full, quick, and focused-domain practice modes
+- Full, quick, and focused-domain practice modes, with multi-domain drills
 - Least-recently-seen question queues that prioritize unseen material across modes
 - Timed attempts with question navigation and flags
 - Single-answer and multiple-answer scenarios
 - Per-domain scoring, answer explanations, and source links
+- Instant feedback that reveals the correct answer and explanation as you check each question
 - Saved attempts, bookmarks, incorrect-answer review, and resume support
 - A focused study sequence mapped to the published exam domains
 - No account, API, database, or backend
@@ -35,6 +36,7 @@ Open the URL printed by Vite (normally `http://localhost:5173`).
 ## Verify a production build
 
 ```bash
+npm run test
 npm run lint
 npm run build
 npm run preview

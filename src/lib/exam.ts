@@ -30,10 +30,18 @@ function queueByLastSeen(questions: Question[], attempts: CompletedAttempt[]) {
     .map(({ question }) => question)
 }
 
-export function selectQuestions(questions: Question[], mode: ExamMode, domain?: DomainId, attempts: CompletedAttempt[] = []) {
+export function selectDomain(domains: DomainId[], domain: DomainId) {
+  return domains.includes(domain) ? domains : [...domains, domain]
+}
+
+export function unselectDomain(domains: DomainId[], domain: DomainId) {
+  return domains.filter((id) => id !== domain)
+}
+
+export function selectQuestions(questions: Question[], mode: ExamMode, domains?: DomainId[], attempts: CompletedAttempt[] = []) {
   const queue = queueByLastSeen(questions, attempts)
 
-  if (mode === "domain" && domain) return queue.filter((question) => question.domain === domain)
+  if (mode === "domain") return domains?.length ? queue.filter((question) => domains.includes(question.domain)) : []
   if (mode === "quick") return queue.slice(0, 10)
 
   const selectedIds = new Set(

@@ -32,7 +32,7 @@ export interface ActiveAttempt {
   currentIndex: number
   startedAt: number
   durationMinutes: number
-  domain?: DomainId
+  domains?: DomainId[]
 }
 
 export interface CompletedAttempt extends ActiveAttempt {
