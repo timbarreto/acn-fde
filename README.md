@@ -4,7 +4,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 
 ## What is included
 
-- A 36-question local bank covering all six published GH-600 domains
+- A 72-question local bank covering all six published GH-600 domains
 - Full, quick, and focused-domain practice modes
 - Least-recently-seen question queues that prioritize unseen material across modes
 - Timed attempts with question navigation and flags
@@ -42,7 +42,7 @@ npm run preview
 
 ## Content model
 
-The question bank is in [`src/data/questions.json`](src/data/questions.json). Each entry contains:
+The original question bank is in [`src/data/questions.json`](src/data/questions.json). Additional questions are grouped by domain under [`src/data/questions/`](src/data/questions/) and assembled by [`src/data/questions.ts`](src/data/questions.ts). Each entry contains:
 
 - a stable ID and GH-600 domain
 - objective, difficulty, and question type
