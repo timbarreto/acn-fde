@@ -1,0 +1,614 @@
+[
+  {
+    "id": "arch-001",
+    "domain": "architecture",
+    "objective": "Integrate agents into the SDLC",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which task is the best candidate for an autonomous coding agent?",
+    "options": [
+      { "id": "a", "text": "Decide whether a disputed product requirement is legally compliant" },
+      { "id": "b", "text": "Add bounded retry logic with specified tests and no public API changes" },
+      { "id": "c", "text": "Rotate every production secret across an enterprise" },
+      { "id": "d", "text": "Choose the company's risk tolerance for AI-generated code" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "The retry task has bounded scope, explicit constraints, testable success criteria, and a reviewable code diff. Policy, legal, and irreversible production decisions require human judgment.",
+    "source": { "label": "GH-600 study guide — Domain 1", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "arch-002",
+    "domain": "architecture",
+    "objective": "Separate planning from action",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A team wants an agent to refactor authentication across three repositories. What should happen before the agent edits code?",
+    "options": [
+      { "id": "a", "text": "Increase the model context window" },
+      { "id": "b", "text": "Have the agent create a structured plan and require review of that plan" },
+      { "id": "c", "text": "Give the agent write access to the default branches" },
+      { "id": "d", "text": "Disable CI to avoid conflicting feedback" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Cross-repository, security-sensitive work benefits from a distinct planning phase. The plan should be captured as a reviewable artifact and approved before state-changing execution begins.",
+    "source": { "label": "GH-600 study guide — planning and execution", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "arch-003",
+    "domain": "architecture",
+    "objective": "Configure observability and control",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two artifacts best preserve reviewable evidence of an agent's implementation? Select two.",
+    "options": [
+      { "id": "a", "text": "A pull request diff and timeline" },
+      { "id": "b", "text": "An undocumented chat summary" },
+      { "id": "c", "text": "Workflow logs and test artifacts" },
+      { "id": "d", "text": "The agent's hidden chain of thought" }
+    ],
+    "correctAnswers": ["a", "c"],
+    "explanation": "GitHub-native artifacts such as PR history, logs, checks, and workflow artifacts make actions inspectable. Hidden reasoning and ephemeral summaries are not reliable audit evidence.",
+    "source": { "label": "GH-600 study guide — observability", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "arch-004",
+    "domain": "architecture",
+    "objective": "Define autonomy levels",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "An agent only needs to summarize repository conventions. Which tool set is the best fit?",
+    "options": [
+      { "id": "a", "text": "read and search" },
+      { "id": "b", "text": "edit and execute" },
+      { "id": "c", "text": "execute and agent" },
+      { "id": "d", "text": "all available tools" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Read and search provide the minimum capabilities needed. Least privilege reduces the chance that a low-risk analysis task can change repository state.",
+    "source": { "label": "GH-600 study guide — autonomy levels", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "arch-005",
+    "domain": "architecture",
+    "objective": "Define success criteria",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Which requirement most improves both agent reliability and downstream evaluation?",
+    "options": [
+      { "id": "a", "text": "Use the largest available model" },
+      { "id": "b", "text": "Tell the agent to be careful" },
+      { "id": "c", "text": "Specify expected outputs, operational constraints, and validation signals" },
+      { "id": "d", "text": "Let the agent define its own merge policy" }
+    ],
+    "correctAnswers": ["c"],
+    "explanation": "Explicit outputs, constraints, and success signals make the task executable and the result measurable. Model choice does not compensate for an ambiguous task contract.",
+    "source": { "label": "GH-600 study guide — skills measured", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "tools-001",
+    "domain": "tools",
+    "objective": "Configure repository instructions",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which file supplies repository-wide instructions to GitHub Copilot?",
+    "options": [
+      { "id": "a", "text": ".github/copilot-instructions.md" },
+      { "id": "b", "text": ".github/workflows/copilot.yml" },
+      { "id": "c", "text": ".github/memory.json" },
+      { "id": "d", "text": "copilot.config.ts" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": ".github/copilot-instructions.md is the standard repository-wide instruction file. Path-specific instructions live under .github/instructions/.",
+    "source": { "label": "GitHub Docs — repository instructions", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions" }
+  },
+  {
+    "id": "tools-002",
+    "domain": "tools",
+    "objective": "Configure custom agents",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "A custom agent has tools: [read, search, agent]. What can it do? Select two.",
+    "options": [
+      { "id": "a", "text": "Inspect repository files" },
+      { "id": "b", "text": "Modify existing files" },
+      { "id": "c", "text": "Invoke another custom agent" },
+      { "id": "d", "text": "Run shell commands" }
+    ],
+    "correctAnswers": ["a", "c"],
+    "explanation": "read and search support inspection; agent supports delegation to another agent. edit is required to modify files and execute is required to run shell commands.",
+    "source": { "label": "GitHub Docs — custom agents configuration", "url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration" }
+  },
+  {
+    "id": "tools-003",
+    "domain": "tools",
+    "objective": "Configure MCP servers",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Where is an MCP server definition placed for a repository custom agent?",
+    "options": [
+      { "id": "a", "text": "In the mcp-servers field of the agent file's YAML frontmatter" },
+      { "id": "b", "text": "In the repository README only" },
+      { "id": "c", "text": "In a branch ruleset" },
+      { "id": "d", "text": "In CODEOWNERS" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Repository custom agents can declare MCP servers in the mcp-servers frontmatter field and expose narrowly scoped server tools in the agent's tools list.",
+    "source": { "label": "GitHub Docs — MCP and cloud agent", "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/mcp-and-cloud-agent" }
+  },
+  {
+    "id": "tools-004",
+    "domain": "tools",
+    "objective": "Run agents in CI",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Why should a CI workflow invoking Copilot CLI include --no-ask-user?",
+    "options": [
+      { "id": "a", "text": "It grants the CLI every tool automatically" },
+      { "id": "b", "text": "It prevents an unattended run from blocking on interactive questions" },
+      { "id": "c", "text": "It disables all MCP servers" },
+      { "id": "d", "text": "It persists the session permanently" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "CI is non-interactive. --no-ask-user prevents the process from waiting for user input; permissions still need to be configured separately.",
+    "source": { "label": "GitHub Docs — Copilot CLI reference", "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference" }
+  },
+  {
+    "id": "tools-005",
+    "domain": "tools",
+    "objective": "Configure cloud-agent setup",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which file prepares dependencies and tools in the Copilot cloud-agent environment?",
+    "options": [
+      { "id": "a", "text": ".github/workflows/copilot-setup-steps.yml" },
+      { "id": "b", "text": ".github/copilot-instructions.md" },
+      { "id": "c", "text": ".github/agents/setup.agent.md" },
+      { "id": "d", "text": ".github/workflows/agent-memory.yml" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "copilot-setup-steps.yml customizes the cloud agent's environment. Its required job name is copilot-setup-steps.",
+    "source": { "label": "GitHub Docs — customize cloud-agent environment", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/customize-the-agent-environment" }
+  },
+  {
+    "id": "tools-006",
+    "domain": "tools",
+    "objective": "Scope external tools",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "A support agent needs read-only access to Sentry issue details. Which two controls best apply least privilege? Select two.",
+    "options": [
+      { "id": "a", "text": "Expose only the required Sentry read tool" },
+      { "id": "b", "text": "Give the agent the full Sentry admin token" },
+      { "id": "c", "text": "Use a narrowly scoped credential" },
+      { "id": "d", "text": "Allow every server in the MCP registry" }
+    ],
+    "correctAnswers": ["a", "c"],
+    "explanation": "Least privilege applies to both capability and identity: expose only the needed MCP operation and use a credential limited to the required read scope.",
+    "source": { "label": "GitHub Docs — configure MCP servers", "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers" }
+  },
+  {
+    "id": "tools-007",
+    "domain": "tools",
+    "objective": "Choose CLI orchestration commands",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Which Copilot CLI command decomposes work among parallel subagents?",
+    "options": [
+      { "id": "a", "text": "/delegate" },
+      { "id": "b", "text": "/fleet" },
+      { "id": "c", "text": "/mcp" },
+      { "id": "d", "text": "/session" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "/fleet decomposes a prompt into parallel subagent tasks. /delegate hands work to the cloud agent, while /mcp and /session inspect configuration and state.",
+    "source": { "label": "GitHub Docs — Copilot CLI fleet", "url": "https://docs.github.com/en/copilot/concepts/agents/copilot-cli/fleet" }
+  },
+  {
+    "id": "tools-008",
+    "domain": "tools",
+    "objective": "Handle environment constraints",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "An agent's dependency installation fails with E401 in CI. What is the best first correction?",
+    "options": [
+      { "id": "a", "text": "Grant broad shell access" },
+      { "id": "b", "text": "Fix package registry authentication or the missing secret in setup" },
+      { "id": "c", "text": "Disable dependency installation" },
+      { "id": "d", "text": "Switch to a larger model" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "E401 points to authentication. Correct the setup, package credentials, or secret configuration rather than expanding agent capability or changing the model.",
+    "source": { "label": "GH-600 public study guide — error analysis", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "memory-001",
+    "domain": "memory",
+    "objective": "Choose memory strategies",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Where should a team store a plan that must be visible to humans and a later workflow job?",
+    "options": [
+      { "id": "a", "text": "Only in the current prompt context" },
+      { "id": "b", "text": "In a workflow artifact or pull request comment" },
+      { "id": "c", "text": "In an undocumented model preference" },
+      { "id": "d", "text": "In a secret" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Durable GitHub artifacts and PR comments are shareable and auditable. Session-only context cannot reliably support cross-job or human handoff.",
+    "source": { "label": "GH-600 study guide — memory and state", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "memory-002",
+    "domain": "memory",
+    "objective": "Resume agent execution",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A log shows session.id=abc123, resume=true, and an events.jsonl file loaded for abc123. What happened?",
+    "options": [
+      { "id": "a", "text": "A new session was created" },
+      { "id": "b", "text": "An existing session was resumed" },
+      { "id": "c", "text": "Copilot Memory was deleted" },
+      { "id": "d", "text": "MCP was disabled" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "The reused session ID, resume flag, and loaded session-state event log are direct evidence that execution continued from an existing session.",
+    "source": { "label": "GH-600 public study guide — CLI session state", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "memory-003",
+    "domain": "memory",
+    "objective": "Correct context drift",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Two agents changed overlapping files while a third agent relied on an older branch. Which two actions directly reduce context drift? Select two.",
+    "options": [
+      { "id": "a", "text": "Re-read current files and verify the active ref" },
+      { "id": "b", "text": "Keep using the original hidden context" },
+      { "id": "c", "text": "Use branch isolation and record handoffs in durable artifacts" },
+      { "id": "d", "text": "Disable tests until the agents finish" }
+    ],
+    "correctAnswers": ["a", "c"],
+    "explanation": "Refreshing repository state corrects stale assumptions; branch isolation and durable handoffs limit conflicting context across agents.",
+    "source": { "label": "GH-600 study guide — context drift", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "memory-004",
+    "domain": "memory",
+    "objective": "Distinguish memory and session state",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Which statement correctly distinguishes Copilot Memory from session persistence?",
+    "options": [
+      { "id": "a", "text": "They are identical names for the same store" },
+      { "id": "b", "text": "Memory holds reusable facts or preferences; session state supports resuming a specific execution" },
+      { "id": "c", "text": "Session state is the recommended place for long-lived secrets" },
+      { "id": "d", "text": "Memory automatically tracks every branch change" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Reusable memory and resumable session execution solve different continuity problems. Neither should be treated as secret storage, and stored facts should be checked for staleness.",
+    "source": { "label": "GH-600 study guide — memory strategies", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "memory-005",
+    "domain": "memory",
+    "objective": "Manage session lifecycle",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "In a Copilot SDK session, which action preserves session data for a later resume?",
+    "options": [
+      { "id": "a", "text": "deleteSession()" },
+      { "id": "b", "text": "disconnect()" },
+      { "id": "c", "text": "Remove the stable session ID" },
+      { "id": "d", "text": "Clear session-state" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "disconnect() ends the live connection while keeping session data. deleteSession() permanently removes the persisted session.",
+    "source": { "label": "GitHub Docs — Copilot SDK session persistence", "url": "https://docs.github.com/en/copilot-sdk" }
+  },
+  {
+    "id": "eval-001",
+    "domain": "evaluation",
+    "objective": "Select evaluation signals",
+    "difficulty": "easy",
+    "type": "multiple",
+    "prompt": "Which two signals directly evaluate whether an agent's code is secure and behaves correctly? Select two.",
+    "options": [
+      { "id": "a", "text": "Passing behavioral tests" },
+      { "id": "b", "text": "CodeQL results" },
+      { "id": "c", "text": "Number of words in the plan" },
+      { "id": "d", "text": "Model response speed alone" }
+    ],
+    "correctAnswers": ["a", "b"],
+    "explanation": "Tests provide behavioral evidence, while CodeQL supplies vulnerability findings. Plan length and response speed do not establish correctness or security.",
+    "source": { "label": "GH-600 study guide — evaluation signals", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "eval-002",
+    "domain": "evaluation",
+    "objective": "Analyze root causes",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "An agent repeatedly edits files outside the requested component. Which tuning action best addresses the root cause?",
+    "options": [
+      { "id": "a", "text": "Narrow its tools and add path-scoped instructions" },
+      { "id": "b", "text": "Increase its autonomy" },
+      { "id": "c", "text": "Remove the issue's acceptance criteria" },
+      { "id": "d", "text": "Suppress the resulting test failures" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Wrong-file edits indicate overly broad scope or insufficient path guidance. Restrict capability and supply precise, path-specific context.",
+    "source": { "label": "GH-600 study guide — tuning levers", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "eval-003",
+    "domain": "evaluation",
+    "objective": "Evaluate artifacts",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "A required review.md artifact is missing, but the upload step only emits a warning. Which setting should make this an explicit failure?",
+    "options": [
+      { "id": "a", "text": "retention-days: 0" },
+      { "id": "b", "text": "if-no-files-found: error" },
+      { "id": "c", "text": "include-hidden-files: true" },
+      { "id": "d", "text": "overwrite: false" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "if-no-files-found: error turns a missing expected artifact into a failing step, making the absent evaluation output visible and enforceable.",
+    "source": { "label": "GitHub Docs — upload-artifact", "url": "https://github.com/actions/upload-artifact" }
+  },
+  {
+    "id": "eval-004",
+    "domain": "evaluation",
+    "objective": "Respond to scan findings",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "CodeQL finds a path-traversal vulnerability in agent-authored code. What is the best response?",
+    "options": [
+      { "id": "a", "text": "Fix the code and keep the scan as a required check" },
+      { "id": "b", "text": "Disable CodeQL for agent-authored pull requests" },
+      { "id": "c", "text": "Merge because a human did not write the code" },
+      { "id": "d", "text": "Replace CodeQL with an agent instruction" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "The scan is evaluation evidence. Correct the vulnerability and preserve the required control; agent-authored code should meet the same governance bar as human-authored code.",
+    "source": { "label": "GitHub Docs — code scanning", "url": "https://docs.github.com/en/code-security/code-scanning/introduction-to-code-scanning/about-code-scanning" }
+  },
+  {
+    "id": "eval-005",
+    "domain": "evaluation",
+    "objective": "Choose tuning order",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "An agent produces code in the wrong local style despite passing tests. What should you tune first?",
+    "options": [
+      { "id": "a", "text": "Repository or path-specific instructions" },
+      { "id": "b", "text": "The branch protection ruleset" },
+      { "id": "c", "text": "Artifact retention" },
+      { "id": "d", "text": "The production environment approval" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Repeated convention or style errors point first to missing or stale instructions. Enforcement controls remain important, but they do not teach the correct local pattern.",
+    "source": { "label": "GH-600 study guide — tuning behavior", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "eval-006",
+    "domain": "evaluation",
+    "objective": "Use audit evidence",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Which audit event identifies manual deletion of a workflow artifact?",
+    "options": [
+      { "id": "a", "text": "artifact.destroy" },
+      { "id": "b", "text": "workflow.cancel" },
+      { "id": "c", "text": "artifact.expire" },
+      { "id": "d", "text": "actions.delete" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "artifact.destroy is the audit event used to investigate manual workflow-artifact deletion; actor and timestamp fields identify who performed it and when.",
+    "source": { "label": "GitHub Docs — enterprise audit events", "url": "https://docs.github.com/en/enterprise-cloud@latest/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/audit-log-events-for-your-enterprise" }
+  },
+  {
+    "id": "orchestration-001",
+    "domain": "orchestration",
+    "objective": "Select orchestration patterns",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "When is a multi-agent workflow most appropriate?",
+    "options": [
+      { "id": "a", "text": "The work splits cleanly by specialty and outputs can be reviewed together" },
+      { "id": "b", "text": "Every task changes the same lines on the same branch" },
+      { "id": "c", "text": "The success criteria are unknown" },
+      { "id": "d", "text": "Coordination costs exceed the work itself" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Multi-agent coordination is valuable when decomposition is clean, specialists add value, and results have a defined merge or consolidation path.",
+    "source": { "label": "GH-600 study guide — multi-agent coordination", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "orchestration-002",
+    "domain": "orchestration",
+    "objective": "Coordinate workflow jobs",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "A consolidate job declares needs: [review, audit]. What does that enforce?",
+    "options": [
+      { "id": "a", "text": "The consolidate job waits for both review and audit" },
+      { "id": "b", "text": "Only the first job runs" },
+      { "id": "c", "text": "All jobs share a branch automatically" },
+      { "id": "d", "text": "Review and audit are cancelled" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "needs creates explicit job dependencies. The consolidation step can then consume outputs or artifacts after both upstream jobs complete successfully.",
+    "source": { "label": "GitHub Docs — workflow syntax", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax" }
+  },
+  {
+    "id": "orchestration-003",
+    "domain": "orchestration",
+    "objective": "Isolate parallel execution",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two practices reduce conflicts between parallel coding agents? Select two.",
+    "options": [
+      { "id": "a", "text": "Give each agent distinct file or component ownership" },
+      { "id": "b", "text": "Have every agent push to the same branch at once" },
+      { "id": "c", "text": "Use isolated branches or worktrees" },
+      { "id": "d", "text": "Omit handoff artifacts" }
+    ],
+    "correctAnswers": ["a", "c"],
+    "explanation": "Clear ownership and isolated workspaces prevent overlapping changes. Handoffs and a controlled consolidation path then make conflicts visible and resolvable.",
+    "source": { "label": "GH-600 study guide — agent isolation", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "orchestration-004",
+    "domain": "orchestration",
+    "objective": "Control overlapping workflow runs",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "What does cancel-in-progress: true do within a GitHub Actions concurrency group?",
+    "options": [
+      { "id": "a", "text": "Cancels older in-progress runs when a newer run enters the same group" },
+      { "id": "b", "text": "Cancels every workflow in the repository" },
+      { "id": "c", "text": "Prevents any job from starting" },
+      { "id": "d", "text": "Deletes workflow artifacts" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Concurrency groups scope overlap control. A newer run in the same group can replace an older in-progress run, which is useful for superseded work on the same PR branch.",
+    "source": { "label": "GitHub Docs — Actions concurrency", "url": "https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency" }
+  },
+  {
+    "id": "orchestration-005",
+    "domain": "orchestration",
+    "objective": "Preserve multi-agent observability",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which two items should a multi-agent handoff record? Select two.",
+    "options": [
+      { "id": "a", "text": "Key decisions and assumptions" },
+      { "id": "b", "text": "Changed files and validation outcomes" },
+      { "id": "c", "text": "Unrelated model trivia" },
+      { "id": "d", "text": "Credentials used by the agent" }
+    ],
+    "correctAnswers": ["a", "b"],
+    "explanation": "A durable handoff should let another agent or human understand decisions, scope, current state, and evidence. Credentials must not be copied into artifacts.",
+    "source": { "label": "GH-600 study guide — multi-agent observability", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "orchestration-006",
+    "domain": "orchestration",
+    "objective": "Recover degraded workflows",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "One specialist agent returns a partial result while the other agents succeed. What is the strongest recovery pattern?",
+    "options": [
+      { "id": "a", "text": "Merge all outputs without review" },
+      { "id": "b", "text": "Mark the partial execution, preserve its artifacts, and retry or escalate only that bounded work" },
+      { "id": "c", "text": "Delete all workflow history" },
+      { "id": "d", "text": "Give every agent broader permissions" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Isolate the failed unit, retain evidence for diagnosis, and apply a targeted retry or human-in-the-loop escalation. Successful, reviewable work need not be discarded.",
+    "source": { "label": "GH-600 study guide — multi-agent recovery", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  },
+  {
+    "id": "guardrails-001",
+    "domain": "guardrails",
+    "objective": "Distinguish controls",
+    "difficulty": "easy",
+    "type": "single",
+    "prompt": "Which control directly prevents an unreviewed pull request from merging?",
+    "options": [
+      { "id": "a", "text": "A repository instruction asking the agent to wait" },
+      { "id": "b", "text": "A ruleset requiring pull request reviews and status checks" },
+      { "id": "c", "text": "A longer prompt" },
+      { "id": "d", "text": "A session summary" }
+    ],
+    "correctAnswers": ["b"],
+    "explanation": "Rulesets and branch protection enforce repository policy. Instructions guide behavior but do not provide a hard merge control.",
+    "source": { "label": "GitHub Docs — rulesets", "url": "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets" }
+  },
+  {
+    "id": "guardrails-002",
+    "domain": "guardrails",
+    "objective": "Implement human-in-the-loop controls",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Which GitHub control is designed to require human approval before a production deployment?",
+    "options": [
+      { "id": "a", "text": "Environment required reviewers" },
+      { "id": "b", "text": "Copilot Memory" },
+      { "id": "c", "text": "An MCP registry" },
+      { "id": "d", "text": "A prompt file" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Deployment environments can require reviewers before jobs access protected environment secrets or proceed with a sensitive deployment.",
+    "source": { "label": "GitHub Docs — deployments and environments", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments" }
+  },
+  {
+    "id": "guardrails-003",
+    "domain": "guardrails",
+    "objective": "Use pre-tool hooks",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A cloud agent preToolUse hook detects an attempted direct push. Which decision should it return?",
+    "options": [
+      { "id": "a", "text": "permissionDecision: deny with a reason to open a PR" },
+      { "id": "b", "text": "behavior: continue without explanation" },
+      { "id": "c", "text": "permissionDecision: ask, because cloud agents are interactive" },
+      { "id": "d", "text": "No output, because hooks cannot block tools" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "preToolUse can deny the tool and supply a reason. Cloud agents are non-interactive, so an ask decision is treated like denial and is not the preferred explicit policy response.",
+    "source": { "label": "GitHub Docs — hooks reference", "url": "https://docs.github.com/en/copilot/reference/hooks-reference" }
+  },
+  {
+    "id": "guardrails-004",
+    "domain": "guardrails",
+    "objective": "Choose security controls",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which two mappings are correct? Select two.",
+    "options": [
+      { "id": "a", "text": "Secret scanning — detect exposed credentials" },
+      { "id": "b", "text": "CodeQL — detect code vulnerabilities" },
+      { "id": "c", "text": "Dependency review — approve production deployments" },
+      { "id": "d", "text": "Copilot instructions — enforce branch protection" }
+    ],
+    "correctAnswers": ["a", "b"],
+    "explanation": "Secret scanning detects credentials, and CodeQL/code scanning detects vulnerability patterns. Dependency review assesses dependency changes; repository policy is enforced by rulesets, not instructions.",
+    "source": { "label": "GitHub Docs — code security", "url": "https://docs.github.com/en/code-security" }
+  },
+  {
+    "id": "guardrails-005",
+    "domain": "guardrails",
+    "objective": "Recover stalled agent work",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "A Copilot-assigned issue has produced a PR, but no new commits appear. Which two checks are appropriate? Select two.",
+    "options": [
+      { "id": "a", "text": "Open View session to inspect progress" },
+      { "id": "b", "text": "Check whether workflow changes require Approve and run workflows" },
+      { "id": "c", "text": "Bypass required checks and merge" },
+      { "id": "d", "text": "Publish production secrets in a PR comment" }
+    ],
+    "correctAnswers": ["a", "b"],
+    "explanation": "The session view exposes agent progress, and workflow changes may be waiting at an intentional approval gate. Neither condition justifies bypassing governance.",
+    "source": { "label": "GitHub Docs — troubleshoot cloud agent", "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent" }
+  },
+  {
+    "id": "guardrails-006",
+    "domain": "guardrails",
+    "objective": "Layer guardrails",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Why should a pre-tool hook that blocks direct pushes be paired with branch protection?",
+    "options": [
+      { "id": "a", "text": "Hooks can fail open, while branch protection provides repository-level enforcement" },
+      { "id": "b", "text": "Branch protection makes hooks run faster" },
+      { "id": "c", "text": "Hooks cannot inspect tool calls" },
+      { "id": "d", "text": "Branch protection stores model memory" }
+    ],
+    "correctAnswers": ["a"],
+    "explanation": "Defense in depth matters. Hooks can intercept agent behavior, while rulesets or branch protection enforce the final repository policy even if an advisory layer fails.",
+    "source": { "label": "GH-600 study guide — guardrails", "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" }
+  }
+]

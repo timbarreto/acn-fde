@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 42 24% 98%;
+    --foreground: 198 34% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 198 34% 15%;
+    --primary: 198 34% 15%;
+    --primary-foreground: 42 30% 98%;
+    --secondary: 42 20% 92%;
+    --secondary-foreground: 198 34% 15%;
+    --muted: 42 18% 94%;
+    --muted-foreground: 199 10% 43%;
+    --accent: 13 73% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 6 65% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 15% 85%;
+    --input: 40 15% 85%;
+    --ring: 198 34% 20%;
+    --radius: 0.85rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    min-width: 320px;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: #f2b4a4;
+    color: #172a33;
+  }
+}
+
+@layer components {
+  .section-title {
+    @apply font-display text-3xl font-extrabold leading-tight tracking-[-0.035em] sm:text-4xl;
+  }
+
+  .hero-grid {
+    background-image:
+      linear-gradient(rgba(23, 42, 51, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(23, 42, 51, 0.035) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
