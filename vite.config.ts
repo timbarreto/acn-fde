@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      "@/data/questions.json": path.resolve(__dirname, "./src/data/questions.ts"),
       "@": path.resolve(__dirname, "./src"),
     },
   },
