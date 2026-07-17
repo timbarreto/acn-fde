@@ -1,0 +1,38 @@
+---
+emoji: 🎭
+name: Playwright QA Tests
+description: Run the repository's Playwright QA test suite on branch pushes and pull requests
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [qa-tester-agent]
+  pull_request: {}
+permissions:
+  contents: read
+strict: true
+timeout-minutes: 30
+network:
+  allowed:
+    - defaults
+    - node
+    - playwright
+    - local
+tools:
+  bash: ["*"]
+safe-outputs:
+  noop:
+    max: 1
+    report-as-issue: false
+  report-failure-as-issue: false
+---
+
+# Playwright QA Tests
+
+Run the repository's full Playwright QA suite.
+
+1. Read and apply the repository's `qa-tests` skill.
+2. Install dependencies and the configured Chromium browser.
+3. Run the full QA suite.
+4. If a command fails, inspect the available Playwright output and artifacts, identify the failing spec and likely cause, and report the failure clearly. Do not modify repository files.
+5. If all tests pass, report the passing test count.
+6. Call `noop` with the test result summary because this workflow does not require a GitHub write.
