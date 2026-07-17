@@ -27,8 +27,7 @@ backend, account system, API, or database.
 - `src/data/domains.ts`: domain labels, weights, colors, and icons.
 - `src/components/ui/`: reusable UI primitives.
 - `src/index.css`: global styles and Tailwind layers.
-- `RoleDescription.md`, `RoleDescriptionLearningMap.md`, and `GH-600/`: source
-  material and study documentation.
+- `FDE/` and `GH-600/`: source material and study documentation.
 
 ## Development commands
 
