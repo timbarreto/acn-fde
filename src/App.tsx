@@ -532,7 +532,7 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
         <main>
           <div className="mb-5 flex items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge style={{ color: domain.color, background: domain.soft, borderColor: "transparent" }}>Domain {domain.number}</Badge>
+              <Badge style={{ color: domain.color, background: domain.soft, borderColor: "transparent" }}>Domain {domain.number} · {domain.short}</Badge>
               <Badge variant="outline" className="capitalize">{question.difficulty}</Badge>
               <span className="text-xs font-medium text-muted-foreground">{question.objective}</span>
             </div>
