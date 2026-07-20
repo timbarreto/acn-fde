@@ -9,7 +9,8 @@ describe("ExamSetup", () => {
 
     for (const domain of domains) {
       const renderedName = domain.short.replaceAll("&", "&amp;")
-      expect(markup).toContain(`Domain ${domain.number} · ${renderedName}`)
+      expect(markup).toContain(`${domain.number} · ${renderedName}`)
+      expect(markup).not.toContain(`Domain ${domain.number} · ${renderedName}`)
     }
   })
 })
