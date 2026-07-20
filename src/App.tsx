@@ -446,7 +446,7 @@ export function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domains?: Dom
                 className={cn("flex items-center gap-3 rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected ? "border-primary bg-primary/10 ring-1 ring-primary" : "hover:bg-muted")}
               >
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ color: domain.color, background: domain.soft }}><domain.icon className="h-4 w-4" /></div>
-                <div className="min-w-0"><div className="truncate text-sm font-bold">Domain {domain.number} · {domain.short}</div><div className="text-xs text-muted-foreground">{domain.weight}</div></div>
+                <div className="min-w-0"><div className="truncate text-sm font-bold">{domain.number} · {domain.short}</div><div className="text-xs text-muted-foreground">{domain.weight}</div></div>
                 {selected && <Check className="ml-auto h-4 w-4 text-primary" />}
               </button>
             )
