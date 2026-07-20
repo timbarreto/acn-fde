@@ -11,22 +11,23 @@ const fullExamDistribution: Array<[DomainId, number]> = [
   ["guardrails", 5],
 ]
 
-function queueByLastSeen(questions: Question[], attempts: CompletedAttempt[]) {
+function queueByLastSeen(questions: Question[], progress: Record<string, string[]>, attempts: CompletedAttempt[]) {
   const lastSeen = new Map<string, number>()
 
   attempts.forEach((attempt) => {
-    attempt.questionIds.forEach((id) => {
-      lastSeen.set(id, Math.max(lastSeen.get(id) ?? 0, attempt.completedAt))
+    Object.entries(attempt.answers).forEach(([id, answer]) => {
+      if (answer.length) lastSeen.set(id, Math.max(lastSeen.get(id) ?? 0, attempt.completedAt))
     })
   })
 
   return questions
     .map((question) => ({
       question,
+      answered: Boolean(progress[question.id]?.length),
       lastSeen: lastSeen.get(question.id) ?? 0,
       sort: Math.random(),
     }))
-    .sort((a, b) => a.lastSeen - b.lastSeen || a.sort - b.sort)
+    .sort((a, b) => Number(a.answered) - Number(b.answered) || a.lastSeen - b.lastSeen || a.sort - b.sort)
     .map(({ question }) => question)
 }
 
@@ -38,8 +39,8 @@ export function unselectDomain(domains: DomainId[], domain: DomainId) {
   return domains.filter((id) => id !== domain)
 }
 
-export function selectQuestions(questions: Question[], mode: ExamMode, domains?: DomainId[], attempts: CompletedAttempt[] = []) {
-  const queue = queueByLastSeen(questions, attempts)
+export function selectQuestions(questions: Question[], mode: ExamMode, domains?: DomainId[], progress: Record<string, string[]> = {}, attempts: CompletedAttempt[] = []) {
+  const queue = queueByLastSeen(questions, progress, attempts)
 
   if (mode === "domain") return domains?.length ? queue.filter((question) => domains.includes(question.domain)) : []
   if (mode === "quick") {

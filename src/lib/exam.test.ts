@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { answersMatch, calculateScore, countAnswered, domainProgress, progressFromAttempts, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
-import type { ActiveAttempt, DomainId, Question } from "@/types"
+import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, Question } from "@/types"
 
 const allDomains: DomainId[] = ["architecture", "tools", "memory", "evaluation", "orchestration", "guardrails"]
 
@@ -24,6 +24,15 @@ function makeQuestion(id: string, domain: DomainId): Question {
 
 const bank = allDomains.flatMap((domain) => [makeQuestion(`${domain}-1`, domain), makeQuestion(`${domain}-2`, domain)])
 const questionMap = new Map(bank.map((question) => [question.id, question]))
+const orderingBank = allDomains.flatMap((domain) => [
+  makeQuestion(`${domain}-correct`, domain),
+  makeQuestion(`${domain}-incorrect`, domain),
+  makeQuestion(`${domain}-unseen`, domain),
+])
+const mixedProgress = Object.fromEntries(allDomains.flatMap((domain) => [
+  [`${domain}-correct`, ["a"]],
+  [`${domain}-incorrect`, ["b"]],
+]))
 
 let attemptCounter = 0
 function makeAttempt(overrides: Partial<ActiveAttempt> & Pick<ActiveAttempt, "questionIds" | "answers">): ActiveAttempt {
@@ -39,6 +48,24 @@ function makeAttempt(overrides: Partial<ActiveAttempt> & Pick<ActiveAttempt, "qu
     ...overrides,
   }
 }
+
+function makeCompletedAttempt(questionIds: string[], answers: Record<string, string[]>): CompletedAttempt {
+  return {
+    ...makeAttempt({ questionIds, answers }),
+    completedAt: 1_000,
+    score: 0,
+  }
+}
+
+function expectUnseenFirst(selected: Question[], progress: Record<string, string[]>) {
+  const firstAnswered = selected.findIndex((question) => Boolean(progress[question.id]?.length))
+  if (firstAnswered === -1) return
+  expect(selected.slice(firstAnswered).every((question) => Boolean(progress[question.id]?.length))).toBe(true)
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe("selectDomain", () => {
   it("adds a domain to the selection", () => {
@@ -116,6 +143,61 @@ describe("selectQuestions in full mode", () => {
     const selected = selectQuestions(bank, "full", ["tools"])
     expect(selected).toHaveLength(bank.length)
     expect(new Set(selected.map((question) => question.domain))).toEqual(new Set(allDomains))
+  })
+})
+
+describe.each([
+  ["full", undefined, orderingBank.length],
+  ["quick", undefined, 10],
+  ["domain", ["tools"], 3],
+] as Array<[ExamMode, DomainId[] | undefined, number]>)('selectQuestions unseen-first ordering in %s mode', (mode, domains, expectedSize) => {
+  const history = makeCompletedAttempt(orderingBank.map((question) => question.id), mixedProgress)
+
+  it("puts every unseen question before prior correct and incorrect answers", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5)
+
+    const selected = selectQuestions(orderingBank, mode, domains, mixedProgress, [history])
+
+    expect(selected).toHaveLength(expectedSize)
+    expectUnseenFirst(selected, mixedProgress)
+    expect(selected.some((question) => question.id.endsWith("-correct"))).toBe(true)
+    expect(selected.some((question) => question.id.endsWith("-incorrect"))).toBe(true)
+  })
+
+  it("keeps the normal eligible set when every question is unseen", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5)
+
+    const selected = selectQuestions(orderingBank, mode, domains, {}, [makeCompletedAttempt(orderingBank.map((question) => question.id), {})])
+
+    expect(selected).toHaveLength(expectedSize)
+    expect(new Set(selected).size).toBe(expectedSize)
+  })
+
+  it("keeps previously answered questions available when no unseen questions remain", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5)
+    const allAnswered = Object.fromEntries(orderingBank.map((question) => [question.id, ["a"]]))
+
+    const selected = selectQuestions(orderingBank, mode, domains, allAnswered, [makeCompletedAttempt(orderingBank.map((question) => question.id), allAnswered)])
+
+    expect(selected).toHaveLength(expectedSize)
+    expect(new Set(selected).size).toBe(expectedSize)
+    expect(selected.every((question) => allAnswered[question.id].length > 0)).toBe(true)
+  })
+})
+
+describe("selectQuestions randomization", () => {
+  it("randomizes independently within the unseen and answered partitions", () => {
+    const questions = [1, 2, 3, 4].map((number) => makeQuestion(`tools-${number}`, "tools"))
+    const progress = { "tools-1": ["a"], "tools-2": ["b"] }
+    vi.spyOn(Math, "random")
+      .mockReturnValueOnce(0.9)
+      .mockReturnValueOnce(0.1)
+      .mockReturnValueOnce(0.8)
+      .mockReturnValueOnce(0.2)
+
+    const selected = selectQuestions(questions, "domain", ["tools"], progress, [makeCompletedAttempt(questions.map((question) => question.id), progress)])
+
+    expect(selected.map((question) => question.id)).toEqual(["tools-4", "tools-3", "tools-2", "tools-1"])
   })
 })
 
