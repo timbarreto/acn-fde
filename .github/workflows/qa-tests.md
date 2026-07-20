@@ -1,16 +1,18 @@
 ---
 emoji: 🎭
 name: Playwright QA Tests
-description: Run the repository's Playwright QA test suite on branch pushes and pull requests
+description: Run the repository's Playwright QA test suite on qa-tester-agent branch pushes and manual dispatches
 on:
   workflow_dispatch: {}
   push:
     branches: [qa-tester-agent]
-  pull_request: {}
 permissions:
   contents: read
 strict: true
 timeout-minutes: 30
+concurrency:
+  group: "gh-aw-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}"
+  cancel-in-progress: true
 engine:
   id: copilot
   env:
