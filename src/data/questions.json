@@ -2234,5 +2234,40 @@
       "label": "GitHub CLI 2.96.0 source — agent-task OAuth requirement",
       "url": "https://github.com/cli/cli/blob/v2.96.0/pkg/cmd/agent-task/agent_task.go"
     }
+  },
+  {
+    "id": "orchestration-018",
+    "domain": "orchestration",
+    "objective": "Recover stalled cloud-agent sessions",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "A Copilot cloud-agent session remains stalled. Which two recovery actions should you take? Select two.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Post another @copilot comment on the open pull request, asking a new session to inspect the current branch and continue"
+      },
+      {
+        "id": "b",
+        "text": "For issue-assigned work, unassign Copilot from the issue and assign it again"
+      },
+      {
+        "id": "c",
+        "text": "Restart the original GitHub-hosted runner from the Actions job log"
+      },
+      {
+        "id": "d",
+        "text": "Push an empty commit to the default branch to revive the existing agent process"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b"
+    ],
+    "explanation": "You generally start a new cloud-agent session rather than restart the same process. For pull-request work, repeat the @copilot comment and tell the new session to continue from the current branch state. For issue-assigned work, unassign and reassign Copilot. A session that remains stuck times out after about an hour.",
+    "source": {
+      "label": "GitHub Docs — Troubleshooting Copilot cloud agent",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent"
+    }
   }
 ]
