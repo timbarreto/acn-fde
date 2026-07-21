@@ -2269,5 +2269,39 @@
       "label": "GitHub Docs — Troubleshooting Copilot cloud agent",
       "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent"
     }
+  },
+  {
+    "id": "tools-023",
+    "domain": "tools",
+    "objective": "Retrieve cloud-agent session logs",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "How should you retrieve a completed cloud-agent session log and optionally keep streaming an active session?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Run gh agent-task view SESSION_ID --log; add --follow only when you also want to stream new entries from an active session"
+      },
+      {
+        "id": "b",
+        "text": "Run gh agent-task view SESSION_ID --follow because --follow retrieves stored logs after a session completes"
+      },
+      {
+        "id": "c",
+        "text": "Run gh run view SESSION_ID --log because cloud-agent sessions and Actions runs share the same log history"
+      },
+      {
+        "id": "d",
+        "text": "Run gh agent-task list --log because logs can only be retrieved while listing sessions"
+      }
+    ],
+    "correctAnswers": [
+      "a"
+    ],
+    "explanation": "The --log flag prints the stored cloud-agent session log, including after the session has completed or stopped. Add --follow when you also want to keep streaming new entries from an active session. GitHub Actions workflow logs are separate and use gh run view RUN_ID --log.",
+    "source": {
+      "label": "GitHub CLI manual — gh agent-task view",
+      "url": "https://cli.github.com/manual/gh_agent-task_view"
+    }
   }
 ]
