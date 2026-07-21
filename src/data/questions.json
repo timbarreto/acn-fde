@@ -1222,5 +1222,1017 @@
     "correctAnswers": ["d"],
     "explanation": "Production key rotation is irreversible or high impact. Strong control combines least privilege, explicit human authorization, auditable execution, and recovery planning; instructions alone are not enforcement.",
     "source": { "label": "GitHub Actions environments — Deployment protection rules", "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments" }
+  },
+  {
+    "id": "arch-013",
+    "domain": "architecture",
+    "objective": "Separate planning from implementation",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "What is the defining control in a plan → human review → implementation lifecycle?",
+    "options": [
+      {
+        "id": "a",
+        "text": "The agent implements while writing the plan so reviewers can inspect both together"
+      },
+      {
+        "id": "b",
+        "text": "A reviewable plan is produced first, and implementation is requested only after a human gate"
+      },
+      {
+        "id": "c",
+        "text": "The planning and implementation jobs run in parallel on separate runners"
+      },
+      {
+        "id": "d",
+        "text": "The agent merges the plan before beginning implementation"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "The lifecycle separates a non-implementation planning artifact from later code-changing work. Human review can then reject, revise, or approve the proposed approach before implementation is requested. Running both phases together defeats that control, and neither phase should grant the agent merge authority.",
+    "source": {
+      "label": "GitHub Docs — Research, plan, and iterate with Copilot",
+      "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/research-plan-iterate"
+    }
+  },
+  {
+    "id": "tools-017",
+    "domain": "tools",
+    "objective": "Pass manual workflow inputs safely",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "A manually dispatched workflow declares a required string input named task and an optional base_branch input defaulting to main. Which three statements are correct? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "workflow_dispatch provides an explicit manual starting point and exposes supplied values through the inputs context"
+      },
+      {
+        "id": "b",
+        "text": "Mapping inputs.task and inputs.base_branch to TASK and BASE environment variables makes those values available to the shell step"
+      },
+      {
+        "id": "c",
+        "text": "The default main value proves that the repository has a branch named main"
+      },
+      {
+        "id": "d",
+        "text": "The task can be embedded in the quoted agent prompt while the selected base is passed as the CLI base option"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "d"
+    ],
+    "explanation": "workflow_dispatch is suitable for an intentional human launch, and required/defaulted inputs are read from the inputs context. Environment mappings carry them into the step. A declared default is only text; it neither verifies that main exists nor that an arbitrary supplied base is valid, so the command can still fail validation.",
+    "source": {
+      "label": "GitHub Actions — workflow_dispatch inputs",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputs"
+    }
+  },
+  {
+    "id": "guardrails-011",
+    "domain": "guardrails",
+    "objective": "Distinguish workflow and user credentials",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Why is permissions: contents: read not sufficient authorization for creating a Copilot cloud-agent task from a workflow?",
+    "options": [
+      {
+        "id": "a",
+        "text": "It configures only the run's GITHUB_TOKEN, which is an installation-style workflow token rather than the user-to-server credential required by the agent-tasks API"
+      },
+      {
+        "id": "b",
+        "text": "It makes every repository secret inherit contents: read"
+      },
+      {
+        "id": "c",
+        "text": "It automatically converts GITHUB_TOKEN into a fine-grained personal access token"
+      },
+      {
+        "id": "d",
+        "text": "It grants the agent direct write access to the default branch"
+      }
+    ],
+    "correctAnswers": [
+      "a"
+    ],
+    "explanation": "The permissions key limits GITHUB_TOKEN; it does not scope or transform a separately supplied secret. The current agent-tasks API accepts user-to-server credentials and explicitly does not support server-to-server installation tokens. Any separate token must be independently eligible and least-privileged.",
+    "source": {
+      "label": "GitHub Docs — Using Copilot cloud agent via the API",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-via-the-api#authentication"
+    }
+  },
+  {
+    "id": "guardrails-012",
+    "domain": "guardrails",
+    "objective": "Scope cloud-agent task credentials",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "A setup note says a fine-grained PAT with Contents, Issues, and Pull requests read/write is the current documented minimum for gh agent-task create. What is the most accurate correction?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Keep those three broad permissions; all GitHub agent interfaces share one permission model"
+      },
+      {
+        "id": "b",
+        "text": "Add Administration write because task creation changes repository settings"
+      },
+      {
+        "id": "c",
+        "text": "Current GitHub CLI requires an OAuth token from gh auth login, while the REST start-task endpoint supports a user-to-server fine-grained PAT with Agent tasks read/write for an eligible Copilot Business or Enterprise user"
+      },
+      {
+        "id": "d",
+        "text": "Use GITHUB_TOKEN with contents read because the agent supplies its own authorization"
+      }
+    ],
+    "correctAnswers": [
+      "c"
+    ],
+    "explanation": "The sample credential recipe has drifted. Current GitHub CLI code rejects PAT-based environment authentication for agent-task and requires an OAuth device-flow login. For noninteractive automation, the documented REST endpoint accepts a user-to-server fine-grained PAT and documents Agent tasks read/write, plus an eligible licensed user and repository access. Contents/Issues/Pull requests read/write is not the endpoint's current documented minimum. If a PAT-based API design is chosen, store the token as an Actions secret such as COPILOT_AGENT_PAT, but the secret name does not change its permissions.",
+    "source": {
+      "label": "GitHub REST API — Start an agent task",
+      "url": "https://docs.github.com/en/rest/agent-tasks/agent-tasks?apiVersion=2022-11-28#start-a-task"
+    }
+  },
+  {
+    "id": "tools-018",
+    "domain": "tools",
+    "objective": "Validate cloud-agent CLI compatibility",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which three compatibility findings apply to the sample's gh agent-task invocation today? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "The agent-task command set requires GitHub CLI 2.80.0 or later and remains a preview feature"
+      },
+      {
+        "id": "b",
+        "text": "Testing gh agent-task --help is a useful availability check, but an upgrade can still fail because of network, package, or runner privilege problems"
+      },
+      {
+        "id": "c",
+        "text": "The documented create flag is --base, not --base-branch, so the shown invocation should be tested and corrected"
+      },
+      {
+        "id": "d",
+        "text": "Once the help check succeeds, token entitlement, repository access, and command output format are guaranteed"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c"
+    ],
+    "explanation": "Version 2.80.0 introduced the preview command set, and the help probe defensively detects its absence. It does not validate authentication or entitlement, and an in-run package upgrade adds failure and version-drift risks. Current documentation names --base; --base-branch is an unknown flag. Pinning and preinstalling a tested CLI is more reproducible than silently taking the newest package.",
+    "source": {
+      "label": "GitHub Docs — Using Copilot cloud agent from GitHub CLI",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-from-cli"
+    }
+  },
+  {
+    "id": "orchestration-013",
+    "domain": "orchestration",
+    "objective": "Control overlapping manual runs",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "For concurrency group copilot-agent-${{ github.ref }} with cancel-in-progress: false, which three statements are correct? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "A running workflow in the same group is not canceled by a newer run"
+      },
+      {
+        "id": "b",
+        "text": "The group is based on the ref used to dispatch the workflow, not necessarily the base_branch input"
+      },
+      {
+        "id": "c",
+        "text": "It prevents every Copilot session in the repository, including sessions started outside this workflow, from overlapping"
+      },
+      {
+        "id": "d",
+        "text": "Traditionally only one run and one pending run are retained per group, and a newer pending run can replace an older pending run"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "d"
+    ],
+    "explanation": "cancel-in-progress: false preserves the active run. Grouping by github.ref serializes only runs that resolve to that same dispatch ref; different refs remain separate, and base_branch is not part of the key. Concurrency does not lock external or already asynchronous agent activity. Under the standard concurrency behavior, it also is not an unlimited FIFO queue: one pending member is retained and a newer pending member can cancel the prior pending run.",
+    "source": {
+      "label": "GitHub Actions — Control workflow concurrency",
+      "url": "https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency"
+    }
+  },
+  {
+    "id": "arch-014",
+    "domain": "architecture",
+    "objective": "Define a reviewable planning contract",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which four requirements belong in the plan-only agent contract? Select four.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Research the repository and identify relevant architecture and files"
+      },
+      {
+        "id": "b",
+        "text": "Create root PLAN.md with ordered steps, risks, testing strategy, and acceptance criteria"
+      },
+      {
+        "id": "c",
+        "text": "Commit only PLAN.md and summarize it in the pull request while stating that implementation awaits approval"
+      },
+      {
+        "id": "d",
+        "text": "Pause without implementing until a follow-up request is made after human approval"
+      },
+      {
+        "id": "e",
+        "text": "Make small preparatory code changes if they help prove the plan"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "explanation": "A useful plan is grounded in repository research and names affected files, ordered work, risks, tests, and measurable acceptance criteria. Restricting the planning commit to root PLAN.md and clearly labeling the PR as awaiting approval makes the boundary inspectable. Preparatory code is still implementation and violates that phase boundary.",
+    "source": {
+      "label": "GitHub Docs — Create a plan before code changes",
+      "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/research-plan-iterate#create-a-plan"
+    }
+  },
+  {
+    "id": "guardrails-013",
+    "domain": "guardrails",
+    "objective": "Enforce agent phase boundaries",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "The plan prompt says, “Commit ONLY PLAN.md.” What does that guarantee?",
+    "options": [
+      {
+        "id": "a",
+        "text": "GitHub rejects any other file the agent tries to push"
+      },
+      {
+        "id": "b",
+        "text": "The agent cannot be influenced by conflicting task text or repository content"
+      },
+      {
+        "id": "c",
+        "text": "It communicates the intended contract, but a reviewer or automated diff check must verify compliance before approval"
+      },
+      {
+        "id": "d",
+        "text": "It turns environment approval into approval of the PLAN.md diff"
+      }
+    ],
+    "correctAnswers": [
+      "c"
+    ],
+    "explanation": "Prompt language guides the model; it is not a repository enforcement mechanism. The agent can misunderstand, be redirected by untrusted context, or simply produce an incomplete plan. A trustworthy gate inspects the actual commit and rejects any non-PLAN.md change or missing plan content before authorizing implementation.",
+    "source": {
+      "label": "GitHub Docs — Risks and mitigations for Copilot cloud agent",
+      "url": "https://docs.github.com/en/copilot/concepts/agents/cloud-agent/risks-and-mitigations"
+    }
+  },
+  {
+    "id": "tools-019",
+    "domain": "tools",
+    "objective": "Capture agent-session outputs",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "A step captures gh agent-task create output, prints it, extracts the first GitHub URL, and writes session_url to GITHUB_OUTPUT. Which three observations are correct? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "The step id makes the value addressable as steps.create.outputs.session_url, and the job can expose it to dependent jobs"
+      },
+      {
+        "id": "b",
+        "text": "Selecting the first space-delimited GitHub URL is best-effort parsing, not proof that the value identifies the intended session or PR"
+      },
+      {
+        "id": "c",
+        "text": "Printing command output and a job summary improves operator visibility but does not establish authoritative task correlation"
+      },
+      {
+        "id": "d",
+        "text": "Any text written to GITHUB_STEP_SUMMARY becomes a secret output visible only to environment reviewers"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c"
+    ],
+    "explanation": "GITHUB_OUTPUT is the supported step-output channel, and a job output can carry that value across needs dependencies. The regular expression can return an absent, malformed, punctuated, or unrelated first URL if preview output changes. Logs and summaries help humans observe a run, but summaries are visible workflow artifacts, not secret storage or a relational key tying later work to this task.",
+    "source": {
+      "label": "GitHub Actions — Workflow commands for outputs and summaries",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands-for-github-actions"
+    }
+  },
+  {
+    "id": "eval-014",
+    "domain": "evaluation",
+    "objective": "Detect silent output-parsing failures",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "gh agent-task create exits successfully, but its output contains no URL. What happens in the shown URL extraction, and what should a robust workflow do?",
+    "options": [
+      {
+        "id": "a",
+        "text": "grep necessarily fails the job, so no additional validation is needed"
+      },
+      {
+        "id": "b",
+        "text": "The || true allows an empty URL to be written as a successful output; validate the identifier, fail clearly, and retain diagnostic output"
+      },
+      {
+        "id": "c",
+        "text": "GitHub automatically converts the empty value to the newest pull request number"
+      },
+      {
+        "id": "d",
+        "text": "The environment reviewer receives the missing URL as an encrypted secret"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "The extraction pipeline deliberately suppresses grep's no-match exit, so session_url can be empty while the plan job succeeds. The command substitution itself will normally fail the step if gh exits nonzero under Actions' fail-fast shell behavior, but a successful command with changed output is a separate error path. Validate a structured task/session identifier and surface actionable logs before presenting an approval gate.",
+    "source": {
+      "label": "GitHub Actions — Setting an output parameter",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands-for-github-actions#setting-an-output-parameter"
+    }
+  },
+  {
+    "id": "guardrails-014",
+    "domain": "guardrails",
+    "objective": "Configure plan approval environments",
+    "difficulty": "medium",
+    "type": "multiple",
+    "prompt": "Which three practices correctly configure and operate the plan-approval environment? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Configure named required reviewers with repository access; one required user or team approval is sufficient unless stronger process is layered on"
+      },
+      {
+        "id": "b",
+        "text": "Make the approval job reference plan-approval so it remains pending until its protection rules pass"
+      },
+      {
+        "id": "c",
+        "text": "Before clicking Approve and deploy, open the correlated plan PR and verify the actual PLAN.md and diff"
+      },
+      {
+        "id": "d",
+        "text": "Assume the pending deployment itself proves that Copilot has finished and produced a trustworthy plan"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c"
+    ],
+    "explanation": "A job that references a protected environment waits for its required review. GitHub allows up to six required users or teams and needs one approval, so process may require additional evidence or separation of duties. The environment knows only that a job requested access; it does not inspect PLAN.md or wait for asynchronous agent completion. The approver must review the correctly correlated plan before approving.",
+    "source": {
+      "label": "GitHub Actions — Required reviewers for environments",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments#required-reviewers"
+    }
+  },
+  {
+    "id": "guardrails-015",
+    "domain": "guardrails",
+    "objective": "Distinguish deployment and pull-request review",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which three statements distinguish environment approval from review of the plan pull request? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Approve and deploy authorizes the waiting environment job; it does not submit a pull-request review or approve PLAN.md"
+      },
+      {
+        "id": "b",
+        "text": "The plan PR review and the deployment approval leave different GitHub records and may be performed by different authorized people"
+      },
+      {
+        "id": "c",
+        "text": "github.actor in the later shell step identifies the person who clicked the environment approval button"
+      },
+      {
+        "id": "d",
+        "text": "Prevent self-review and prevent-admin-bypass settings reduce, but do not replace, the need to inspect the plan artifact"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "d"
+    ],
+    "explanation": "Environment review gates a job, whereas a PR review evaluates repository changes; one action does not create the other record. github.actor is the user that triggered the initial workflow run, so echoing it is not reliable attribution of the environment approver. Enable prevent self-review and prevent administrators from bypassing where separation is required, and use deployment and PR records for their actual purposes.",
+    "source": {
+      "label": "GitHub Actions — GitHub context and triggering actor",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context"
+    }
+  },
+  {
+    "id": "orchestration-014",
+    "domain": "orchestration",
+    "objective": "Order planning, approval, and implementation jobs",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "What does needs: [plan, await-plan-approval] on the implement job enforce by default?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Implementation starts after either prerequisite reaches a terminal state"
+      },
+      {
+        "id": "b",
+        "text": "Implementation waits for both jobs to complete successfully and is skipped if a prerequisite fails or is skipped"
+      },
+      {
+        "id": "c",
+        "text": "Implementation waits until the plan pull request is approved and merged"
+      },
+      {
+        "id": "d",
+        "text": "Implementation waits until Copilot has completed every asynchronous session"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "needs creates job dependencies and, without an always-style conditional, requires successful prerequisites. This correctly orders workflow jobs, but success of plan means the Actions job completed—not necessarily that an asynchronous Copilot plan PR is finished or reviewed. The environment job also gates only its own execution, not a PR merge.",
+    "source": {
+      "label": "GitHub Actions — jobs.<job_id>.needs",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds"
+    }
+  },
+  {
+    "id": "orchestration-015",
+    "domain": "orchestration",
+    "objective": "Correlate asynchronous agent pull requests",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "The implementation job lists open PRs, keeps copilot/* heads, sorts the returned items by createdAt, and chooses the newest. Which four assumptions or risks does this introduce? Select four.",
+    "options": [
+      {
+        "id": "a",
+        "text": "The intended task has already created an open pull request whose head still follows the copilot/ naming convention"
+      },
+      {
+        "id": "b",
+        "text": "No overlapping or unrelated Copilot task has created a newer matching pull request"
+      },
+      {
+        "id": "c",
+        "text": "The intended PR has not been closed, renamed, or delayed beyond the lookup"
+      },
+      {
+        "id": "d",
+        "text": "The relevant PR is present in gh pr list's returned page; its default limit can omit older matches"
+      },
+      {
+        "id": "e",
+        "text": "Sorting by createdAt cryptographically proves which workflow run created the PR"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "explanation": "Branch prefix, open state, recency, and a bounded list are heuristics, not task identity. A slow agent can yield no PR; another agent can win the newest race; closing or renaming changes eligibility; and gh pr list returns a limited result set unless configured otherwise. Sorting timestamps cannot establish provenance and can misdirect an implementation comment.",
+    "source": {
+      "label": "GitHub CLI manual — gh pr list",
+      "url": "https://cli.github.com/manual/gh_pr_list"
+    }
+  },
+  {
+    "id": "memory-010",
+    "domain": "memory",
+    "objective": "Carry authoritative agent identity across jobs",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "What is the strongest replacement for selecting the most recently created copilot/* pull request?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Sleep for a fixed 30 seconds and repeat the same newest-PR query"
+      },
+      {
+        "id": "b",
+        "text": "Pass the task or session ID returned by creation as a job output, poll that exact task, and obtain its associated PR resource before commenting"
+      },
+      {
+        "id": "c",
+        "text": "Sort branch names alphabetically instead of sorting creation times"
+      },
+      {
+        "id": "d",
+        "text": "Ask the environment approver to remember the PR number without recording it"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "A task/session identifier is authoritative state that can be carried through job outputs and used with gh agent-task view or the agent-tasks API. Polling that identity handles delayed creation and verifies its associated repository resource. A PR number alone can be ambiguous when a pull request has multiple agent tasks; GitHub CLI specifically recommends session IDs for noninteractive identification.",
+    "source": {
+      "label": "GitHub CLI manual — Agent task identifiers",
+      "url": "https://cli.github.com/manual/gh_agent-task"
+    }
+  },
+  {
+    "id": "tools-020",
+    "domain": "tools",
+    "objective": "Continue work on a Copilot pull request",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "After the plan is approved, which three statements accurately describe a follow-up @copilot pull-request comment? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "On Copilot's pull request, a user with write access can mention @copilot to request changes or continued work"
+      },
+      {
+        "id": "b",
+        "text": "The comment can direct Copilot to follow approved PLAN.md, keep commits scoped, and run the planned tests"
+      },
+      {
+        "id": "c",
+        "text": "Copilot can comply with a request to mark its own draft pull request Ready for review"
+      },
+      {
+        "id": "d",
+        "text": "The workflow must comment on the correctly correlated PR; commenting on a different PR can authorize work on that PR's branch"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "d"
+    ],
+    "explanation": "Mentioning @copilot on its PR is the supported way to request further changes, and Copilot can write only to that PR branch in this path. The plan, test, and scope instructions are useful context but still require verification. GitHub's security model says Copilot cannot mark its own PR Ready for review, approve it, or merge it, so that portion of the sample request is not achievable by the agent.",
+    "source": {
+      "label": "GitHub Docs — Review output from Copilot",
+      "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/review-copilot-output"
+    }
+  },
+  {
+    "id": "eval-015",
+    "domain": "evaluation",
+    "objective": "Verify implementation after an approved plan",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "Copilot posts commits and says it followed the approved plan and ran all planned tests. What is the correct next step?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Merge automatically because environment approval already approved the implementation"
+      },
+      {
+        "id": "b",
+        "text": "Perform ordinary human code review of the diff, test and security evidence, scope, and acceptance criteria before any merge"
+      },
+      {
+        "id": "c",
+        "text": "Treat the agent's summary as equivalent to required pull-request approval"
+      },
+      {
+        "id": "d",
+        "text": "Delete PLAN.md so reviewers consider only the final code"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "Plan approval authorizes implementation; it does not validate the resulting code or grant merge approval. Reviewers must compare actual changes with PLAN.md, examine test/check output and security impact, and request corrections as needed. GitHub also notes that the initiating user's approval of a Copilot PR does not count toward required approvals, so another eligible reviewer may be required by repository policy.",
+    "source": {
+      "label": "GitHub Docs — Review Copilot's changes",
+      "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/review-copilot-output#review-copilots-changes"
+    }
+  },
+  {
+    "id": "eval-016",
+    "domain": "evaluation",
+    "objective": "Observe asynchronous workflow failures",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which four conditions should be explicit error or monitoring paths in this asynchronous workflow? Select four.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Task creation fails because authentication, entitlement, repository access, base ref, or CLI flags are invalid"
+      },
+      {
+        "id": "b",
+        "text": "Creation succeeds but the URL or structured task ID is empty or malformed"
+      },
+      {
+        "id": "c",
+        "text": "The exact task remains queued or fails, or its PR is not yet available when the implementation phase polls"
+      },
+      {
+        "id": "d",
+        "text": "The agent changes files during planning or later deviates from PLAN.md"
+      },
+      {
+        "id": "e",
+        "text": "A step writes a concise success summary after every authoritative check passes"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "explanation": "Transport and authorization failures, malformed outputs, delayed or failed asynchronous resources, and agent noncompliance are distinct failure classes. Use nonzero exits, bounded polling with timeouts, structured identifiers, logs, annotations, and summaries that link to the evidence. A summary is observability, not a failure; it must not mask missing identifiers or unverified agent behavior.",
+    "source": {
+      "label": "GitHub Docs — Troubleshooting Copilot cloud agent",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent"
+    }
+  },
+  {
+    "id": "guardrails-016",
+    "domain": "guardrails",
+    "objective": "Protect workflow credentials",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which four controls best protect the credential used for programmatic agent-task creation? Select four.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Use a supported user-to-server token with only the required repository access and Agent tasks permission"
+      },
+      {
+        "id": "b",
+        "text": "Store it as an Actions secret, pass it only to steps that need it, and never place it in prompts, outputs, artifacts, or summaries"
+      },
+      {
+        "id": "c",
+        "text": "Set top-level GITHUB_TOKEN permissions minimally even though this does not scope the separate token"
+      },
+      {
+        "id": "d",
+        "text": "Rotate or revoke the token on exposure and avoid logging command data that may contain credentials"
+      },
+      {
+        "id": "e",
+        "text": "Grant broad organization access so retries cannot encounter a repository permission error"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "explanation": "Least privilege applies independently to both GITHUB_TOKEN and any user credential. Repository access, token permission, secret distribution, logging hygiene, expiry, and rotation all reduce blast radius. Secret redaction is a backstop, not permission control, and broad organization access turns one compromised workflow into a wider incident.",
+    "source": {
+      "label": "GitHub Actions — Security hardening for secrets",
+      "url": "https://docs.github.com/en/actions/how-tos/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-secrets"
+    }
+  },
+  {
+    "id": "guardrails-017",
+    "domain": "guardrails",
+    "objective": "Bound untrusted workflow and agent input",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "A repository accepts free-form task text for the plan workflow. Which three security statements are accurate? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Moving expressions into environment variables and quoting shell expansions reduces shell-injection risk compared with constructing executable shell text"
+      },
+      {
+        "id": "b",
+        "text": "Shell-safe handling does not make the task or repository content trustworthy instructions for the agent; prompt injection and malicious plans remain review risks"
+      },
+      {
+        "id": "c",
+        "text": "Human review is infallible once PLAN.md is formatted clearly"
+      },
+      {
+        "id": "d",
+        "text": "A future fork or pull_request_target variant must not expose a powerful user token while checking out or executing untrusted fork content"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "d"
+    ],
+    "explanation": "The sample's intermediate environment variables and quoted arguments are preferable to direct expression interpolation or eval, but they address shell parsing—not model instruction trust. Treat task text, repository files, links, generated plans, and agent changes as untrusted. Human review can miss attacks, so layer branch rules, checks, least privilege, and safe event design; never combine privileged pull_request_target secrets with execution of untrusted fork code.",
+    "source": {
+      "label": "GitHub Actions — Preventing script injection",
+      "url": "https://docs.github.com/en/actions/how-tos/security-for-github-actions/security-guides/security-hardening-for-github-actions#understanding-the-risk-of-script-injections"
+    }
+  },
+  {
+    "id": "guardrails-018",
+    "domain": "guardrails",
+    "objective": "Prevent approval-gate bypass",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which three configuration or operating failures can weaken the plan-approval gate? Select three.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Self-review remains allowed, letting the workflow initiator approve the protected job"
+      },
+      {
+        "id": "b",
+        "text": "Administrators can bypass protection rules and start pending jobs"
+      },
+      {
+        "id": "c",
+        "text": "An approver authorizes the pending job before verifying that the correlated PR contains a complete and trustworthy PLAN.md"
+      },
+      {
+        "id": "d",
+        "text": "The environment has a descriptive name and no secrets"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c"
+    ],
+    "explanation": "Environment protection is only as strong as its configuration and operating procedure. Enable prevent self-review when separation is required and prevent administrator bypass when policy demands it. GitHub permits bypass of pending jobs unless disabled. Even a legitimate approval is unsafe if asynchronous plan creation is incomplete or the approver reviewed the wrong artifact.",
+    "source": {
+      "label": "GitHub Actions — Bypassing deployment protection rules",
+      "url": "https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments#bypassing-deployment-protection-rules"
+    }
+  },
+  {
+    "id": "orchestration-016",
+    "domain": "orchestration",
+    "objective": "Assign end-to-end workflow responsibilities",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "Which four role-to-responsibility mappings are correct for the full workflow? Select four.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Initiating human → provide a bounded task and valid base, then monitor the exact session"
+      },
+      {
+        "id": "b",
+        "text": "Plan reviewer/environment approver → inspect the correlated PLAN.md and evidence before authorizing implementation, with duties separated when policy requires"
+      },
+      {
+        "id": "c",
+        "text": "Agent → research and produce only the plan first, then implement on the scoped branch after an explicit follow-up"
+      },
+      {
+        "id": "d",
+        "text": "Final code reviewer → verify implementation, tests, security, and acceptance criteria before merge"
+      },
+      {
+        "id": "e",
+        "text": "Workflow summary → approve both the plan and final code on behalf of all humans"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "explanation": "The initiator owns task quality and launch context; reviewers own evidence-based authorization; the agent owns bounded artifact production, not approval; and the final reviewer owns code acceptance under repository policy. A plan reviewer and environment approver may be the same authorized person, but high-risk governance may separate them. Summaries communicate status and cannot assume any role's authority.",
+    "source": {
+      "label": "GitHub Docs — Best practices for Copilot tasks",
+      "url": "https://docs.github.com/en/copilot/tutorials/cloud-agent/get-the-best-results"
+    }
+  },
+  {
+    "id": "tools-021",
+    "domain": "tools",
+    "objective": "Validate task and base inputs",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "The task input is marked required and base_branch defaults to main. Which validation remains necessary before dispatching?",
+    "options": [
+      {
+        "id": "a",
+        "text": "None; workflow input metadata proves task quality, branch existence, and authorization"
+      },
+      {
+        "id": "b",
+        "text": "Confirm the task is nonempty, bounded, and contains no secrets, and confirm the selected repository/base ref exists and is authorized"
+      },
+      {
+        "id": "c",
+        "text": "Only verify that main is the repository's default branch"
+      },
+      {
+        "id": "d",
+        "text": "Only verify that the task has fewer than ten words"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "required controls omission in dispatch UX or API; it does not evaluate scope, confidentiality, prompt safety, or acceptance criteria. Likewise, a string default does not validate a ref. Invalid or inaccessible bases can fail task creation, and vague or hostile task text can produce unsafe work even when the workflow syntax is valid.",
+    "source": {
+      "label": "GitHub Docs — Starting a cloud-agent session",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-from-cli#starting-a-session"
+    }
+  },
+  {
+    "id": "memory-011",
+    "domain": "memory",
+    "objective": "Use summaries without confusing them with state",
+    "difficulty": "medium",
+    "type": "single",
+    "prompt": "What is the proper role of GITHUB_STEP_SUMMARY in this workflow?",
+    "options": [
+      {
+        "id": "a",
+        "text": "It is the authoritative machine-readable store for the task-to-PR relationship"
+      },
+      {
+        "id": "b",
+        "text": "It is a human-visible run report that should link task/session evidence and next actions, while structured outputs or API state carry identifiers"
+      },
+      {
+        "id": "c",
+        "text": "It is an encrypted channel for COPILOT_AGENT_PAT"
+      },
+      {
+        "id": "d",
+        "text": "It keeps the workflow running until Copilot finishes"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "Job summaries are useful for the submitted task, validated session or PR link, approval instructions, implementation request, and final-review reminder. They are rendered to people and do not synchronize asynchronous work, enforce approval, protect secrets, or provide dependable structured correlation. Avoid placing sensitive or misleading unvalidated input in them.",
+    "source": {
+      "label": "GitHub Actions — Adding a job summary",
+      "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands-for-github-actions#adding-a-job-summary"
+    }
+  },
+  {
+    "id": "eval-017",
+    "domain": "evaluation",
+    "objective": "Triage cloud-agent authorization failures",
+    "difficulty": "hard",
+    "type": "multiple",
+    "prompt": "gh agent-task create fails before returning a session. Which four checks are relevant? Select four.",
+    "options": [
+      {
+        "id": "a",
+        "text": "Installed gh version, preview command availability, and the exact supported flag names"
+      },
+      {
+        "id": "b",
+        "text": "Whether the chosen interface accepts the token type and whether the user has the required Copilot plan"
+      },
+      {
+        "id": "c",
+        "text": "Token repository access, organization approval or SSO requirements, and the requested base branch"
+      },
+      {
+        "id": "d",
+        "text": "Network/package failures from an attempted in-job CLI upgrade"
+      },
+      {
+        "id": "e",
+        "text": "Which open copilot/* PR is newest, even though task creation did not succeed"
+      }
+    ],
+    "correctAnswers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "explanation": "Separate client compatibility, authentication type, license/entitlement, authorization, repository/ref validation, and runner network/package errors. A 401 suggests authentication, 403 commonly indicates entitlement or permission, and validation or flag failures need their own diagnostics. Querying an unrelated newest PR after creation fails hides the root cause and risks misattribution.",
+    "source": {
+      "label": "GitHub Docs — Troubleshooting Copilot cloud agent",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/troubleshoot-cloud-agent"
+    }
+  },
+  {
+    "id": "orchestration-017",
+    "domain": "orchestration",
+    "objective": "Synchronize asynchronous plan completion",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Why can the plan-approval job become pending before a trustworthy plan exists even though it needs the plan job?",
+    "options": [
+      {
+        "id": "a",
+        "text": "needs ignores successful jobs when an environment is configured"
+      },
+      {
+        "id": "b",
+        "text": "Task creation can return before the cloud agent finishes creating or updating its PR, so the Actions plan job can end while agent work continues"
+      },
+      {
+        "id": "c",
+        "text": "Environment approval automatically deletes PLAN.md"
+      },
+      {
+        "id": "d",
+        "text": "workflow_dispatch always runs jobs out of order"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "The Actions dependency synchronizes jobs, not an external agent's full lifecycle. If create returns a session immediately, the summary and approval request can appear while the agent is queued, still researching, or has not yet exposed PLAN.md. Poll the exact task to a defined plan-ready state and validate its PR artifact before requesting or granting approval.",
+    "source": {
+      "label": "GitHub Docs — Manage and track Copilot agents",
+      "url": "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/manage-and-track-agents"
+    }
+  },
+  {
+    "id": "arch-015",
+    "domain": "architecture",
+    "objective": "Design a robust reviewed-agent workflow",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "Which redesign most safely preserves the intended plan → review → implementation flow?",
+    "options": [
+      {
+        "id": "a",
+        "text": "Create a task with a supported authenticated interface that explicitly requests a PR, persist its exact ID, wait for and validate a PLAN.md-only PR, require artifact-aware human approval, then comment on that exact PR and retain normal review protections"
+      },
+      {
+        "id": "b",
+        "text": "Keep choosing the newest Copilot PR but increase the fixed sleep to five minutes"
+      },
+      {
+        "id": "c",
+        "text": "Grant the token administration write so the agent can recover from any branch or approval failure"
+      },
+      {
+        "id": "d",
+        "text": "Run planning and implementation concurrently and let final CI determine whether the plan was acceptable"
+      }
+    ],
+    "correctAnswers": [
+      "a"
+    ],
+    "explanation": "The robust design uses a currently supported interface and credential, durable task identity, bounded polling, artifact validation, a meaningful human gate, exact-PR continuation, and ordinary branch/review controls. Sleeps and recency are not correlation; broad permission increases harm; and post-hoc CI cannot restore the intentionally separated approval boundary.",
+    "source": {
+      "label": "GitHub Docs — Using the agent tasks API",
+      "url": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-via-the-api"
+    }
+  },
+  {
+    "id": "tools-022",
+    "domain": "tools",
+    "objective": "Authenticate GitHub CLI agent tasks",
+    "difficulty": "hard",
+    "type": "single",
+    "prompt": "On current GitHub CLI, what is the likely result of setting GH_TOKEN to COPILOT_AGENT_PAT and running gh agent-task create noninteractively?",
+    "options": [
+      {
+        "id": "a",
+        "text": "The command accepts every fine-grained PAT that has Contents, Issues, and Pull requests write permission"
+      },
+      {
+        "id": "b",
+        "text": "The command rejects PAT environment authentication because agent-task currently requires an OAuth device-flow token from gh auth login"
+      },
+      {
+        "id": "c",
+        "text": "The command silently falls back to the workflow's read-only GITHUB_TOKEN"
+      },
+      {
+        "id": "d",
+        "text": "The command creates an unauthenticated public task if the repository is public"
+      }
+    ],
+    "correctAnswers": [
+      "b"
+    ],
+    "explanation": "GitHub CLI 2.96.0's agent-task pre-run check requires a device-flow OAuth token and instructs the user to reauthenticate with gh auth login; it rejects PAT-sourced GH_TOKEN authentication. That makes the sample's current noninteractive CLI/PAT combination fail before task creation. For PAT-based automation, use and test the documented REST agent-tasks API instead of assuming CLI and API credential models are interchangeable.",
+    "source": {
+      "label": "GitHub CLI 2.96.0 source — agent-task OAuth requirement",
+      "url": "https://github.com/cli/cli/blob/v2.96.0/pkg/cmd/agent-task/agent_task.go"
+    }
   }
 ]
