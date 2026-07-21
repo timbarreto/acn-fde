@@ -52,4 +52,15 @@ describe("question bank integrity", () => {
       "For issue-assigned work, unassign Copilot from the issue and assign it again",
     ])
   })
+
+  it("covers historical and streaming cloud-agent logs", () => {
+    const question = questions.find(({ id }) => id === "tools-023")
+    const correctOptions = question?.options
+      .filter(({ id }) => question.correctAnswers.includes(id))
+      .map(({ text }) => text)
+
+    expect(correctOptions).toEqual([
+      "Run gh agent-task view SESSION_ID --log; add --follow only when you also want to stream new entries from an active session",
+    ])
+  })
 })
