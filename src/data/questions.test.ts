@@ -40,4 +40,16 @@ describe("question bank integrity", () => {
       }
     }
   })
+
+  it("covers recovery from a stalled cloud-agent session", () => {
+    const question = questions.find(({ id }) => id === "orchestration-018")
+    const correctOptions = question?.options
+      .filter(({ id }) => question.correctAnswers.includes(id))
+      .map(({ text }) => text)
+
+    expect(correctOptions).toEqual([
+      "Post another @copilot comment on the open pull request, asking a new session to inspect the current branch and continue",
+      "For issue-assigned work, unassign Copilot from the issue and assign it again",
+    ])
+  })
 })
