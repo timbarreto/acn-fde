@@ -229,7 +229,7 @@ jobs:
             exit 1
           fi
 
-          pr_number="$(jq -r '[.artifacts[] | select(.provider == "github" and .type == "pull")][0].data.id | tostring' "$RUNNER_TEMP/copilot-task.json")"
+          pr_number="$(jq -r '[.artifacts[] | select(.provider == "github" and .type == "pull" and .data.id != null)][0].data.id | tostring' "$RUNNER_TEMP/copilot-task.json")"
           if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
             echo "The Copilot task returned an invalid pull request number." >&2
             exit 1
@@ -358,7 +358,7 @@ jobs:
           if ! jq -e \
             --arg task_id "$TASK_ID" \
             --argjson pr_number "$PR_NUMBER" \
-            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and .data.id != null)] | length) == 1 and ([.artifacts[] | select(.provider == "github" and .type == "pull")][0].data.id | tonumber) == $pr_number' \
+            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and .data.id != null)] | length) == 1 and ([.artifacts[] | select(.provider == "github" and .type == "pull" and .data.id != null)][0].data.id | tonumber) == $pr_number' \
             "$RUNNER_TEMP/approved-task.json" >/dev/null; then
             echo "The approved task no longer resolves to the expected pull request." >&2
             exit 1
