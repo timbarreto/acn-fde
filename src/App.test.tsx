@@ -6,6 +6,7 @@ import questionData from "@/data/questions.json"
 import type { ActiveAttempt, Question } from "@/types"
 
 function escapeHtmlAttribute(value: string) {
+  // Escape ampersands first so the replacements below are not double-escaped.
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("\"", "&quot;")
