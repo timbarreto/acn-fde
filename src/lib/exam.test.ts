@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { answersMatch, calculateScore, countAnswered, domainProgress, progressFromAttempts, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, getAttemptElapsedMs, getAttemptRemainingSeconds, isAttemptPaused, pauseAttemptTimer, progressFromAttempts, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, Question } from "@/types"
 
 const allDomains: DomainId[] = ["architecture", "tools", "memory", "evaluation", "orchestration", "guardrails"]
@@ -198,6 +198,62 @@ describe("selectQuestions randomization", () => {
     const selected = selectQuestions(questions, "domain", ["tools"], progress, [makeCompletedAttempt(questions.map((question) => question.id), progress)])
 
     expect(selected.map((question) => question.id)).toEqual(["tools-4", "tools-3", "tools-2", "tools-1"])
+  })
+})
+
+describe("attempt timer", () => {
+  it("calculates a running countdown for legacy attempts without pause fields", () => {
+    const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000, durationMinutes: 1 })
+
+    expect(isAttemptPaused(attempt)).toBe(false)
+    expect(getAttemptRemainingSeconds(attempt, 16_000)).toBe(45)
+    expect(getAttemptElapsedMs(attempt, 16_000)).toBe(15_000)
+  })
+
+  it("freezes the countdown at the instant an attempt is paused", () => {
+    const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000, durationMinutes: 1 })
+    const paused = pauseAttemptTimer(attempt, 11_000)
+
+    expect(isAttemptPaused(paused)).toBe(true)
+    expect(getAttemptRemainingSeconds(paused, 51_000)).toBe(50)
+    expect(getAttemptElapsedMs(paused, 51_000)).toBe(10_000)
+  })
+
+  it("does not reset the pause timestamp when pausing an already paused attempt", () => {
+    const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000 })
+    const paused = pauseAttemptTimer(attempt, 11_000)
+
+    expect(pauseAttemptTimer(paused, 31_000)).toBe(paused)
+    expect(paused.pausedAt).toBe(11_000)
+  })
+
+  it("accumulates repeated pauses without consuming countdown time", () => {
+    const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000, durationMinutes: 1 })
+    const firstPause = pauseAttemptTimer(attempt, 11_000)
+    const firstResume = resumeAttemptTimer(firstPause, 21_000)
+    const secondPause = pauseAttemptTimer(firstResume, 31_000)
+    const secondResume = resumeAttemptTimer(secondPause, 41_000)
+
+    expect(isAttemptPaused(secondResume)).toBe(false)
+    expect(secondResume.pausedDurationMs).toBe(20_000)
+    expect(getAttemptRemainingSeconds(secondResume, 51_000)).toBe(30)
+    expect(getAttemptElapsedMs(secondResume, 51_000)).toBe(30_000)
+  })
+
+  it("normalizes an active pause when the attempt is completed", () => {
+    const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000, pausedDurationMs: 5_000 })
+    const paused = pauseAttemptTimer(attempt, 21_000)
+    const completed = resumeAttemptTimer(paused, 41_000)
+
+    expect(completed.pausedAt).toBeUndefined()
+    expect(completed.pausedDurationMs).toBe(25_000)
+    expect(getAttemptElapsedMs(completed, 41_000)).toBe(15_000)
+  })
+
+  it("never returns a negative countdown for an expired attempt", () => {
+    const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000, durationMinutes: 1 })
+
+    expect(getAttemptRemainingSeconds(attempt, 71_000)).toBe(0)
   })
 })
 
