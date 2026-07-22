@@ -5,6 +5,10 @@ import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import type { ActiveAttempt, Question } from "@/types"
 
+function escapeHtmlAttribute(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("\"", "&quot;")
+}
+
 describe("ExamSetup", () => {
   it("renders every focused-practice domain with its published number and name", () => {
     const markup = renderToStaticMarkup(<ExamSetup onStart={vi.fn()} />)
@@ -43,8 +47,8 @@ describe("ExamRunner", () => {
       />,
     )
 
-    expect(markup).toContain(`title="${firstQuestion.prompt.replaceAll("&", "&amp;").replaceAll("\"", "&quot;")}"`)
-    expect(markup).toContain(`aria-label="Question 1: ${firstQuestion.prompt.replaceAll("&", "&amp;").replaceAll("\"", "&quot;")}"`)
-    expect(markup).toContain(`title="${secondQuestion.prompt.replaceAll("&", "&amp;").replaceAll("\"", "&quot;")}"`)
+    expect(markup).toContain(`title="${escapeHtmlAttribute(firstQuestion.prompt)}"`)
+    expect(markup).toContain(`aria-label="Question 1: ${escapeHtmlAttribute(firstQuestion.prompt)}"`)
+    expect(markup).toContain(`title="${escapeHtmlAttribute(secondQuestion.prompt)}"`)
   })
 })
