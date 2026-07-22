@@ -39,7 +39,7 @@ jobs:
       BASE_INPUT: ${{ inputs.base_branch }}
       DEFAULT_BASE: ${{ github.event.repository.default_branch }}
     steps:
-      - name: Validate credentials, CLI, and base branch
+      - name: Validate credentials, API access, and base branch
         shell: bash
         run: |
           set -euo pipefail
@@ -55,21 +55,6 @@ jobs:
           fi
 
           gh api user >/dev/null
-
-          gh_version="$(gh --version | sed -nE '1s/^gh version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
-          required_version="2.80.0"
-          if [[ -z "$gh_version" ]] ||
-             [[ "$(printf '%s\n' "$required_version" "$gh_version" | sort -V | head -n 1)" != "$required_version" ]]; then
-            echo "GitHub CLI 2.80.0 or newer is required; found ${gh_version:-unknown}." >&2
-            exit 1
-          fi
-
-          agent_help="$(gh agent-task create --help)"
-          if ! grep -q -- '--base' <<<"$agent_help" ||
-             ! grep -q -- '--follow' <<<"$agent_help"; then
-            echo "This GitHub CLI does not provide the required gh agent-task create flags." >&2
-            exit 1
-          fi
 
           base_branch="$BASE_INPUT"
           if [[ -z "$base_branch" ]]; then
@@ -104,26 +89,27 @@ jobs:
             exit 1
           fi
 
+          if ! gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "agents/repos/${GITHUB_REPOSITORY}/tasks?per_page=1" \
+            >/dev/null; then
+            echo "COPILOT_AGENT_PAT must have Agent tasks read and write access to this repository." >&2
+            exit 1
+          fi
+
           printf 'RESOLVED_BASE=%s\n' "$base_branch" >> "$GITHUB_ENV"
 
-      - name: Start and follow the default Copilot cloud agent
+      - name: Start and poll the default Copilot cloud agent
         id: create
         shell: bash
         run: |
           set -euo pipefail
 
           prompt_file="$RUNNER_TEMP/copilot-plan-prompt.md"
-          task_log="$RUNNER_TEMP/copilot-plan-task.log"
-          before_tasks="$RUNNER_TEMP/copilot-tasks-before.txt"
-          after_tasks="$RUNNER_TEMP/copilot-tasks-after.txt"
-          task_started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "agents/repos/${GITHUB_REPOSITORY}/tasks?per_page=100&sort=created_at&direction=desc" \
-            --jq '.tasks[].id' \
-            | sort -u > "$before_tasks"
+          task_request="$RUNNER_TEMP/copilot-task-request.json"
+          task_response="$RUNNER_TEMP/copilot-task-response.json"
+          task_status="$RUNNER_TEMP/copilot-task-status.json"
 
           {
             printf '%s\n' \
@@ -145,50 +131,82 @@ jobs:
             printf '%s\n' "$TASK_REQUEST"
           } > "$prompt_file"
 
-          gh agent-task create \
-            --repo "$GITHUB_REPOSITORY" \
-            --base "$RESOLVED_BASE" \
-            --from-file "$prompt_file" \
-            --follow \
-            2>&1 | tee "$task_log"
+          jq -n \
+            --rawfile prompt "$prompt_file" \
+            --arg base_ref "$RESOLVED_BASE" \
+            '{prompt: $prompt, base_ref: $base_ref, create_pull_request: true}' \
+            > "$task_request"
 
-          task_id="$(sed -nE 's#.*\/copilot\/tasks\/([0-9A-Fa-f-]{36}).*#\1#p' "$task_log" | head -n 1 || true)"
+          if ! gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "agents/repos/${GITHUB_REPOSITORY}/tasks" \
+            --input "$task_request" \
+            > "$task_response"; then
+            echo "The Agent Tasks API could not start the Copilot task. Verify the token permissions, Copilot plan, and repository availability." >&2
+            exit 1
+          fi
 
-          if [[ -z "$task_id" ]]; then
+          if ! jq -e \
+            '(.id | type) == "string" and (.id | test("^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")) and (.html_url | type) == "string" and (.html_url | length) > 0' \
+            "$task_response" >/dev/null; then
+            echo "The Agent Tasks API returned an invalid task identity." >&2
+            exit 1
+          fi
+
+          task_id="$(jq -r '.id' "$task_response")"
+          task_url="$(jq -r '.html_url' "$task_response")"
+          deadline="$(( $(date +%s) + 19800 ))"
+          last_state=""
+
+          while true; do
             gh api \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
-              "agents/repos/${GITHUB_REPOSITORY}/tasks?per_page=100&sort=created_at&direction=desc&since=${task_started_at}" \
-              --jq '.tasks[].id' \
-              | sort -u > "$after_tasks"
+              "agents/repos/${GITHUB_REPOSITORY}/tasks/${task_id}" \
+              > "$task_status"
 
-            mapfile -t new_task_ids < <(comm -13 "$before_tasks" "$after_tasks")
-            if (( ${#new_task_ids[@]} != 1 )); then
-              echo "Could not uniquely identify the task created by gh agent-task create." >&2
+            if ! jq -e --arg task_id "$task_id" \
+              '.id == $task_id and (.state | type) == "string"' \
+              "$task_status" >/dev/null; then
+              echo "The Agent Tasks API returned status for an unexpected task." >&2
               exit 1
             fi
-            task_id="${new_task_ids[0]}"
-          fi
 
-          if [[ ! "$task_id" =~ ^[0-9A-Fa-f-]{36}$ ]]; then
-            echo "The created Copilot task ID is invalid." >&2
-            exit 1
-          fi
+            state="$(jq -r '.state' "$task_status")"
+            if [[ "$state" != "$last_state" ]]; then
+              printf 'Copilot task %s state: %s\n' "$task_id" "$state"
+              last_state="$state"
+            fi
 
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "agents/repos/${GITHUB_REPOSITORY}/tasks/${task_id}" \
-            > "$RUNNER_TEMP/copilot-task-api.json"
+            case "$state" in
+              completed)
+                break
+                ;;
+              queued|in_progress)
+                ;;
+              failed|idle|waiting_for_user|timed_out|cancelled)
+                echo "Copilot task ended without a completed plan: $state." >&2
+                exit 1
+                ;;
+              *)
+                echo "Copilot task returned an unknown state: $state." >&2
+                exit 1
+                ;;
+            esac
 
-          if ! jq -e --arg task_id "$task_id" --arg started "$task_started_at" \
-            '.id == $task_id and .created_at >= $started' \
-            "$RUNNER_TEMP/copilot-task-api.json" >/dev/null; then
-            echo "The resolved task does not match the task created by this workflow run." >&2
-            exit 1
-          fi
+            if (( $(date +%s) >= deadline )); then
+              echo "Timed out waiting for the Copilot task to complete." >&2
+              exit 1
+            fi
+            sleep 15
+          done
 
           printf 'task_id=%s\n' "$task_id" >> "$GITHUB_OUTPUT"
+          {
+            printf 'Copilot task: %s\n\n' "$task_url"
+            printf 'Final task state: `%s`\n' "$state"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Normalize and validate the exact plan PR
         id: validate
@@ -198,21 +216,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh agent-task view \
-            --repo "$GITHUB_REPOSITORY" \
-            "$TASK_ID" \
-            --json id,state,pullRequestNumber,pullRequestUrl \
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "agents/repos/${GITHUB_REPOSITORY}/tasks/${TASK_ID}" \
             > "$RUNNER_TEMP/copilot-task.json"
 
           if ! jq -e --arg task_id "$TASK_ID" \
-            '.id == $task_id and (.state | ascii_downcase) == "completed" and (.pullRequestNumber | type == "number") and (.pullRequestNumber > 0) and (.pullRequestUrl | type == "string") and (.pullRequestUrl | length > 0)' \
+            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and .data.id != null)] | length) == 1' \
             "$RUNNER_TEMP/copilot-task.json" >/dev/null; then
-            echo "The exact Copilot task did not complete successfully with a pull request." >&2
+            echo "The exact completed Copilot task does not have one pull request artifact." >&2
             exit 1
           fi
 
-          pr_number="$(jq -r '.pullRequestNumber' "$RUNNER_TEMP/copilot-task.json")"
-          task_pr_url="$(jq -r '.pullRequestUrl' "$RUNNER_TEMP/copilot-task.json")"
+          pr_number="$(jq -r '[.artifacts[] | select(.provider == "github" and .type == "pull" and .data.id != null)][0].data.id | tostring' "$RUNNER_TEMP/copilot-task.json")"
+          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "The Copilot task returned an invalid pull request number." >&2
+            exit 1
+          fi
 
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" > "$RUNNER_TEMP/plan-pr.json"
           if [[ "$(jq -r '.state' "$RUNNER_TEMP/plan-pr.json")" != "open" ]]; then
@@ -230,7 +251,7 @@ jobs:
           head_branch="$(jq -r '.head.ref' "$RUNNER_TEMP/plan-pr.json")"
           head_sha="$(jq -r '.head.sha' "$RUNNER_TEMP/plan-pr.json")"
 
-          if [[ "$pr_url" != "$task_pr_url" ]] ||
+          if [[ "$(jq -r '.number' "$RUNNER_TEMP/plan-pr.json")" != "$pr_number" ]] ||
              [[ "$pr_base" != "$RESOLVED_BASE" ]] ||
              [[ "$(jq -r '.draft' "$RUNNER_TEMP/plan-pr.json")" != "true" ]] ||
              [[ -z "$head_branch" ]] ||
@@ -328,17 +349,16 @@ jobs:
           fi
 
           gh api user >/dev/null
-          gh agent-task view \
-            --repo "$GITHUB_REPOSITORY" \
-            "$TASK_ID" \
-            --json id,state,pullRequestNumber,pullRequestUrl \
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "agents/repos/${GITHUB_REPOSITORY}/tasks/${TASK_ID}" \
             > "$RUNNER_TEMP/approved-task.json"
 
           if ! jq -e \
             --arg task_id "$TASK_ID" \
             --argjson pr_number "$PR_NUMBER" \
-            --arg pr_url "$PR_URL" \
-            '.id == $task_id and (.state | ascii_downcase) == "completed" and .pullRequestNumber == $pr_number and .pullRequestUrl == $pr_url' \
+            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and .data.id != null)] | length) == 1 and ([.artifacts[] | select(.provider == "github" and .type == "pull" and .data.id != null)][0].data.id | tonumber) == $pr_number' \
             "$RUNNER_TEMP/approved-task.json" >/dev/null; then
             echo "The approved task no longer resolves to the expected pull request." >&2
             exit 1

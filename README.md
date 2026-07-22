@@ -54,6 +54,11 @@ to have the same Copilot agent implement the approved plan, remove `PLAN.md`,
 run the unit tests, lint, and production build, and mark the pull request ready
 for normal review. It never runs the Playwright QA suite.
 
+The workflow starts the agent through the public-preview Agent Tasks REST API,
+captures the returned task ID, and polls that exact task to completion. This
+allows the repository-scoped fine-grained PAT to be used without the OAuth-only
+authentication required by the `gh agent-task` command.
+
 Configure these repository settings before dispatching the workflow:
 
 - Create an Actions repository secret named `COPILOT_AGENT_PAT`. Its
@@ -83,14 +88,14 @@ implementation but not merge; the resulting code still goes through normal
 pull request review.
 
 The workflow stops before implementation if credentials or Context7 are not
-configured, the CLI lacks `gh agent-task` support, the base already has a root
-`PLAN.md`, the planning session fails, the task cannot be tied to one exact
-pull request, the plan PR changes any other file, or the PR identity, draft
-state, branches, or approved head SHA changes. Fix configuration failures and
-dispatch a new run. If approval is rejected, no implementation request is sent;
-rerun the failed jobs to request approval again. If the plan PR or its head SHA
-needs to change, close the partial PR and dispatch a new workflow run instead
-of reusing the pinned approval.
+configured, the Agent Tasks API denies access or times out, the base already
+has a root `PLAN.md`, the planning session fails, the returned task does not
+contain exactly one pull request artifact, the plan PR changes any other file,
+or the PR identity, draft state, branches, or approved head SHA changes. Fix
+configuration failures and dispatch a new run. If approval is rejected, no
+implementation request is sent; rerun the failed jobs to request approval
+again. If the plan PR or its head SHA needs to change, close the partial PR and
+dispatch a new workflow run instead of reusing the pinned approval.
 
 ## Deploy to Cloudflare
 
