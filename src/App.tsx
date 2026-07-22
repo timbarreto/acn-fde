@@ -495,7 +495,7 @@ function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, acce
   )
 }
 
-function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onExit }: { attempt: ActiveAttempt; bookmarks: string[]; onUpdate: (attempt: ActiveAttempt) => void; onComplete: (attempt: ActiveAttempt) => void; onBookmark: (id: string) => void; onExit: (attempt: ActiveAttempt) => void }) {
+export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onExit }: { attempt: ActiveAttempt; bookmarks: string[]; onUpdate: (attempt: ActiveAttempt) => void; onComplete: (attempt: ActiveAttempt) => void; onBookmark: (id: string) => void; onExit: (attempt: ActiveAttempt) => void }) {
   const [now, setNow] = useState(Date.now())
   const [mapOpen, setMapOpen] = useState(false)
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
@@ -664,10 +664,17 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
           <Progress value={(answeredCount / attempt.questionIds.length) * 100} className="mt-4" />
           <div className="mt-5 grid grid-cols-5 gap-2">
             {attempt.questionIds.map((id, index) => {
+              const mapQuestion = questionMap.get(id)
               const isAnswered = Boolean(attempt.answers[id]?.length)
               const isCurrent = index === attempt.currentIndex
               return (
-                <button key={id} onClick={() => { setIndex(index); setMapOpen(false) }} className={cn("relative grid aspect-square place-items-center rounded-lg border text-xs font-bold transition", isCurrent ? "border-primary ring-2 ring-primary/20" : "hover:bg-muted", isAnswered && !isCurrent && "border-primary/20 bg-primary text-primary-foreground")}>
+                <button
+                  key={id}
+                  onClick={() => { setIndex(index); setMapOpen(false) }}
+                  title={mapQuestion?.prompt}
+                  aria-label={mapQuestion ? `Question ${index + 1}: ${mapQuestion.prompt}` : `Question ${index + 1}`}
+                  className={cn("relative grid aspect-square place-items-center rounded-lg border text-xs font-bold transition", isCurrent ? "border-primary ring-2 ring-primary/20" : "hover:bg-muted", isAnswered && !isCurrent && "border-primary/20 bg-primary text-primary-foreground")}
+                >
                   {index + 1}
                   {attempt.flagged.includes(id) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-danger" />}
                 </button>
