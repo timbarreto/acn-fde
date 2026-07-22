@@ -1,0 +1,93 @@
+name: Reusable Copilot plan creation
+
+on:
+  workflow_call:
+    inputs:
+      task:
+        description: Task for Copilot to plan
+        required: true
+        type: string
+      model:
+        description: Model for the Copilot planning task
+        required: true
+        type: string
+      base_branch:
+        description: Requested base branch, or blank to use the default
+        required: false
+        type: string
+      default_base:
+        description: Repository default branch
+        required: true
+        type: string
+    outputs:
+      task_id:
+        description: Completed Copilot agent task ID
+        value: ${{ jobs.plan.outputs.task_id }}
+      pr_node_id:
+        description: GraphQL node ID of the plan pull request
+        value: ${{ jobs.plan.outputs.pr_node_id }}
+      pr_number:
+        description: Number of the plan pull request
+        value: ${{ jobs.plan.outputs.pr_number }}
+      pr_url:
+        description: URL of the plan pull request
+        value: ${{ jobs.plan.outputs.pr_url }}
+      head_branch:
+        description: Head branch of the plan pull request
+        value: ${{ jobs.plan.outputs.head_branch }}
+      head_sha:
+        description: Validated head SHA of the plan pull request
+        value: ${{ jobs.plan.outputs.head_sha }}
+      base_branch:
+        description: Validated base branch of the plan pull request
+        value: ${{ jobs.plan.outputs.base_branch }}
+    secrets:
+      copilot_agent_pat:
+        description: Fine-grained token for Agent Tasks and pull request access
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Create and validate plan PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      task_id: ${{ steps.validate.outputs.task_id }}
+      pr_node_id: ${{ steps.validate.outputs.pr_node_id }}
+      pr_number: ${{ steps.validate.outputs.pr_number }}
+      pr_url: ${{ steps.validate.outputs.pr_url }}
+      head_branch: ${{ steps.validate.outputs.head_branch }}
+      head_sha: ${{ steps.validate.outputs.head_sha }}
+      base_branch: ${{ steps.validate.outputs.base_branch }}
+    env:
+      GH_TOKEN: ${{ secrets.copilot_agent_pat }}
+      GH_PROMPT_DISABLED: "1"
+      GH_PAGER: cat
+      TASK_REQUEST: ${{ inputs.task }}
+      MODEL_REQUEST: ${{ inputs.model }}
+      BASE_INPUT: ${{ inputs.base_branch }}
+      DEFAULT_BASE: ${{ inputs.default_base }}
+    steps:
+      - name: Check out workflow support files
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Validate credentials, API access, and base branch
+        shell: bash
+        run: bash .github/scripts/copilot-plan-then-implement/preflight.sh
+
+      - name: Start and poll the Copilot cloud agent
+        id: create
+        shell: bash
+        run: bash .github/scripts/copilot-plan-then-implement/create-and-poll-task.sh
+
+      - name: Normalize and validate the exact plan PR
+        id: validate
+        shell: bash
+        env:
+          TASK_ID: ${{ steps.create.outputs.task_id }}
+        run: bash .github/scripts/copilot-plan-then-implement/validate-plan-pr.sh
