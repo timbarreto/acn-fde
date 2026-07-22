@@ -1,0 +1,65 @@
+name: Reusable Copilot plan implementation
+
+on:
+  workflow_call:
+    inputs:
+      pr_node_id:
+        description: GraphQL node ID of the approved plan pull request
+        required: true
+        type: string
+      pr_number:
+        description: Number of the approved plan pull request
+        required: true
+        type: string
+      pr_url:
+        description: URL of the approved plan pull request
+        required: true
+        type: string
+      expected_base:
+        description: Validated base branch of the approved plan pull request
+        required: true
+        type: string
+      expected_head:
+        description: Validated head branch of the approved plan pull request
+        required: true
+        type: string
+      approved_sha:
+        description: Human-approved plan commit SHA
+        required: true
+        type: string
+    secrets:
+      copilot_agent_pat:
+        description: Fine-grained token for pull request access
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  implement:
+    name: Ask Copilot to implement the approved plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.copilot_agent_pat }}
+      GH_PROMPT_DISABLED: "1"
+      GH_PAGER: cat
+      PR_NODE_ID: ${{ inputs.pr_node_id }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      PR_URL: ${{ inputs.pr_url }}
+      EXPECTED_BASE: ${{ inputs.expected_base }}
+      EXPECTED_HEAD: ${{ inputs.expected_head }}
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+    steps:
+      - name: Check out workflow support files
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Revalidate the approved pull request
+        shell: bash
+        run: bash .github/scripts/copilot-plan-then-implement/revalidate-plan-pr.sh
+
+      - name: Request implementation on the exact plan PR
+        shell: bash
+        run: bash .github/scripts/copilot-plan-then-implement/request-implementation.sh

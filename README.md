@@ -54,6 +54,11 @@ exact pull request to have Copilot implement the approved plan, remove `PLAN.md`
 run the unit tests, lint, and production build, and mark the pull request ready
 for normal review. It never runs the Playwright QA suite.
 
+The public workflow remains `.github/workflows/copilot-plan-then-implement.yml`.
+It delegates the planning and implementation phases to reusable workflows, with
+their API operations and validation rules kept in focused scripts under
+`.github/scripts/copilot-plan-then-implement/`.
+
 The workflow starts the agent through the public-preview Agent Tasks REST API,
 captures the returned task ID, and polls that exact task to completion with
 bounded retries for transient status failures. It reuses the completed response
