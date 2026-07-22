@@ -120,3 +120,31 @@ export function formatDuration(seconds: number) {
   const minutes = Math.floor(safe / 60)
   return `${minutes}:${String(safe % 60).padStart(2, "0")}`
 }
+
+type TimedAttempt = Pick<ActiveAttempt, "startedAt" | "durationMinutes" | "pausedAt" | "pausedDurationMs">
+
+export function isAttemptPaused(attempt: TimedAttempt) {
+  return typeof attempt.pausedAt === "number"
+}
+
+export function getAttemptElapsedMs(attempt: TimedAttempt, now = Date.now()) {
+  const referenceTime = attempt.pausedAt ?? now
+  return Math.max(0, referenceTime - attempt.startedAt - (attempt.pausedDurationMs ?? 0))
+}
+
+export function getAttemptRemainingSeconds(attempt: TimedAttempt, now = Date.now()) {
+  const durationMs = attempt.durationMinutes * 60_000
+  return Math.max(0, Math.ceil((durationMs - getAttemptElapsedMs(attempt, now)) / 1000))
+}
+
+export function pauseAttemptTimer(attempt: ActiveAttempt, now = Date.now()) {
+  if (isAttemptPaused(attempt)) return attempt
+  return { ...attempt, pausedAt: now }
+}
+
+export function resumeAttemptTimer(attempt: ActiveAttempt, now = Date.now()) {
+  const pausedAt = attempt.pausedAt
+  if (pausedAt === undefined) return attempt
+  const pausedDurationMs = (attempt.pausedDurationMs ?? 0) + Math.max(0, now - pausedAt)
+  return { ...attempt, pausedAt: undefined, pausedDurationMs }
+}

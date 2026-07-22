@@ -19,6 +19,7 @@ import {
   Home,
   Layers3,
   Menu,
+  Pause,
   Play,
   RotateCcw,
   ShieldCheck,
@@ -36,7 +37,7 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
-import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, PASS_SCORE, progressFromAttempts, readinessScore, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptElapsedMs, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, progressFromAttempts, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedState, Question } from "@/types"
@@ -120,6 +121,7 @@ function App() {
       currentIndex: 0,
       startedAt: Date.now(),
       durationMinutes,
+      pausedDurationMs: 0,
       domains,
     }
     setSaved((current) => ({ ...current, activeAttempt: attempt }))
@@ -137,10 +139,12 @@ function App() {
   }
 
   const completeAttempt = useCallback((attempt: ActiveAttempt) => {
+    const completedAt = Date.now()
+    const finalizedAttempt = resumeAttemptTimer(attempt, completedAt)
     const completed: CompletedAttempt = {
-      ...attempt,
-      completedAt: Date.now(),
-      score: calculateScore(attempt, questionMap),
+      ...finalizedAttempt,
+      completedAt,
+      score: calculateScore(finalizedAttempt, questionMap),
     }
     setSaved((current) => ({
       ...current,
@@ -150,6 +154,20 @@ function App() {
     setResult(completed)
     navigate("results")
   }, [navigate])
+
+  const resumeActiveAttempt = () => {
+    const resumedAt = Date.now()
+    setSaved((current) => ({
+      ...current,
+      activeAttempt: current.activeAttempt ? resumeAttemptTimer(current.activeAttempt, resumedAt) : null,
+    }))
+    navigate("exam")
+  }
+
+  const exitAttempt = (attempt: ActiveAttempt) => {
+    setSaved((current) => ({ ...current, activeAttempt: attempt }))
+    navigate("dashboard")
+  }
 
   const toggleBookmark = (id: string) => {
     setSaved((current) => ({
@@ -168,7 +186,7 @@ function App() {
         onUpdate={updateAttempt}
         onComplete={completeAttempt}
         onBookmark={toggleBookmark}
-        onExit={() => navigate("dashboard")}
+        onExit={exitAttempt}
       />
     )
   }
@@ -181,7 +199,7 @@ function App() {
           <Dashboard
             saved={saved}
             onStart={() => navigate("setup")}
-            onResume={() => navigate("exam")}
+            onResume={resumeActiveAttempt}
             onDomain={(domain) => startAttempt("domain", [domain])}
             onReview={() => navigate("review")}
             onResources={() => navigate("resources")}
@@ -477,27 +495,30 @@ function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, acce
   )
 }
 
-function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onExit }: { attempt: ActiveAttempt; bookmarks: string[]; onUpdate: (attempt: ActiveAttempt) => void; onComplete: (attempt: ActiveAttempt) => void; onBookmark: (id: string) => void; onExit: () => void }) {
+function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onExit }: { attempt: ActiveAttempt; bookmarks: string[]; onUpdate: (attempt: ActiveAttempt) => void; onComplete: (attempt: ActiveAttempt) => void; onBookmark: (id: string) => void; onExit: (attempt: ActiveAttempt) => void }) {
   const [now, setNow] = useState(Date.now())
   const [mapOpen, setMapOpen] = useState(false)
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const currentId = attempt.questionIds[attempt.currentIndex]
   const question = questionMap.get(currentId)!
   const answer = attempt.answers[currentId] ?? []
-  const remaining = Math.max(0, Math.ceil((attempt.startedAt + attempt.durationMinutes * 60_000 - now) / 1000))
+  const timerPaused = isAttemptPaused(attempt)
+  const remaining = getAttemptRemainingSeconds(attempt, now)
   const answeredCount = Object.values(attempt.answers).filter((values) => values.length).length
   const domain = domainMap[question.domain]
   const isRevealed = Boolean(revealed[currentId])
   const isCurrentCorrect = answersMatch(answer, question.correctAnswers)
 
   useEffect(() => {
+    if (timerPaused) return
+    setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [timerPaused])
 
   useEffect(() => {
-    if (remaining === 0) onComplete(attempt)
-  }, [remaining, onComplete, attempt])
+    if (!timerPaused && remaining === 0) onComplete(attempt)
+  }, [remaining, onComplete, attempt, timerPaused])
 
   const choose = (optionId: string) => {
     if (isRevealed) return
@@ -509,19 +530,40 @@ function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onEx
 
   const setIndex = (index: number) => onUpdate({ ...attempt, currentIndex: index })
   const toggleFlag = () => onUpdate({ ...attempt, flagged: attempt.flagged.includes(currentId) ? attempt.flagged.filter((id) => id !== currentId) : [...attempt.flagged, currentId] })
+  const toggleTimer = () => {
+    const changedAt = Date.now()
+    setNow(changedAt)
+    onUpdate(timerPaused ? resumeAttemptTimer(attempt, changedAt) : pauseAttemptTimer(attempt, changedAt))
+  }
+  const saveAndExit = () => onExit(pauseAttemptTimer(attempt))
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b bg-card">
         <div className="container flex h-[72px] items-center justify-between gap-4">
-          <button onClick={onExit} className="hidden rounded-xl text-left focus-visible:ring-2 sm:block"><Brand /></button>
+          <button onClick={saveAndExit} className="hidden rounded-xl text-left focus-visible:ring-2 sm:block"><Brand /></button>
           <div className="min-w-0 flex-1 sm:flex-none">
             <div className="truncate text-sm font-bold">{attempt.label}</div>
             <div className="text-xs text-muted-foreground">Question {attempt.currentIndex + 1} of {attempt.questionIds.length}</div>
           </div>
           <div className="flex items-center gap-2">
-            <div className={cn("flex h-10 items-center gap-2 rounded-lg border bg-background px-3 font-mono text-sm font-bold", remaining < 300 && "border-danger-border bg-danger-soft text-danger")}><Clock3 className="h-4 w-4" />{formatDuration(remaining)}</div>
-            <Button variant="outline" className="hidden sm:flex" onClick={onExit}>Save & exit</Button>
+            <button
+              type="button"
+              onClick={toggleTimer}
+              disabled={remaining === 0}
+              aria-label={`${timerPaused ? "Resume" : "Pause"} timer, ${formatDuration(remaining)} remaining`}
+              aria-pressed={timerPaused}
+              title={timerPaused ? "Resume timer" : "Pause timer"}
+              className={cn(
+                "flex h-10 items-center gap-2 rounded-lg border bg-background px-3 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+                timerPaused ? "border-primary/40 bg-primary/10 text-primary" : remaining < 300 && "border-danger-border bg-danger-soft text-danger",
+              )}
+            >
+              {timerPaused ? <Play className="h-4 w-4 fill-current" /> : <Pause className="h-4 w-4" />}
+              <span className="font-mono">{formatDuration(remaining)}</span>
+              {timerPaused && <span className="hidden text-xs sm:inline">Paused</span>}
+            </button>
+            <Button variant="outline" className="hidden sm:flex" onClick={saveAndExit}>Save & exit</Button>
             <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMapOpen(!mapOpen)} aria-label="Toggle question map"><Layers3 className="h-4 w-4" /></Button>
           </div>
         </div>
@@ -648,7 +690,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
   const [expanded, setExpanded] = useState<string | null>(null)
   const passed = attempt.score >= PASS_SCORE
   const correctCount = attempt.questionIds.filter((id) => answersMatch(attempt.answers[id], questionMap.get(id)!.correctAnswers)).length
-  const duration = Math.max(1, Math.round((attempt.completedAt - attempt.startedAt) / 60_000))
+  const duration = Math.max(1, Math.round(getAttemptElapsedMs(attempt, attempt.completedAt) / 60_000))
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
       <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">

@@ -32,6 +32,8 @@ export interface ActiveAttempt {
   currentIndex: number
   startedAt: number
   durationMinutes: number
+  pausedAt?: number
+  pausedDurationMs?: number
   domains?: DomainId[]
 }
 
