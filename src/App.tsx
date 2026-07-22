@@ -865,7 +865,7 @@ function Footer() {
       <div className="container flex flex-col gap-5 py-8 sm:flex-row sm:items-center sm:justify-between">
         <Brand />
         <p className="max-w-xl text-xs leading-5 text-muted-foreground">Unofficial study aid. Not affiliated with or endorsed by Microsoft or GitHub. GH-600, GitHub, and Copilot are trademarks of their respective owners.</p>
-        <a href="https://learn.microsoft.com/en-us/credentials/certifications/agentic-ai-developer/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-brand-bright hover:underline"><Github className="h-4 w-4" /> Official credential</a>
+        <a href="https://learn.microsoft.com/en-us/credentials/certifications/agentic-ai-developer/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-brand-bright hover:underline"><Github className="h-4 w-4" /> Agentic AI Developer</a>
       </div>
     </footer>
   )
