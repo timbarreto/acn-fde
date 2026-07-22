@@ -46,11 +46,11 @@ npm run preview
 ## Copilot plan-approval workflow
 
 The manually dispatched **Copilot plan, approve, then implement** workflow asks
-the default Copilot cloud agent to delegate planning to the repository's
-`context7-plan-review` custom agent. The first agent session opens a draft pull
-request containing only `PLAN.md`. After a required reviewer approves the
-`plan-approval` environment, the workflow comments on that exact pull request
-to have the same Copilot agent implement the approved plan, remove `PLAN.md`,
+the Copilot cloud agent to delegate planning to the repository's
+`context7-plan-review` custom agent. The first agent session uses the selected
+model and opens a draft pull request containing only `PLAN.md`. After a required
+reviewer approves the `plan-approval` environment, the workflow comments on that
+exact pull request to have Copilot implement the approved plan, remove `PLAN.md`,
 run the unit tests, lint, and production build, and mark the pull request ready
 for normal review. It never runs the Playwright QA suite.
 
@@ -75,14 +75,29 @@ Configure these repository settings before dispatching the workflow:
   Enabling prevention of self-review is recommended.
 
 In **Actions**, select **Copilot plan, approve, then implement**, choose **Run
-workflow**, enter the task, and optionally enter a base branch. A blank base
-branch uses the repository default. The equivalent CLI dispatch is:
+workflow**, enter the task, select a model, and optionally enter a base branch.
+A blank base branch uses the repository default. The equivalent CLI dispatch is:
 
 ```bash
 gh workflow run copilot-plan-then-implement.yml \
   -f task="Describe the scoped change" \
+  -f model="auto" \
   -f base_branch="main"
 ```
+
+Supported model values are `auto`, `gpt-5.4`, `gpt-5.3-codex`,
+`gpt-5.2-codex`, `claude-opus-4.6`, `claude-sonnet-4.6`,
+`claude-opus-4.5`, and `claude-sonnet-4.5`. `auto` is the default and omits the
+`model` property from the Agent Tasks request so GitHub can select the model.
+Every explicit choice is sent as the API model ID. These public-preview values
+come from the [Agent Tasks API documentation](https://docs.github.com/en/rest/agent-tasks/agent-tasks?apiVersion=2026-03-10)
+and may change.
+
+The selected model starts the planning task. The workflow does not start a
+separate implementation task: it continues work by mentioning `@copilot` on the
+same pull request. GitHub [uses the original pull request model by default for
+follow-up sessions](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-on-github#continuing-work-on-a-pull-request),
+so the model also remains the default for implementation.
 
 Review `PLAN.md` at the pull request URL shown on the waiting environment job.
 Approve that deployment only when the plan is acceptable. Approval authorizes
@@ -94,10 +109,13 @@ configured, the Agent Tasks API denies access or times out, the base already
 has a root `PLAN.md`, the planning session fails, the returned task does not
 contain exactly one resolvable pull request artifact, the plan PR changes any
 other file, or the PR node identity, draft state, branches, or approved head
-SHA changes. Fix configuration failures and dispatch a new run. If approval is
-rejected, no implementation request is sent; rerun the failed jobs to request
-approval again. If the plan PR or its head SHA needs to change, close the partial PR and
-dispatch a new workflow run instead of reusing the pinned approval.
+SHA changes. An explicit model can also be rejected when it is unavailable to
+the token owner's Copilot plan or blocked by organization policy; choose an
+allowed model or `auto`, then dispatch a new run. Fix other configuration
+failures and dispatch a new run. If approval is rejected, no implementation
+request is sent; rerun the failed jobs to request approval again. If the plan PR
+or its head SHA needs to change, close the partial PR and dispatch a new workflow
+run instead of reusing the pinned approval.
 
 ## Deploy to Cloudflare
 
