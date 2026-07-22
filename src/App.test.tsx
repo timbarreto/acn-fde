@@ -26,7 +26,9 @@ describe("ExamSetup", () => {
 
 describe("ExamRunner", () => {
   it("adds the question prompt to each question map button tooltip", () => {
-    const [firstQuestion, secondQuestion] = questionData as Question[]
+    const questions = questionData as Question[]
+    const firstQuestion = questions.find(({ id }) => id === "arch-001")!
+    const secondQuestion = questions.find(({ id }) => id === "arch-002")!
     const firstPrompt = serializeAttributeValue(firstQuestion.prompt)
     const secondPrompt = serializeAttributeValue(secondQuestion.prompt)
     const attempt: ActiveAttempt = {
