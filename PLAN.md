@@ -8,11 +8,11 @@ Add a native hover tooltip to each question-map cell in `ExamRunner` by using th
 
 ## Relevant files
 
-- `/home/runner/work/acn-fde/acn-fde/src/App.tsx:498-683` — `ExamRunner` contains the question map UI.
-- `/home/runner/work/acn-fde/acn-fde/src/App.tsx:659-673` — the map buttons that currently render only the question number.
-- `/home/runner/work/acn-fde/acn-fde/src/types.ts:10-20` — confirms each `Question` has a `prompt` field for tooltip text.
-- `/home/runner/work/acn-fde/acn-fde/src/components/ui/` — reusable UI primitives; no existing tooltip UI wrapper was identified.
-- `/home/runner/work/acn-fde/acn-fde/package.json` and `/home/runner/work/acn-fde/acn-fde/package-lock.json` — dependency inventory and installed versions.
+- `src/App.tsx:498-683` — `ExamRunner` contains the question map UI.
+- `src/App.tsx:659-673` — the map buttons that currently render only the question number.
+- `src/types.ts:10-20` — confirms each `Question` has a `prompt` field for tooltip text.
+- `src/components/ui/` — reusable UI primitives; no existing tooltip UI wrapper was identified.
+- `package.json` and `package-lock.json` — dependency inventory and installed versions.
 
 ## Dependency versions
 
@@ -36,7 +36,7 @@ Add a native hover tooltip to each question-map cell in `ExamRunner` by using th
 
 ## Ordered implementation steps
 
-1. In `/home/runner/work/acn-fde/acn-fde/src/App.tsx`, update the question-map loop in `ExamRunner` (`attempt.questionIds.map(...)`) to look up the full `Question` for each `id` from `questionMap`.
+1. In `src/App.tsx`, update the question-map loop in `ExamRunner` (`attempt.questionIds.map(...)`) to look up the full `Question` for each `id` from `questionMap`.
 2. Add a native tooltip to each map button with the question text, for example `title={mapQuestion.prompt}`.
 3. Optionally add `aria-label={\`Question ${index + 1}: ${mapQuestion.prompt}\`}` to the same button if the implementation should expose the full text beyond the visible numeric label.
 4. Keep the existing button click handler, current/answered styling, and flag indicator unchanged so the change stays scoped to hover text only.
