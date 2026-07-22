@@ -7,6 +7,20 @@ on:
         description: Task for Copilot to plan and implement
         required: true
         type: string
+      model:
+        description: Model for the Copilot planning task
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - gpt-5.4
+          - gpt-5.3-codex
+          - gpt-5.2-codex
+          - claude-opus-4.6
+          - claude-sonnet-4.6
+          - claude-opus-4.5
+          - claude-sonnet-4.5
       base_branch:
         description: Base branch (defaults to the repository default branch)
         required: false
@@ -37,6 +51,7 @@ jobs:
       GH_PROMPT_DISABLED: "1"
       GH_PAGER: cat
       TASK_REQUEST: ${{ inputs.task }}
+      MODEL_REQUEST: ${{ inputs.model }}
       BASE_INPUT: ${{ inputs.base_branch }}
       DEFAULT_BASE: ${{ github.event.repository.default_branch }}
     steps:
@@ -54,6 +69,15 @@ jobs:
             echo "The task input must contain non-whitespace text." >&2
             exit 1
           fi
+
+          case "$MODEL_REQUEST" in
+            auto|gpt-5.4|gpt-5.3-codex|gpt-5.2-codex|claude-opus-4.6|claude-sonnet-4.6|claude-opus-4.5|claude-sonnet-4.5)
+              ;;
+            *)
+              echo "Unsupported model '$MODEL_REQUEST'. Choose a model offered by the workflow dispatch form." >&2
+              exit 1
+              ;;
+          esac
 
           gh api user >/dev/null
 
@@ -101,7 +125,7 @@ jobs:
 
           printf 'RESOLVED_BASE=%s\n' "$base_branch" >> "$GITHUB_ENV"
 
-      - name: Start and poll the default Copilot cloud agent
+      - name: Start and poll the Copilot cloud agent
         id: create
         shell: bash
         run: |
@@ -135,7 +159,9 @@ jobs:
           jq -n \
             --rawfile prompt "$prompt_file" \
             --arg base_ref "$RESOLVED_BASE" \
-            '{prompt: $prompt, base_ref: $base_ref, create_pull_request: true}' \
+            --arg model "$MODEL_REQUEST" \
+            '{prompt: $prompt, base_ref: $base_ref, create_pull_request: true}
+              + (if $model == "auto" then {} else {model: $model} end)' \
             > "$task_request"
 
           if ! gh api --method POST \
@@ -144,7 +170,8 @@ jobs:
             "agents/repos/${GITHUB_REPOSITORY}/tasks" \
             --input "$task_request" \
             > "$task_response"; then
-            echo "The Agent Tasks API could not start the Copilot task. Verify the token permissions, Copilot plan, and repository availability." >&2
+            echo "The Agent Tasks API could not start the Copilot task with requested model '$MODEL_REQUEST'." >&2
+            echo "Model availability depends on the Copilot plan and organization policy; also verify token permissions and repository availability." >&2
             exit 1
           fi
 
@@ -214,10 +241,24 @@ jobs:
             sleep 15
           done
 
+          reported_model="$(jq -r '
+            [.sessions[]?
+              | select(.state == "completed")
+              | select((.model | type) == "string" and (.model | length) > 0)
+              | .model]
+            | last // empty
+          ' "$task_status")"
+
           printf 'task_id=%s\n' "$task_id" >> "$GITHUB_OUTPUT"
           {
             printf 'Copilot task: %s\n\n' "$task_url"
-            printf 'Final task state: `%s`\n' "$state"
+            printf 'Final task state: `%s`\n\n' "$state"
+            printf 'Requested model: `%s`\n\n' "$MODEL_REQUEST"
+            if [[ -n "$reported_model" ]]; then
+              printf 'Completed session model: `%s`\n' "$reported_model"
+            else
+              printf 'Completed session model: _not reported by the Agent Tasks API_\n'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Normalize and validate the exact plan PR
