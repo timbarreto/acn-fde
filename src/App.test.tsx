@@ -15,6 +15,12 @@ function escapeHtmlAttribute(value: string) {
     .replaceAll(">", "&gt;")
 }
 
+describe("escapeHtmlAttribute", () => {
+  it("escapes special characters used in HTML attributes", () => {
+    expect(escapeHtmlAttribute(`A&B "quote" 'apostrophe' <tag>`)).toBe("A&amp;B &quot;quote&quot; &#39;apostrophe&#39; &lt;tag&gt;")
+  })
+})
+
 describe("ExamSetup", () => {
   it("renders every focused-practice domain with its published number and name", () => {
     const markup = renderToStaticMarkup(<ExamSetup onStart={vi.fn()} />)
