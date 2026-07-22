@@ -55,9 +55,11 @@ run the unit tests, lint, and production build, and mark the pull request ready
 for normal review. It never runs the Playwright QA suite.
 
 The workflow starts the agent through the public-preview Agent Tasks REST API,
-captures the returned task ID, and polls that exact task to completion. This
-allows the repository-scoped fine-grained PAT to be used without the OAuth-only
-authentication required by the `gh agent-task` command.
+captures the returned task ID, and polls that exact task to completion with
+bounded retries for transient status failures. It reuses the completed response
+and resolves the pull artifact's global node ID to the exact repository pull
+request. This allows the repository-scoped fine-grained PAT to be used without
+the OAuth-only authentication required by the `gh agent-task` command.
 
 Configure these repository settings before dispatching the workflow:
 
@@ -90,11 +92,11 @@ pull request review.
 The workflow stops before implementation if credentials or Context7 are not
 configured, the Agent Tasks API denies access or times out, the base already
 has a root `PLAN.md`, the planning session fails, the returned task does not
-contain exactly one pull request artifact, the plan PR changes any other file,
-or the PR identity, draft state, branches, or approved head SHA changes. Fix
-configuration failures and dispatch a new run. If approval is rejected, no
-implementation request is sent; rerun the failed jobs to request approval
-again. If the plan PR or its head SHA needs to change, close the partial PR and
+contain exactly one resolvable pull request artifact, the plan PR changes any
+other file, or the PR node identity, draft state, branches, or approved head
+SHA changes. Fix configuration failures and dispatch a new run. If approval is
+rejected, no implementation request is sent; rerun the failed jobs to request
+approval again. If the plan PR or its head SHA needs to change, close the partial PR and
 dispatch a new workflow run instead of reusing the pinned approval.
 
 ## Deploy to Cloudflare

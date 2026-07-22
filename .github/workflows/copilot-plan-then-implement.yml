@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 360
     outputs:
       task_id: ${{ steps.validate.outputs.task_id }}
+      pr_node_id: ${{ steps.validate.outputs.pr_node_id }}
       pr_number: ${{ steps.validate.outputs.pr_number }}
       pr_url: ${{ steps.validate.outputs.pr_url }}
       head_branch: ${{ steps.validate.outputs.head_branch }}
@@ -158,13 +159,24 @@ jobs:
           task_url="$(jq -r '.html_url' "$task_response")"
           deadline="$(( $(date +%s) + 19800 ))"
           last_state=""
+          consecutive_fetch_failures=0
 
           while true; do
-            gh api \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2026-03-10" \
-              "agents/repos/${GITHUB_REPOSITORY}/tasks/${task_id}" \
-              > "$task_status"
+            if ! gh api \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2026-03-10" \
+                "agents/repos/${GITHUB_REPOSITORY}/tasks/${task_id}" \
+                > "$task_status"; then
+              consecutive_fetch_failures="$((consecutive_fetch_failures + 1))"
+              if (( consecutive_fetch_failures >= 5 )); then
+                echo "The Agent Tasks API failed five consecutive status requests." >&2
+                exit 1
+              fi
+              echo "The Agent Tasks API status request failed; retrying ($consecutive_fetch_failures/5)." >&2
+              sleep 5
+              continue
+            fi
+            consecutive_fetch_failures=0
 
             if ! jq -e --arg task_id "$task_id" \
               '.id == $task_id and (.state | type) == "string"' \
@@ -216,20 +228,41 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "agents/repos/${GITHUB_REPOSITORY}/tasks/${TASK_ID}" \
-            > "$RUNNER_TEMP/copilot-task.json"
+          completed_task="$RUNNER_TEMP/copilot-task-status.json"
 
           if ! jq -e --arg task_id "$TASK_ID" \
-            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and .data.id != null)] | length) == 1' \
-            "$RUNNER_TEMP/copilot-task.json" >/dev/null; then
+            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and (.data.global_id | type) == "string" and (.data.global_id | length) > 0)] | length) == 1' \
+            "$completed_task" >/dev/null; then
             echo "The exact completed Copilot task does not have one pull request artifact." >&2
             exit 1
           fi
 
-          pr_number="$(jq -r '[.artifacts[] | select(.provider == "github" and .type == "pull" and .data.id != null)][0].data.id | tostring' "$RUNNER_TEMP/copilot-task.json")"
+          pr_node_id="$(jq -r '[.artifacts[] | select(.provider == "github" and .type == "pull" and (.data.global_id | type) == "string" and (.data.global_id | length) > 0)][0].data.global_id' "$completed_task")"
+          gh api graphql \
+            -f query='query($id: ID!) {
+              node(id: $id) {
+                __typename
+                ... on PullRequest {
+                  id
+                  number
+                  url
+                  repository { nameWithOwner }
+                }
+              }
+            }' \
+            -F id="$pr_node_id" \
+            > "$RUNNER_TEMP/plan-pr-node.json"
+
+          if ! jq -e \
+            --arg node_id "$pr_node_id" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            '.data.node.__typename == "PullRequest" and .data.node.id == $node_id and .data.node.repository.nameWithOwner == $repository' \
+            "$RUNNER_TEMP/plan-pr-node.json" >/dev/null; then
+            echo "The Copilot task pull artifact does not resolve to a pull request in this repository." >&2
+            exit 1
+          fi
+
+          pr_number="$(jq -r '.data.node.number | tostring' "$RUNNER_TEMP/plan-pr-node.json")"
           if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
             echo "The Copilot task returned an invalid pull request number." >&2
             exit 1
@@ -252,6 +285,8 @@ jobs:
           head_sha="$(jq -r '.head.sha' "$RUNNER_TEMP/plan-pr.json")"
 
           if [[ "$(jq -r '.number' "$RUNNER_TEMP/plan-pr.json")" != "$pr_number" ]] ||
+             [[ "$(jq -r '.node_id' "$RUNNER_TEMP/plan-pr.json")" != "$pr_node_id" ]] ||
+             [[ "$(jq -r '.html_url' "$RUNNER_TEMP/plan-pr.json")" != "$(jq -r '.data.node.url' "$RUNNER_TEMP/plan-pr-node.json")" ]] ||
              [[ "$pr_base" != "$RESOLVED_BASE" ]] ||
              [[ "$(jq -r '.draft' "$RUNNER_TEMP/plan-pr.json")" != "true" ]] ||
              [[ -z "$head_branch" ]] ||
@@ -292,6 +327,7 @@ jobs:
 
           {
             printf 'task_id=%s\n' "$TASK_ID"
+            printf 'pr_node_id=%s\n' "$pr_node_id"
             printf 'pr_number=%s\n' "$pr_number"
             printf 'pr_url=%s\n' "$pr_url"
             printf 'head_branch=%s\n' "$head_branch"
@@ -331,14 +367,14 @@ jobs:
       GH_TOKEN: ${{ secrets.COPILOT_AGENT_PAT }}
       GH_PROMPT_DISABLED: "1"
       GH_PAGER: cat
-      TASK_ID: ${{ needs.plan.outputs.task_id }}
+      PR_NODE_ID: ${{ needs.plan.outputs.pr_node_id }}
       PR_NUMBER: ${{ needs.plan.outputs.pr_number }}
       PR_URL: ${{ needs.plan.outputs.pr_url }}
       EXPECTED_BASE: ${{ needs.plan.outputs.base_branch }}
       EXPECTED_HEAD: ${{ needs.plan.outputs.head_branch }}
       APPROVED_SHA: ${{ needs.plan.outputs.head_sha }}
     steps:
-      - name: Revalidate the approved task and pull request
+      - name: Revalidate the approved pull request
         shell: bash
         run: |
           set -euo pipefail
@@ -349,29 +385,15 @@ jobs:
           fi
 
           gh api user >/dev/null
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "agents/repos/${GITHUB_REPOSITORY}/tasks/${TASK_ID}" \
-            > "$RUNNER_TEMP/approved-task.json"
-
-          if ! jq -e \
-            --arg task_id "$TASK_ID" \
-            --argjson pr_number "$PR_NUMBER" \
-            '.id == $task_id and .state == "completed" and ([.artifacts[]? | select(.provider == "github" and .type == "pull" and .data.id != null)] | length) == 1 and ([.artifacts[] | select(.provider == "github" and .type == "pull" and .data.id != null)][0].data.id | tonumber) == $pr_number' \
-            "$RUNNER_TEMP/approved-task.json" >/dev/null; then
-            echo "The approved task no longer resolves to the expected pull request." >&2
-            exit 1
-          fi
-
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$RUNNER_TEMP/approved-pr.json"
           if ! jq -e \
             --argjson number "$PR_NUMBER" \
+            --arg node_id "$PR_NODE_ID" \
             --arg url "$PR_URL" \
             --arg base "$EXPECTED_BASE" \
             --arg head "$EXPECTED_HEAD" \
             --arg sha "$APPROVED_SHA" \
-            '.number == $number and .html_url == $url and .state == "open" and .draft == true and .base.ref == $base and .head.ref == $head and .head.sha == $sha' \
+            '.number == $number and .node_id == $node_id and .html_url == $url and .state == "open" and .draft == true and .base.ref == $base and .head.ref == $head and .head.sha == $sha' \
             "$RUNNER_TEMP/approved-pr.json" >/dev/null; then
             echo "The plan pull request changed after validation; implementation will not start." >&2
             exit 1
