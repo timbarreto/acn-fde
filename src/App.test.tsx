@@ -5,21 +5,12 @@ import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import type { ActiveAttempt, Question } from "@/types"
 
-function escapeHtmlAttribute(value: string) {
-  // Escape ampersands first so the replacements below are not double-escaped.
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
+function serializeAttributeValue(value: string) {
+  const markup = renderToStaticMarkup(<div data-value={value} />)
+  const match = markup.match(/data-value="([^"]*)"/)
+  expect(match).not.toBeNull()
+  return match![1]
 }
-
-describe("escapeHtmlAttribute", () => {
-  it("escapes special characters used in HTML attributes", () => {
-    expect(escapeHtmlAttribute(`A&B "quote" 'apostrophe' <tag>`)).toBe("A&amp;B &quot;quote&quot; &#39;apostrophe&#39; &lt;tag&gt;")
-  })
-})
 
 describe("ExamSetup", () => {
   it("renders every focused-practice domain with its published number and name", () => {
@@ -36,6 +27,8 @@ describe("ExamSetup", () => {
 describe("ExamRunner", () => {
   it("adds the question prompt to each question map button tooltip", () => {
     const [firstQuestion, secondQuestion] = questionData as Question[]
+    const firstPrompt = serializeAttributeValue(firstQuestion.prompt)
+    const secondPrompt = serializeAttributeValue(secondQuestion.prompt)
     const attempt: ActiveAttempt = {
       id: "attempt-1",
       mode: "quick",
@@ -59,9 +52,9 @@ describe("ExamRunner", () => {
       />,
     )
 
-    expect(markup).toContain(`title="${escapeHtmlAttribute(firstQuestion.prompt)}"`)
-    expect(markup).toContain(`aria-label="Question 1: ${escapeHtmlAttribute(firstQuestion.prompt)}"`)
-    expect(markup).toContain(`title="${escapeHtmlAttribute(secondQuestion.prompt)}"`)
-    expect(markup).toContain(`aria-label="Question 2: ${escapeHtmlAttribute(secondQuestion.prompt)}"`)
+    expect(markup).toContain(`title="${firstPrompt}"`)
+    expect(markup).toContain(`aria-label="Question 1: ${firstPrompt}"`)
+    expect(markup).toContain(`title="${secondPrompt}"`)
+    expect(markup).toContain(`aria-label="Question 2: ${secondPrompt}"`)
   })
 })
