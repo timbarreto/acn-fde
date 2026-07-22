@@ -6,7 +6,12 @@ import questionData from "@/data/questions.json"
 import type { ActiveAttempt, Question } from "@/types"
 
 function escapeHtmlAttribute(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("\"", "&quot;")
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
 }
 
 describe("ExamSetup", () => {
@@ -50,5 +55,6 @@ describe("ExamRunner", () => {
     expect(markup).toContain(`title="${escapeHtmlAttribute(firstQuestion.prompt)}"`)
     expect(markup).toContain(`aria-label="Question 1: ${escapeHtmlAttribute(firstQuestion.prompt)}"`)
     expect(markup).toContain(`title="${escapeHtmlAttribute(secondQuestion.prompt)}"`)
+    expect(markup).toContain(`aria-label="Question 2: ${escapeHtmlAttribute(secondQuestion.prompt)}"`)
   })
 })
