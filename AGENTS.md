@@ -94,6 +94,23 @@ retains the 30 most recent completed attempts.
 - Update `README.md` when setup commands, user-visible capabilities, or the
   content model change.
 
+## Agent skills
+
+### Issue tracker
+
+Track requests and PRDs in GitHub Issues for `timbarreto/acn-fde`. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical Matt Pocock triage labels. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use the single-context domain documentation layout. See
+`docs/agents/domain.md`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
