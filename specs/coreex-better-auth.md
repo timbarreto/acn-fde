@@ -31,10 +31,14 @@ These are not preferences; each one prevents a specific failure ([#38](https://g
 - **Co-locate the container and the database.** Containers run nearest the *incoming request* by default and can restart on another continent, while a Neon project's region is immutable after creation. Set container `constraints.regions` to `["ENAM"]` and create the Neon project in `aws-us-east-1`/`aws-us-east-2`.
 - **Pin Neon's autoscale maximum to 0.25 CU.** The Free plan allows autoscaling to 2 CU, which can burn the 100 CU-hour monthly budget up to 8x faster. Exhausting CU-hours suspends compute *until the next billing period* — a hard outage with no pay-through option.
 - **Nothing may hold the database awake.** No scheduled polling of a readiness endpoint that touches PostgreSQL, Npgsql `Keepalive` disabled, no logical replication. A continuously-awake 0.25 CU compute costs ~182 CU-hours/month and suspends around day 16.
-- **Connection string:** application traffic uses the pooled `-pooler` endpoint (PgBouncer, transaction mode); migrations and `pg_dump` use the direct endpoint. Npgsql settings: `Maximum Pool Size=10`, `Minimum Pool Size=0`, `Connection Idle Lifetime=240` (**must** be below Neon's 300 s suspend, or Npgsql hands out sockets Neon has already torn down), `Timeout=15`, `Keepalive` disabled, `SSL Mode=VerifyFull`, `Channel Binding=Require`, and `No Reset On Close=true` on the pooled endpoint. Enable EF Core `EnableRetryOnFailure` so a wake-race retries rather than 500s.
+- **Connection string:** application traffic uses the pooled `-pooler` endpoint (PgBouncer, transaction mode); migrations and `pg_dump` use the direct endpoint — the two hostnames differ only by that suffix and share one role password. Npgsql settings: `Maximum Pool Size=10`, `Minimum Pool Size=0`, `Connection Idle Lifetime=240` (**must** be below Neon's 300 s suspend, or Npgsql hands out sockets Neon has already torn down), `Timeout=15`, `Keepalive` disabled, `SSL Mode=VerifyFull`, `Channel Binding=Require`, and `No Reset On Close=true` on the pooled endpoint. Enable EF Core `EnableRetryOnFailure` so a wake-race retries rather than 500s.
+- **Neon hands out a libpq URI, which Npgsql cannot parse** ([#35](https://github.com/timbarreto/acn-fde/issues/35)). The console gives `postgresql://user:password@host/db?sslmode=require&channel_binding=require`; `AddNpgsqlDataSource("Postgres")` expects ADO.NET keyword syntax (`Host=…;Database=…;Username=…;Password=…;`) and fails at startup on the URI form. Convert it when storing the secret, not at runtime. Note also that pasting Neon's default carries `sslmode=require`, which encrypts but does **not** verify the server certificate — the settings above deliberately upgrade this to `VerifyFull`.
+- **`VerifyFull` needs no CA bundle in the image.** Verified by connecting to both endpoints with full certificate validation: Neon's certificate chains to a publicly trusted root, so the container requires no custom root store.
+- **`pg_stat_ssl` reports `ssl = false` on Neon** even when the client connection is TLS-encrypted and certificate-verified, because Neon's proxy terminates TLS and the backend sees a plaintext internal hop. Health checks, audits, and tests must never assert `pg_stat_ssl.ssl = true` — on Neon it is a false alarm, not a security finding.
 - **Raw TCP egress is load-bearing.** Cloudflare Containers permit outbound port-5432 TCP+TLS by default (`enableInternet` defaults to `true`; outbound handlers only intercept ports 80/443). Neon's serverless driver is JavaScript-only and Hyperdrive cannot reach a container, so ordinary Npgsql over TCP is the *only* path. The connection string must arrive as a container environment variable / Worker secret, not via Worker-side credential injection.
 - **First-request latency after idle is 3–8 seconds** (container cold start 1–3 s + ASP.NET startup on a 1/4 vCPU instance + cross-region TCP/TLS/SCRAM + Neon wake ~0.3–1 s), with a longer tail if placement drifts. This is tolerable *only* because account mode uses optimistic local updates and retryable sync — the user never waits on the cold path. Do not weaken that property. Never run EF Core migrations at container start.
-- **Planned upgrade path:** Neon Launch is a plan flip, not a migration — same project, same hostname, same code — and removes both the suspension cliff and the 6-hour recovery window for likely under US$1.50/month at this volume. Flip it when real user data lands or CU-hours cross ~60% of the cap, and configure a Neon spend alert alongside the Cloudflare billing limits.
+- **Server version is PostgreSQL 18.4.** Neon provisions this today ([#35](https://github.com/timbarreto/acn-fde/issues/35)); the Aspire-provisioned local PostgreSQL must be pinned to the same major version so development does not run against an older engine than production.
+- **Planned upgrade path:** Neon Launch is a plan flip, not a migration — same project, same hostname, same code — and removes both the suspension cliff and the 6-hour recovery window. It carries **no monthly minimum**: pay-as-you-go at $0.106/CU-hour plus $0.35/GB-month, which at this volume is roughly **US$0.85/month** ([#35](https://github.com/timbarreto/acn-fde/issues/35)). Flip it when real user data lands or CU-hours cross ~60% of the cap, and configure a Neon spend alert — noting that **Cloudflare offers no equivalent**, so there is no "billing limit" to set alongside it (see the cost model below).
 
 #### Container configuration and the real cost model
 
@@ -56,7 +60,11 @@ Required configuration, beyond `instance_type` and `sleepAfter` above:
 - **Set `constraints.regions`** as the PostgreSQL section requires; instances otherwise restart in a different datacenter each wake.
 - **Egress cannot be locked down.** `enableInternet = false` or an `allowedHosts` allowlist would deny port 5432 outright, since outbound policy covers only ports 80/443. Open egress is the price of native Postgres; authentication is the only perimeter.
 
-Adjacent meters stay comfortably inside included allowances: static-asset requests are free and unlimited, Workers include 10 M requests/month, D1 includes 25 B rows read, and container egress includes 1 TB/month for North America and Europe. Add Cloudflare billing limits and monitor **awake hours** as the primary cost signal. Do not try to host ASP.NET directly in the Workers runtime or persist data on the container's ephemeral disk.
+Adjacent meters stay comfortably inside included allowances: static-asset requests are free and unlimited, Workers include 10 M requests/month, D1 includes 25 B rows read, and container egress includes 1 TB/month for North America and Europe. Monitor **awake hours** as the primary cost signal. Do not try to host ASP.NET directly in the Workers runtime or persist data on the container's ephemeral disk.
+
+**Cloudflare can alert on spend but cannot cap it** ([#35](https://github.com/timbarreto/acn-fde/issues/35)). **Budget alerts** — Manage Account → Billing → Billable Usage → *Create budget alert* — email when account-wide usage-based spend crosses a dollar threshold, and are available to pay-as-you-go accounts regardless of zone plan. They are explicitly **informational only: they do not pause or cap usage**, and Cloudflare documents no API for creating them, so they are configured by hand. (The separate `billing_usage_alert` notification policy, which *is* API-creatable at `POST /accounts/{id}/alerting/v3/policies`, is documented as Professional-plan-or-higher and watches a product metric rather than dollars.)
+
+So there is no ceiling, no way to make the account stop rather than bill, and `limits.cpu_ms` bounds CPU time rather than spend. Every real cost guardrail in this design is *configuration* — `max_instances: 1`, an explicit `instance_type`, an explicit `sleepAfter`, and singleton routing — and an error in any of them is billed, not blocked. Budget alerts shorten the time to *notice*, which is why two are set: one at US$8 (drift past the expected ~US$5 baseline) and one at US$15 (consistent with a container that never sleeps). This is the reason those four settings are stated as requirements rather than defaults.
 
 #### ASP.NET constraints inside the container
 
@@ -67,6 +75,36 @@ Nothing prohibits a long-running Kestrel process, but five operational facts mus
 - **Port readiness defaults to 20 s** (`portReadyTimeoutMS`). A cold .NET process on ¼ vCPU doing JIT, DI graph construction, and EF Core model building is the single most likely thing to blow that budget. ReadyToRun publishing is the first mitigation; raising the timeout is the second. Moving to `standard-1` burns the memory allowance 4× faster (~6.25 included awake hours/month) and is a last resort.
 - **1 GiB with no swap** — OOM restarts the instance silently. `DOTNET_gcServer` / `DOTNET_GCHeapHardLimit` need explicit attention rather than defaults.
 - **The disk resets on every sleep.** ASP.NET Core Data Protection persists its key ring to the filesystem by default and would regenerate it on essentially every wake. This is harmless only because all cookie/session state lives in the Better Auth Worker and CoreEx merely validates JWTs against remote JWKS — but Data Protection must be configured deliberately, not left to default.
+
+#### Provisioned resources
+
+Everything below exists ([#35](https://github.com/timbarreto/acn-fde/issues/35)). None of it is wired into `wrangler.jsonc` yet — that is build work.
+
+| Resource | Identity | Notes |
+|---|---|---|
+| Cloudflare account | `263caf3ee0ff6b4a0b0945a344fd13b1` | **Workers Paid**, the only recurring charge |
+| Worker / production origin | `agentic-ready-gh-600` at `https://agentic-ready-gh-600.timothy-barreto.workers.dev` | already deployed as static assets; this is the same-origin front door, not a new Worker |
+| D1 | `acn-fde-auth`, `ea5f600d-fc37-4770-a521-87c75de21bf7` | **region ENAM** |
+| PostgreSQL | Neon project in `aws-us-east-1`, database `neondb`, role `neondb_owner` | autoscaling pinned to 0.25 CU min *and* max; schema `practice` is created by migration |
+| GitHub OAuth apps | two, owned by the personal account `timbarreto` | dev callback `http://localhost:5173/api/auth/callback/github`; production callback on the Worker origin above |
+
+Three facts about this set that are easy to get wrong:
+
+- **`wrangler d1 create` places the database near whoever ran the command**, not near the Worker or the application's other regions. The first attempt landed in WNAM and had to be recreated with `--location enam`. D1 region is fixed at creation.
+- **Two GitHub OAuth apps are mandatory, not tidy.** GitHub's documentation states plainly that OAuth apps cannot have multiple callback URLs, unlike GitHub Apps, so one app cannot serve both localhost and production.
+- **Version preview URLs (`*-agentic-ready-gh-600.timothy-barreto.workers.dev`) are enabled and public, and sign-in cannot work on them** — those origins match neither OAuth app's single callback URL, so GitHub rejects the `redirect_uri`. Previews remain useful for UI and guest-mode work only. Say so in the README; it will otherwise be diagnosed as a broken auth deployment.
+
+#### Secret locations
+
+No secret value appears in any committed file, issue, or spec; `.gitignore` covers `.dev.vars*` and `.env*` as a backstop. A password manager is the source of truth for everything below, because neither Cloudflare nor GitHub will show a stored secret again.
+
+| Secret | Local development | Production |
+|---|---|---|
+| GitHub OAuth client ID + secret | AppHost .NET user-secrets, keys `Parameters:github-client-id` / `Parameters:github-client-secret` | Worker secrets `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` |
+| `BETTER_AUTH_SECRET` | AppHost .NET user-secrets | Worker secret; rotating it invalidates every existing session |
+| PostgreSQL connection string | Aspire-generated local credentials | Worker secret `POSTGRES_CONNECTION_STRING`, forwarded to the container as `ConnectionStrings__Postgres` via the Container Durable Object's `envVars` — the name CoreEx's `AddNpgsqlDataSource("Postgres")` reads |
+
+`setup-github-secrets.sh` at the repository root prompts for the GitHub credentials and writes them to both destinations without passing any value through `argv` or shell history. Two caveats belong in the README: `dotnet user-secrets` is **unencrypted plaintext** under `~/.microsoft/usersecrets/` — it keeps secrets out of the repository, not off the disk — and each `wrangler secret put` creates and deploys a new Worker version.
 
 ### Authentication contract
 
@@ -139,7 +177,7 @@ Settled in [#44](https://github.com/timbarreto/acn-fde/issues/44). The two store
 
 | Store | Holds | Platform recovery | If lost |
 |---|---|---|---|
-| D1 (Cloudflare) | identity: `user`, `account`, `session`, `jwks` | Time Travel point-in-time recovery, ~30 days on Workers Paid | Severe — Better Auth reissues random user ids, so every practice row would be orphaned. Mitigated by `github_account_id`. |
+| D1 (Cloudflare) | identity: `user`, `account`, `session`, `jwks` | Time Travel point-in-time recovery, 30 days (confirmed: always on, no configuration, and the account is on Workers Paid) | Severe — Better Auth reissues random user ids, so every practice row would be orphaned. Mitigated by `github_account_id`. |
 | PostgreSQL (Neon Free) | all practice data | 6-hour window, one manual snapshot, **no scheduled backups** | Largely self-healing — see below |
 
 **Client caches are the de facto backup.** Because writes are a server-side merge that only ever adds information ([#43](https://github.com/timbarreto/acn-fde/issues/43)), every device keeps a full copy in its per-user cache, and the next sync from any of them restores the server. Practice data therefore has roughly one backup per device the user has used, with no infrastructure at all.
@@ -390,4 +428,4 @@ With local GitHub OAuth user-secrets configured, run `npm run dev:full`, open th
 
 ### Deployment
 
-Apply D1 and PostgreSQL migrations, run `wrangler deploy --dry-run` where Container support permits, deploy one `basic` instance, verify secrets are injected only at runtime, smoke-test GitHub auth/import/API/cold start, wait at least five idle minutes and confirm sleep/restart without state loss, then inspect billing limits and actual container memory/hours. Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.
+Apply D1 and PostgreSQL migrations, run `wrangler deploy --dry-run` where Container support permits, deploy one `basic` instance, verify secrets are injected only at runtime, smoke-test GitHub auth/import/API/cold start, wait at least five idle minutes and confirm sleep/restart without state loss, then inspect actual container memory and awake hours — there are no billing limits to inspect, so awake hours are the only cost signal. Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.

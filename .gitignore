@@ -1,6 +1,17 @@
 node_modules/
 dist/
 *.local
+
+# Local secrets — never commit
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+
+# Local symlink to the AI-Inbox drop folder
+/inbox
+
 .DS_Store
 npm-debug.log*
 playwright-report/
