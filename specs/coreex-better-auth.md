@@ -80,7 +80,9 @@ Keep Better Auth's browser session in a secure, HTTP-only, same-site cookie. Ena
 Further required configuration:
 
 - **`compatibility_flags: ["nodejs_compat"]`** — Better Auth needs `AsyncLocalStorage` and statically imports `node:crypto`; the Worker will not start without it.
-- **Trim the JWT payload.** By default the token carries the *entire user object* — email, name, avatar, timestamps — not just `sub`/`iss`/`aud`/`iat`/`exp`. Set `jwt.definePayload` to collapse it.
+- **Trim the JWT payload.** By default the token carries the *entire user object* — email, name, avatar, timestamps — not just `sub`/`iss`/`aud`/`iat`/`exp`. Set `jwt.definePayload` to collapse it to those five claims **plus the GitHub account id**, which the API records as a disaster-recovery key ([#44](https://github.com/timbarreto/acn-fde/issues/44)).
+- **Do not persist the GitHub access token.** Better Auth stores it in `account.accessToken`, but nothing in this design ever calls the GitHub API after sign-in, so it is a live credential held for no benefit. Clear it once sign-in completes. (`refreshToken` is always null — GitHub OAuth apps do not issue them.)
+- **Allow `POST /api/auth/delete-user`** through `disabledPaths` and the Worker allowlist; self-service account deletion depends on it.
 - **Pin `jwt.issuer` and `jwt.audience` explicitly.** Both default to `baseURL` and would therefore differ between development and production. Default expiry is 15 minutes. Issuer is *not* the JWKS URL — in local development the token is issued with `iss = http://localhost:5173` while the API fetches JWKS from the Worker on 8787.
 - **There is no OIDC discovery document.** `/.well-known/openid-configuration` returns 404, so ASP.NET cannot use `Authority`/`MetadataAddress`; wire `ConfigurationManager<JsonWebKeySet>` (or an explicit `IssuerSigningKeyResolver`) against `/api/auth/jwks`.
 - **Key rotation is off by default** and lazy — it happens on the next signing operation, never on a schedule, `gracePeriod` defaults to 30 days, and old `jwks` rows are never deleted. The planned rotated-key test requires configuring `rotationInterval` first.
@@ -131,6 +133,30 @@ Consequences to design for:
 - **Sizing is not a constraint.** A worst-case snapshot — 30 completed 30-question attempts, a live attempt, bookmarks and full progress — is 42.7 KiB raw and **1.5 KiB gzipped**; the payload is highly repetitive and compresses ~28×. Whole-document writes are cheap.
 - **Write cadence is debounced (~2–5 s) with immediate flushes on milestones**: submitting an exam, toggling a bookmark, leaving an attempt, and tab-hidden. That is roughly 3–6 writes per exam rather than one per answer. Note this is a bandwidth and database-write concern, *not* a cost lever: the container stays awake for five minutes past any activity, so the awake time of a 20-minute exam is the same either way. `localStorage` remains the crash-resilience story for the few seconds in between.
 
+### Data ownership, durability, and deletion
+
+Settled in [#44](https://github.com/timbarreto/acn-fde/issues/44). The two stores have opposite risk profiles, and the design leans on that rather than fighting it.
+
+| Store | Holds | Platform recovery | If lost |
+|---|---|---|---|
+| D1 (Cloudflare) | identity: `user`, `account`, `session`, `jwks` | Time Travel point-in-time recovery, ~30 days on Workers Paid | Severe — Better Auth reissues random user ids, so every practice row would be orphaned. Mitigated by `github_account_id`. |
+| PostgreSQL (Neon Free) | all practice data | 6-hour window, one manual snapshot, **no scheduled backups** | Largely self-healing — see below |
+
+**Client caches are the de facto backup.** Because writes are a server-side merge that only ever adds information ([#43](https://github.com/timbarreto/acn-fde/issues/43)), every device keeps a full copy in its per-user cache, and the next sync from any of them restores the server. Practice data therefore has roughly one backup per device the user has used, with no infrastructure at all.
+
+**What that does not cover, stated plainly:** server loss *and* cache loss together is total loss, and server loss affects everyone at once. Users who do not return with an intact cache lose their history. That is the accepted risk on Neon Free, and it belongs in the README rather than being discovered.
+
+Given this, **no backup cron is built.** The `pg_dump` → R2 pipeline sketched in [#38](https://github.com/timbarreto/acn-fde/issues/38) is deliberately not implemented: it would wake the container and the database on a timer, which the CU-hour guardrails specifically warn against, to protect reconstructible study data that clients already replicate. The planned Neon Launch flip — 7-day PITR and scheduled backups, likely under US$1.50/month — remains the upgrade trigger when real user data lands.
+
+**Export** is a client-side JSON download. The browser already holds the full state, so it needs no endpoint, no new data path, and no server work — and it gives any user who cares a real backup.
+
+**Deletion** needs explicit endpoints because a merge cannot express removal:
+
+- *Reset my progress* — `DELETE /api/practice-state`, keeping the account. This matters more than it looks for a practice-exam tool: question selection is driven by prior answers, so starting fresh is a plausible request.
+- *Delete my account* — `DELETE /api/practice-state` **first**, then Better Auth's `POST /api/auth/delete-user`. No transaction spans D1 and PostgreSQL, so the order is the safety mechanism: a mid-way failure leaves an account with no data, which is harmless and retryable, rather than an orphaned row nobody can reach. The client retries.
+
+**What is stored about a person:** a Better Auth user id, GitHub display name, avatar URL, and email (Better Auth's schema requires it `NOT NULL UNIQUE`), plus the GitHub account id. The GitHub **access token is not retained** — it is cleared once sign-in completes, since nothing calls the GitHub API afterwards. State this list in the README.
+
 ### Public API, concrete types, and end-to-end call stacks
 
 #### Wire and backend types
@@ -159,6 +185,7 @@ The checked-in migration creates this physical schema:
 CREATE SCHEMA IF NOT EXISTS practice;
 CREATE TABLE practice.practice_state (
   user_id varchar(128) PRIMARY KEY,
+  github_account_id varchar(64) NOT NULL,
   state jsonb NOT NULL,
   sync_metadata jsonb NOT NULL,
   created_by varchar(250) NOT NULL,
@@ -166,7 +193,11 @@ CREATE TABLE practice.practice_state (
   updated_by varchar(250) NOT NULL,
   updated_on timestamptz NOT NULL
 );
+CREATE INDEX practice_state_github_account_id_idx
+  ON practice.practice_state (github_account_id);
 ```
+
+`github_account_id` is never used for authorization — ownership always derives from `sub`. It exists solely so that a catastrophic D1 loss is a scripted remap rather than a permanent orphaning of every row ([#44](https://github.com/timbarreto/acn-fde/issues/44)).
 
 One table. The `practice_import` receipt table is gone: it existed to stop a retried import merging twice, and an idempotent merge makes that impossible by construction ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 
@@ -182,8 +213,10 @@ These are the application routes the design *uses*. They are not the only ones B
 | `POST /api/auth/sign-out` | Session cookie + Better Auth CSRF/origin checks | `{ "success": true }` + cleared cookies | Better Auth/D1 |
 | `GET /api/auth/token` | Session cookie | `{ token: string }` short-lived JWT | Better Auth D1 session + JWT signing key |
 | `GET /api/auth/jwks` | None | Standard `JsonWebKeySet` | Better Auth D1 signing keys; consumed by ASP.NET |
+| `POST /api/auth/delete-user` | Session cookie | Account deleted in D1 | Better Auth/D1; must be allowlisted |
 | `GET /api/practice-state` | Bearer JWT | `PracticeStateSnapshotDto` | CoreEx/PostgreSQL |
 | `POST /api/practice-state` | Bearer JWT, `PracticeStateSnapshotDto` | Canonical merged `PracticeStateSnapshotDto` | CoreEx/PostgreSQL transaction |
+| `DELETE /api/practice-state` | Bearer JWT | `204` — row removed | CoreEx/PostgreSQL. Serves both "reset my progress" and the first step of account deletion |
 | `GET /health/live`, `/health/startup`, `/health/ready` | None | ASP.NET health status | Container/process; readiness checks PostgreSQL |
 
 Two practice routes, not three. `GET` returns an empty schema-v2 snapshot when no row exists. `POST` merges and is safe to repeat, so the same call serves the first guest import, ordinary syncing, and any retry — there is no separate import endpoint and no precondition header. It is `POST` rather than `PUT` because the semantics are merge-and-return-canonical, not replace. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, and 503 readiness/dependency failure. **409 and 428 no longer occur** ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
@@ -320,11 +353,11 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 - [ ] Scaffold `Acn.Fde.Practice` with CoreEx's PostgreSQL API templates and remove/avoid unused reference-data, messaging, outbox, relay, subscriber, Redis, and domain-layer features.
 - [ ] Implement the PostgreSQL state schema and migrations, CoreEx contracts/validators/service/repository/controllers, the merge-on-write transaction, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and generate the frontend client with a CI drift check.
 - [ ] Implement the merge and its scenario tests in .NET (the cases and their expected outcomes are settled in #40), then extract/version frontend persistence and add guest/per-user cache isolation, sync metadata/tombstones, and the debounced send-and-adopt loop.
-- [ ] Add the Better Auth client, GitHub sign-in/out UI, in-memory API token flow, typed state client, optimistic account sync/retry/conflict handling, and accurate guest/account/offline status messaging.
+- [ ] Add the Better Auth client, GitHub sign-in/out UI, in-memory API token flow, typed state client, the debounced send-and-adopt sync loop, accurate guest/account/offline status messaging, a client-side state export, and reset/delete-account actions.
 - [ ] Add the Aspire AppHost and its three profiles: provision PostgreSQL, gate API startup on CoreEx migrations, gate Worker startup on local D1 migrations and API readiness, run Vite behind the Worker proxy, forward user-secrets, publish dashboard links/health, and provide `dev:full` plus narrowly scoped local reset commands.
 - [ ] Add the Aspire full-stack test project and test-only Better Auth entry/config; exercise the same-origin stack with isolated stores and no GitHub/network dependency, then add standard CI for TypeScript/.NET/AppHost/container validation.
 - [ ] Add secret-safe production configuration and a manual Cloudflare deployment sequence that applies both D1 and PostgreSQL migrations before `wrangler deploy`.
-- [ ] Update README and agent guidance with the new architecture, setup, data ownership, $5 cost assumptions/limits, backup implications, and operational troubleshooting; never commit GitHub, Better Auth, Cloudflare, or Neon credentials.
+- [ ] Update README and agent guidance with the new architecture, setup, exactly what is stored about a signed-in person, the 6-hour recovery window and the fact that client caches are the practical backup, $5 cost assumptions/limits, and operational troubleshooting; never commit GitHub, Better Auth, Cloudflare, or Neon credentials.
 
 ## Verification
 
@@ -344,9 +377,10 @@ Run `npm run test:full` to start `Acn.Fde.Practice.Test.AppHost` with disposable
 3. Send a v1 guest fixture, verify the canonical merged state, send it again, and prove the second write changed nothing.
 4. Seed an existing account state and verify attempt/bookmark union, 30-attempt retention, newest answer/active attempt, and tombstone behavior.
 5. Exercise GET and concurrent POSTs from two clients, verify both contributions survive the merge with no lost update, and confirm the generated client matches OpenAPI.
-6. Call each user's token against the other's scenarios and verify ownership is always derived from `sub` with no cross-user reads/writes.
-7. Stop/restart the API resource, then PostgreSQL, and verify health transitions, queued client retry, and durable state recovery; repeat for the Worker/D1 process.
-8. Run the AppHost `container` profile against the same cases, build from `backend/Dockerfile`, enforce a 1 GiB memory ceiling, and verify restart/sleep-equivalent process loss does not lose PostgreSQL state.
+6. Call each user's token against the other's scenarios and verify ownership is always derived from `sub` with no cross-user reads/writes, and that `github_account_id` is never consulted for authorization.
+7. Reset one user's practice state and verify the account survives; delete the other's account and verify the practice row goes first and the D1 identity follows.
+8. Stop/restart the API resource, then PostgreSQL, and verify health transitions, queued client retry, and durable state recovery; repeat for the Worker/D1 process.
+9. Run the AppHost `container` profile against the same cases, build from `backend/Dockerfile`, enforce a 1 GiB memory ceiling, and verify restart/sleep-equivalent process loss does not lose PostgreSQL state.
 
 The integration profile deletes its temporary stores after the run and emits Aspire resource logs/traces on failure. It does not contact GitHub, Cloudflare, or Neon.
 
