@@ -96,11 +96,11 @@ Better Auth generates the `user`/`session`/`account`/`verification`/`jwks` schem
 
 Extract the current `localStorage` logic from `App.tsx` behind a persistence/sync layer while leaving `PersistedState` as the UI-facing model:
 
-- Guest mode remains fully local and offline-capable. Read the legacy `agentic-ready-gh600-v1` key as the migration source, then use a versioned guest envelope containing a stable import ID and sync-only timestamps.
+- Guest mode remains fully local and offline-capable. Read the legacy `agentic-ready-gh600-v1` key as the migration source, then use a versioned guest envelope. No import ID is needed ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 - Account mode uses a per-user local cache, optimistic local updates, and retryable synchronization so a temporary auth/API/database outage does not break practice. Never expose one account's cache to a guest or another account.
-- On first successful GitHub sign-in, POST the guest snapshot and stable import ID to an import endpoint. In one PostgreSQL transaction, record a unique `(user, importId)` receipt and merge only once, using the merge rules below.
-- Return the canonical merged state. Only after that response succeeds should the browser mark/remove the guest import source and switch to the per-account cache. Failed or interrupted imports keep guest data intact and retry with the same import ID.
-- Store sync timestamps and bookmark tombstones outside the exam-facing model so newest-wins conflict handling also supports bookmark removals and later cross-device ETag conflicts.
+- On first successful GitHub sign-in, POST the guest snapshot to the ordinary state endpoint. There is no separate import operation and no receipt: the server merges, and merging the same snapshot twice is a no-op.
+- Return the canonical merged state. Only after that response succeeds should the browser mark/remove the guest import source and switch to the per-account cache. Failed or interrupted imports keep guest data intact and simply send again.
+- Store sync timestamps and bookmark tombstones outside the exam-facing model so newest-wins conflict handling also supports bookmark removals.
 
 #### The merge, exactly
 
@@ -111,12 +111,25 @@ Settled by walking concrete conflict scenarios through a prototype ([#40](https:
 - **The active attempt resolves by newest sync clock, and the loser is preserved, not destroyed.** When two devices each hold an exam in progress, the losing attempt is submitted as-is into `attempts` flagged `abandoned`, scored on what was answered. Silently deleting it was the original design and would have destroyed a half-finished exam with no trace. This requires an `abandoned?: boolean` on `CompletedAttempt` and UI that renders such an attempt differently from one the user chose to submit. Resolve the active attempt **before** applying the retention cap, so a rescued attempt can evict an older one.
 - **A stale in-progress copy of an attempt already completed elsewhere is cleared, not resurrected** — and reported as "no work lost", since the finished version is in history.
 - **Bookmarks carry per-question tombstones** (`{ isBookmarked, updatedAt }`) and resolve by newest clock, which handles remove-then-re-add across three devices correctly. The map needs no garbage collection: it is bounded by the question bank (102 questions), not by user activity.
-- **Sync timestamps are stamped by the server on receipt.** Browser clocks never enter conflict resolution — a device with a fast clock would otherwise win every conflict permanently, with no way for another device to override it. Ordering becomes upload order, which is a sound proxy for causality in a single-user app. On a `409` the client treats its own unsynced changes as newest and wins the retry.
+- **Sync timestamps are stamped by the server on receipt.** Browser clocks never enter conflict resolution — a device with a fast clock would otherwise win every conflict permanently, with no way for another device to override it. Ordering becomes upload order, which is a sound proxy for causality in a single-user app.
 - **Legacy blobs** derive attempt clocks from `completedAt` and stamp bookmarks at import time. With `progress` derived, the spec's former "a legacy answer without provenance receives the import time" rule no longer exists.
 
 ### CoreEx API and data model
 
-Scaffold the smallest CoreEx API-only solution as `backend/Acn.Fde.Practice`: PostgreSQL enabled, with reference data, messaging, outbox, subscribers, relay, and a DDD domain project omitted. Use a `practice_state` row per Better Auth subject containing the validated state JSON, sync metadata, ETag, and change log, plus a `practice_import` receipt table for idempotency. Expose authenticated `GET`/conditional `PUT` state operations and the transactional import operation, using CoreEx contracts, validators, application service, EF repository/unit of work, ProblemDetails/exception mapping, execution context, ETags, OpenAPI, and health checks. The frontend handles `409`/ETag conflicts by applying the same deterministic newest-wins merge and retrying with an idempotency key.
+Scaffold the smallest CoreEx API-only solution as `backend/Acn.Fde.Practice`: PostgreSQL enabled, with reference data, messaging, outbox, subscribers, relay, and a DDD domain project omitted. Use a `practice_state` row per Better Auth subject containing the validated state JSON, sync metadata, and change log. Expose an authenticated `GET` and a single authenticated **merge-on-write** operation, using CoreEx contracts, validators, application service, EF repository/unit of work, ProblemDetails/exception mapping, execution context, OpenAPI, and health checks.
+
+#### Writes never conflict
+
+Because the merge is deterministic and idempotent ([#40](https://github.com/timbarreto/acn-fde/issues/40)), the server merges rather than replaces, and there is no optimistic-concurrency protocol at all ([#43](https://github.com/timbarreto/acn-fde/issues/43)). The client sends its full state; the server, inside one transaction, takes the row `FOR UPDATE`, merges the incoming state into the stored state, stamps sync timestamps with server time, writes, and returns the canonical result.
+
+This deliberately deletes a large amount of the original design: **no `If-Match`, no ETags, no `409`, no `428`, no client-side merge implementation, no shared TypeScript/.NET merge fixtures, no retry loop, no idempotency key, and no `practice_import` receipt table or dedicated import endpoint.** Re-sending the same state is harmless by construction, which is what made the receipt unnecessary — importing a guest snapshot twice converges on the same result. Importing is therefore an ordinary write, not a special operation.
+
+Consequences to design for:
+
+- **A merge can only add information.** Anything that removes data needs an explicit tombstone (bookmarks have one) or its own endpoint. A future "reset my progress" or account deletion cannot be expressed as a write — see [#44](https://github.com/timbarreto/acn-fde/issues/44).
+- **The client adopts canonical state only when it has no unsynced local edits;** otherwise it keeps its own state and sends again. Its own state only ever accumulates, so re-sending converges without the client ever implementing the merge. This is what keeps the merge single-implementation, in .NET only.
+- **Sizing is not a constraint.** A worst-case snapshot — 30 completed 30-question attempts, a live attempt, bookmarks and full progress — is 42.7 KiB raw and **1.5 KiB gzipped**; the payload is highly repetitive and compresses ~28×. Whole-document writes are cheap.
+- **Write cadence is debounced (~2–5 s) with immediate flushes on milestones**: submitting an exam, toggling a bookmark, leaving an attempt, and tab-hidden. That is roughly 3–6 writes per exam rather than one per answer. Note this is a bandwidth and database-write concern, *not* a cost lever: the container stays awake for five minutes past any activity, so the awake time of a 20-minute exam is the same either way. `localStorage` remains the crash-resilience story for the few seconds in between.
 
 ### Public API, concrete types, and end-to-end call stacks
 
@@ -130,18 +143,17 @@ The CoreEx OpenAPI document is the source for generated camel-case TypeScript in
 | `PracticeStateDto { activeAttempt, attempts, bookmarks, progress }` | `PracticeState` with `ActiveAttempt?`, `List<CompletedAttempt>`, `List<string>`, and `Dictionary<string, string[]>` | `PracticeStateEntity.StateJson : JsonElement` (`state jsonb`) |
 | `BookmarkVersionDto { isBookmarked, updatedAt }` | `BookmarkVersion { bool IsBookmarked; DateTimeOffset UpdatedAt; }` | Nested JSON inside `PracticeStateEntity.SyncMetadataJson` |
 | `PracticeSyncMetadataDto { activeAttemptUpdatedAt, attemptUpdatedAt, bookmarks }` — no `progressUpdatedAt`, since `progress` is derived ([#40](https://github.com/timbarreto/acn-fde/issues/40)); all values are server-stamped on receipt | `PracticeSyncMetadata` using nullable `DateTimeOffset` plus `Dictionary<string, DateTimeOffset>` and `Dictionary<string, BookmarkVersion>` | `PracticeStateEntity.SyncMetadataJson : JsonElement` (`sync_metadata jsonb`) |
-| `PracticeStateSnapshotDto { schemaVersion, state, sync, etag }` | `PracticeStateSnapshot : IETag` with `int SchemaVersion`, `PracticeState State`, `PracticeSyncMetadata Sync`, and read-only `string? ETag` | Application `StoredPracticeState { string UserId; PracticeStateSnapshot Snapshot; string? ETag; ChangeLog? ChangeLog; }` mapped to one `PracticeStateEntity` |
-| `ImportPracticeStateRequestDto { importId, snapshot }` | `ImportPracticeStateRequest { Guid ImportId; PracticeStateSnapshot Snapshot; }` | Application `ImportReceipt { string UserId; Guid ImportId; DateTimeOffset ImportedOn; }` mapped to `PracticeImportEntity` |
+| `PracticeStateSnapshotDto { schemaVersion, state, sync }` — no `etag` ([#43](https://github.com/timbarreto/acn-fde/issues/43)) | `PracticeStateSnapshot` with `int SchemaVersion`, `PracticeState State`, and `PracticeSyncMetadata Sync` | Application `StoredPracticeState { string UserId; PracticeStateSnapshot Snapshot; ChangeLog? ChangeLog; }` mapped to one `PracticeStateEntity` |
 
 Concrete persistence models under `Acn.Fde.Practice.Infrastructure.Persistence` are:
 
-- `PracticeStateEntity : IETag, IChangeLog`: `string UserId`, `JsonElement StateJson`, `JsonElement SyncMetadataJson`, `string? ETag`, and CoreEx `ChangeLog` fields (`CreatedBy/On`, `UpdatedBy/On`).
-- `PracticeImportEntity`: `string UserId`, `Guid ImportId`, and `DateTimeOffset ImportedOn`.
-- `PracticeDbContext : DbContext, IEfDbContext`: maps JSON with `JsonElementStringEfConverter`, maps `ETag` to PostgreSQL's hidden `xmin xid` using `PostgresDatabase.RowVersionConverter`, and applies the composite import key.
-- `PracticeEfDb : EfDb<PracticeDbContext>`: exposes `EfDbModel<PracticeStateEntity> PracticeStates` and `EfDbModel<PracticeImportEntity> PracticeImports`.
+- `PracticeStateEntity : IChangeLog`: `string UserId`, `JsonElement StateJson`, `JsonElement SyncMetadataJson`, and CoreEx `ChangeLog` fields (`CreatedBy/On`, `UpdatedBy/On`). No ETag/row-version member: writes serialise on `SELECT … FOR UPDATE`, not on optimistic concurrency.
+- `PracticeDbContext : DbContext, IEfDbContext`: maps JSON with `JsonElementStringEfConverter`.
+- `PracticeEfDb : EfDb<PracticeDbContext>`: exposes `EfDbModel<PracticeStateEntity> PracticeStates`.
 - `PracticeStateMapper`: the only serializer boundary, using the shared `JsonSerializerOptions` to convert contract objects to/from `JsonElement`; malformed persisted JSON is treated as a server/data-integrity error, never silently reset.
+- `PracticeStateMerger`: the single implementation of the merge rules, in .NET only.
 
-The checked-in migration creates this physical schema (PostgreSQL supplies `xmin`; it is mapped, not declared):
+The checked-in migration creates this physical schema:
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS practice;
@@ -154,13 +166,9 @@ CREATE TABLE practice.practice_state (
   updated_by varchar(250) NOT NULL,
   updated_on timestamptz NOT NULL
 );
-CREATE TABLE practice.practice_import (
-  user_id varchar(128) NOT NULL REFERENCES practice.practice_state(user_id) ON DELETE CASCADE,
-  import_id uuid NOT NULL,
-  imported_on timestamptz NOT NULL,
-  PRIMARY KEY (user_id, import_id)
-);
 ```
+
+One table. The `practice_import` receipt table is gone: it existed to stop a retried import merging twice, and an idempotent merge makes that impossible by construction ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 
 #### Public endpoint inventory
 
@@ -174,12 +182,11 @@ These are the application routes the design *uses*. They are not the only ones B
 | `POST /api/auth/sign-out` | Session cookie + Better Auth CSRF/origin checks | `{ "success": true }` + cleared cookies | Better Auth/D1 |
 | `GET /api/auth/token` | Session cookie | `{ token: string }` short-lived JWT | Better Auth D1 session + JWT signing key |
 | `GET /api/auth/jwks` | None | Standard `JsonWebKeySet` | Better Auth D1 signing keys; consumed by ASP.NET |
-| `GET /api/practice-state` | Bearer JWT | `PracticeStateSnapshotDto` + `ETag` header when stored | CoreEx/PostgreSQL |
-| `PUT /api/practice-state` | Bearer JWT, `If-Match`, `PracticeStateSnapshotDto` | Canonical `PracticeStateSnapshotDto` + new `ETag` | CoreEx/PostgreSQL |
-| `POST /api/practice-state/import` | Bearer JWT, `ImportPracticeStateRequestDto` | Canonical merged `PracticeStateSnapshotDto` + `ETag` | CoreEx/PostgreSQL transaction |
+| `GET /api/practice-state` | Bearer JWT | `PracticeStateSnapshotDto` | CoreEx/PostgreSQL |
+| `POST /api/practice-state` | Bearer JWT, `PracticeStateSnapshotDto` | Canonical merged `PracticeStateSnapshotDto` | CoreEx/PostgreSQL transaction |
 | `GET /health/live`, `/health/startup`, `/health/ready` | None | ASP.NET health status | Container/process; readiness checks PostgreSQL |
 
-`GET` returns an empty schema-v2 snapshot with no ETag when no row exists. The frontend always performs the import call—even for an empty guest—before its first `PUT`, so CoreEx's normal PUT precondition can require `If-Match`. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, 409 concurrency/duplicate race, 428 missing ETag, and 503 readiness/dependency failure.
+Two practice routes, not three. `GET` returns an empty schema-v2 snapshot when no row exists. `POST` merges and is safe to repeat, so the same call serves the first guest import, ordinary syncing, and any retry — there is no separate import endpoint and no precondition header. It is `POST` rather than `PUT` because the semantics are merge-and-return-canonical, not replace. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, and 503 readiness/dependency failure. **409 and 428 no longer occur** ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 
 #### Authentication call stacks
 
@@ -203,75 +210,52 @@ React PracticeStateStore.loadAccount()
   -> PracticeStateRepository.GetAsync()
   -> PracticeEfDb.PracticeStates.GetAsync(userId)
   -> PracticeDbContext -> NpgsqlDataSource("Postgres")
-  -> SELECT xmin, state, sync_metadata, audit columns
+  -> SELECT state, sync_metadata, audit columns
        FROM practice.practice_state WHERE user_id = @sub
   -> PracticeStateEntity -> PracticeStateMapper -> StoredPracticeState
   -> Result<PracticeStateSnapshot> -> WebApi
-  -> JSON body + quoted ETag header -> Worker pass-through -> generated client
+  -> JSON body -> Worker pass-through -> generated client
   -> mapper to UI PersistedState + per-user local envelope
 ```
 
 The service creates only an in-memory empty snapshot when no row exists; it does not write during GET.
 
-#### `PUT /api/practice-state` call stack
+#### `POST /api/practice-state` call stack
+
+One path serves ordinary syncing, the first guest import, and every retry.
 
 ```text
 React local mutation -> PersistedState + sync clocks/tombstones
-  -> generated PracticeApi.putPracticeState(snapshot, ifMatch)
+  -> debounce ~2-5s, or immediate flush on submit/bookmark/exit/tab-hidden
+  -> generated PracticeApi.postPracticeState(snapshot)
   -> Worker -> Container -> JWT/ExecutionContext
-  -> PracticeStateController.PutAsync()
-  -> WebApi.PutWithResultAsync<PracticeStateSnapshot, PracticeStateSnapshot>()
-     (WebApi copies If-Match into request.ETag and rejects a missing ETag)
+  -> PracticeStateController.PostAsync()
+  -> WebApi.PostWithResultAsync<PracticeStateSnapshot, PracticeStateSnapshot>()
   -> PracticeStateSnapshotValidator.ValidateWithResultAsync()
      (schema v2, max 30 attempts, bounded IDs/maps/payload, valid timestamps/enums)
-  -> IPracticeStateService.UpdateAsync(PracticeStateSnapshot, ct)
+  -> IPracticeStateService.MergeAsync(PracticeStateSnapshot, ct)
   -> IUnitOfWork.TransactionAsync(...)
-  -> IPracticeStateRepository.UpdateAsync(userId from ExecutionContext, snapshot, ct)
-  -> repository loads PracticeStateEntity, compares contract ETag, maps DTOs to JsonElement
-  -> PracticeEfDb.PracticeStates.UpdateWithResultAsync(entity)
-  -> EF/Npgsql logical SQL:
+  -> IPracticeStateRepository.GetForUpdateAsync(userId from ExecutionContext)
+     -> SELECT state, sync_metadata, audit columns
+        FROM practice.practice_state WHERE user_id=@sub FOR UPDATE
+  -> PracticeStateMapper -> stored snapshot (or empty when no row)
+  -> IPracticeStateMerger.Merge(stored, incoming, serverNow)
+     -> derive progress; union attempts and cap 30 by completedAt;
+        resolve active attempt (rescuing the loser) BEFORE the cap;
+        bookmark tombstones; stamp all sync clocks with server time
+  -> repository INSERTs a new row or UPDATEs the existing one through PracticeEfDb
        UPDATE practice.practice_state
        SET state=@jsonb, sync_metadata=@jsonb,
            updated_by=@sub, updated_on=@now
-       WHERE user_id=@sub AND xmin=@decodedEtag
-       RETURNING xmin
-  -> zero rows / DbUpdateConcurrencyException -> CoreEx ConcurrencyException -> 409 ProblemDetails
-  -> success commits PostgresUnitOfWork, maps returned xmin to string ETag
-  -> canonical PracticeStateSnapshot + ETag -> client cache
+       WHERE user_id=@sub
+  -> PostgresUnitOfWork COMMIT
+  -> canonical PracticeStateSnapshot -> browser
+  -> client adopts it only if it has no unsynced local edits; otherwise re-sends
 ```
 
-If the first response is lost, replaying the old ETag yields 409 rather than a second side effect; the client GETs, runs the checked-in deterministic merge, and retries with the current ETag. No container-memory idempotency cache is relied upon.
+A lost response costs nothing: the client simply sends again, and merging the same state twice is a no-op. Concurrent writers serialise on `FOR UPDATE` rather than racing an ETag, so there is no conflict to report and no retry loop to bound.
 
-#### `POST /api/practice-state/import` call stack
-
-```text
-Legacy guest envelope -> ImportPracticeStateRequestDto(importId, snapshot)
-  -> generated PracticeApi.importPracticeState()
-  -> Worker -> Container -> JWT/ExecutionContext
-  -> PracticeStateController.ImportAsync()
-  -> WebApi.PostWithResultAsync<ImportPracticeStateRequest, PracticeStateSnapshot>()
-  -> ImportPracticeStateRequestValidator + nested snapshot validator
-  -> IPracticeStateService.ImportAsync(request, ct)
-  -> IUnitOfWork.TransactionAsync(...)
-  -> IPracticeStateRepository.GetImportAsync(@sub, importId)
-     -> SELECT user_id, import_id FROM practice.practice_import
-        WHERE user_id=@sub AND import_id=@importId
-  -> if receipt exists: read current state and return it without merging
-  -> otherwise GetForUpdateAsync(@sub)
-     -> SELECT xmin, state, sync_metadata, audit columns
-        FROM practice.practice_state WHERE user_id=@sub FOR UPDATE
-  -> PracticeStateMapper -> existing snapshot (or empty)
-  -> IPracticeStateMerger.Merge(existing, incoming)
-     -> union/dedupe/cap/newest-wins using shared fixtures
-  -> repository INSERTs a new state or UPDATEs the existing row through PracticeEfDb
-  -> repository INSERTs PracticeImportEntity(@sub, importId, now)
-  -> PostgresUnitOfWork COMMIT atomically
-  -> duplicate/concurrency race rolls back both writes; service re-reads receipt/state on retry
-  -> canonical snapshot + mapped xmin ETag -> browser
-  -> browser marks guest import acknowledged only after the response is stored
-```
-
-`IPracticeStateRepository` therefore exposes typed `GetAsync`, `GetForUpdateAsync`, `UpdateAsync`, `CreateAsync`, `GetImportAsync`, and `CreateImportAsync` methods; no controller or service receives `PracticeStateEntity`, `DbContext`, `NpgsqlConnection`, SQL, or D1 types.
+`IPracticeStateRepository` therefore exposes typed `GetAsync`, `GetForUpdateAsync`, `UpdateAsync`, and `CreateAsync`; no controller or service receives `PracticeStateEntity`, `DbContext`, `NpgsqlConnection`, SQL, or D1 types.
 
 #### Health/readiness call stack
 
@@ -312,10 +296,10 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 - Frontend/runtime: `package.json`, `package-lock.json`, `vite.config.ts`, `wrangler.jsonc`, `.gitignore`
 - Frontend state/auth: `src/App.tsx`, `src/types.ts`, new `src/lib/persistence.ts`, `src/lib/auth-client.ts`, generated `src/lib/practice-api.ts`, and focused Vitest files
-- Shared contracts: new `contracts/` JSON merge fixtures and the backend OpenAPI document used to detect TypeScript client drift
+- Shared contracts: the backend OpenAPI document used to detect TypeScript client drift (no shared merge fixtures — the merge exists only in .NET)
 - Cloudflare Worker: new `worker/index.ts`, `worker/auth.ts`, test-only auth entry, Worker tests, generated binding types, committed `migrations/*.sql`, plus `wrangler.local.jsonc` and `wrangler.test.jsonc`
 - CoreEx contracts/API: new `backend/src/Acn.Fde.Practice.Contracts/PracticeState*.cs`, `backend/src/Acn.Fde.Practice.Api/Controllers/PracticeStateController.cs`, JWT/execution-context host wiring, OpenAPI, and health configuration
-- CoreEx application/infrastructure: new `PracticeStateService`, validators, `IPracticeStateRepository`, `IPracticeStateMerger`, `StoredPracticeState`, `PracticeStateRepository`, `PracticeStateMapper`, `PracticeStateEntity`, `PracticeImportEntity`, `PracticeDbContext`, and `PracticeEfDb` under the generated Application/Infrastructure projects
+- CoreEx application/infrastructure: new `PracticeStateService`, validators, `IPracticeStateRepository`, `IPracticeStateMerger`, `StoredPracticeState`, `PracticeStateRepository`, `PracticeStateMapper`, `PracticeStateEntity`, `PracticeDbContext`, and `PracticeEfDb` under the generated Application/Infrastructure projects
 - CoreEx solution/storage: new `backend/Acn.Fde.Practice.slnx`, Database migration/tool and Test projects, plus `backend/Dockerfile`
 - Aspire: new `backend/src/Acn.Fde.Practice.AppHost/` and `backend/tests/Acn.Fde.Practice.Test.AppHost/` projects defining dev, integration, and container resource graphs
 - Local/CI/deployment: npm/Aspire orchestration scripts, ignored local D1 storage, a normal non-Playwright CI workflow, secret/environment examples, and deployment scripts
@@ -325,17 +309,17 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 - Preserve `PersistedState`, `ActiveAttempt`, and `CompletedAttempt` from `src/types.ts`; reuse `progressFromAttempts` in `src/lib/exam.ts` when deriving legacy progress chronology.
 - Evolve the existing static-assets deployment in `wrangler.jsonc` rather than creating a second public origin.
-- Scaffold with CoreEx's `coreex` + `coreex-api` templates and reuse the PostgreSQL, API host, execution-context, ETag, validation, repository, health, OpenAPI, and test patterns documented in the upstream [Avanade/CoreEx](https://github.com/Avanade/CoreEx) repository, specifically the [`CoreEx.Template`](https://github.com/Avanade/CoreEx/tree/main/src/CoreEx.Template) project, the [application scaffolding guide](https://github.com/Avanade/CoreEx/blob/main/docs/application-scaffolding-guide.md), and the [consumer instructions](https://github.com/Avanade/CoreEx/tree/main/consumer-instructions). This repository has no local CoreEx checkout; treat these as external references only, and pin/record the CoreEx release or commit actually used once implementation starts.
+- Scaffold with CoreEx's `coreex` + `coreex-api` templates and reuse the PostgreSQL, API host, execution-context, validation, repository, health, OpenAPI, and test patterns documented in the upstream [Avanade/CoreEx](https://github.com/Avanade/CoreEx) repository, specifically the [`CoreEx.Template`](https://github.com/Avanade/CoreEx/tree/main/src/CoreEx.Template) project, the [application scaffolding guide](https://github.com/Avanade/CoreEx/blob/main/docs/application-scaffolding-guide.md), and the [consumer instructions](https://github.com/Avanade/CoreEx/tree/main/consumer-instructions). This repository has no local CoreEx checkout; treat these as external references only, and pin/record the CoreEx release or commit actually used once implementation starts.
 - Reuse Better Auth's supported D1 database path and JWT/JWKS plugin rather than inventing sessions or sharing the D1 schema with .NET.
-- Generate the frontend API client from the CoreEx/NSwag OpenAPI contract, and run the same checked-in merge fixtures through TypeScript and .NET tests so the two implementations cannot silently diverge.
+- Generate the frontend API client from the CoreEx/NSwag OpenAPI contract. There is only one merge implementation, in .NET, so no cross-language fixture parity is required.
 - Keep the existing `npm run test`, `lint`, `build`, and explicitly opt-in Playwright policy from this repository's [`AGENTS.md`](../AGENTS.md).
 
 ## Steps
 
 - [ ] Add the Worker entry point and bindings: serve Vite assets, configure D1 and committed auth migrations, initialize Better Auth with GitHub + JWT/JWKS, and route API traffic to one sleeping `basic` CoreEx Container.
 - [ ] Scaffold `Acn.Fde.Practice` with CoreEx's PostgreSQL API templates and remove/avoid unused reference-data, messaging, outbox, relay, subscriber, Redis, and domain-layer features.
-- [ ] Implement the PostgreSQL state/import schema and migrations, CoreEx contracts/validators/service/repository/controllers, ETag/idempotency behavior, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and generate the frontend client with a CI drift check.
-- [ ] Specify deterministic merge cases as shared JSON fixtures, then extract/version frontend persistence and add guest/per-user cache isolation, sync metadata/tombstones, atomic legacy import behavior, and matching TypeScript/.NET tests.
+- [ ] Implement the PostgreSQL state schema and migrations, CoreEx contracts/validators/service/repository/controllers, the merge-on-write transaction, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and generate the frontend client with a CI drift check.
+- [ ] Implement the merge and its scenario tests in .NET (the cases and their expected outcomes are settled in #40), then extract/version frontend persistence and add guest/per-user cache isolation, sync metadata/tombstones, and the debounced send-and-adopt loop.
 - [ ] Add the Better Auth client, GitHub sign-in/out UI, in-memory API token flow, typed state client, optimistic account sync/retry/conflict handling, and accurate guest/account/offline status messaging.
 - [ ] Add the Aspire AppHost and its three profiles: provision PostgreSQL, gate API startup on CoreEx migrations, gate Worker startup on local D1 migrations and API readiness, run Vite behind the Worker proxy, forward user-secrets, publish dashboard links/health, and provide `dev:full` plus narrowly scoped local reset commands.
 - [ ] Add the Aspire full-stack test project and test-only Better Auth entry/config; exercise the same-origin stack with isolated stores and no GitHub/network dependency, then add standard CI for TypeScript/.NET/AppHost/container validation.
@@ -346,10 +330,10 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 ### Fast local suites
 
-- `npm run test`: frontend persistence/import/merge/auth-state tests and shared JSON merge fixtures.
+- `npm run test`: frontend persistence, guest-envelope, send-and-adopt, and auth-state tests.
 - `npm run test:worker`: Better Auth D1 adapter, JWT/JWKS, routing precedence, production exclusion of test auth, and local API-origin proxy tests in the Cloudflare Worker test runtime.
 - `npm run lint && npm run build`: lint/type-check frontend and Worker, build Vite assets, and detect generated OpenAPI client drift.
-- `dotnet test backend/Acn.Fde.Practice.slnx`: CoreEx validators/services/repositories/controllers plus the same merge fixtures; valid, expired, wrong-issuer/audience, and rotated-key JWTs; ETags, import receipts, and authorization filters.
+- `dotnet test backend/Acn.Fde.Practice.slnx`: CoreEx validators/services/repositories/controllers plus the merge scenarios from #40 including idempotency; valid, expired, wrong-issuer/audience, and rotated-key JWTs; and authorization filters.
 
 ### Aspire full-stack suite
 
@@ -357,9 +341,9 @@ Run `npm run test:full` to start `Acn.Fde.Practice.Test.AppHost` with disposable
 
 1. Fetch the SPA and Worker/API health endpoints; assert unauthenticated practice APIs return 401.
 2. Use the isolated Better Auth `testUtils` entry to create two users/sessions and obtain real short-lived JWTs from the local token endpoint.
-3. Import a v1 guest fixture, verify the canonical merged state, retry the same import ID, and prove no duplicate mutation occurred.
+3. Send a v1 guest fixture, verify the canonical merged state, send it again, and prove the second write changed nothing.
 4. Seed an existing account state and verify attempt/bookmark union, 30-attempt retention, newest answer/active attempt, and tombstone behavior.
-5. Exercise GET/PUT with ETags, force a two-client conflict, run the deterministic merge/retry, and confirm the generated client matches OpenAPI.
+5. Exercise GET and concurrent POSTs from two clients, verify both contributions survive the merge with no lost update, and confirm the generated client matches OpenAPI.
 6. Call each user's token against the other's scenarios and verify ownership is always derived from `sub` with no cross-user reads/writes.
 7. Stop/restart the API resource, then PostgreSQL, and verify health transitions, queued client retry, and durable state recovery; repeat for the Worker/D1 process.
 8. Run the AppHost `container` profile against the same cases, build from `backend/Dockerfile`, enforce a 1 GiB memory ceiling, and verify restart/sleep-equivalent process loss does not lose PostgreSQL state.
