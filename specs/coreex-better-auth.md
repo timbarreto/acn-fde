@@ -278,7 +278,9 @@ Given this, **no backup cron is built.** The `pg_dump` → R2 pipeline sketched 
 
 #### Wire and backend types
 
-The CoreEx OpenAPI document is the source for generated camel-case TypeScript interfaces in `src/lib/practice-api.ts`; handwritten UI types are mapped at the client boundary rather than imported into Worker/backend code.
+`src/lib/practice-api.ts` is a small handwritten wire adapter: camel-case TypeScript interfaces plus one typed `fetch` operation for each of the three practice-state methods. The UI keeps its own handwritten types and maps them at this boundary rather than importing wire types into UI, Worker, or backend code. The CoreEx OpenAPI document describes and verifies the backend contract, but it is not generator input and there is no generated-client drift step. A contract change updates the C# contract, this adapter, and the focused round-trip tests in the same change.
+
+At one envelope and three operations, generation buys too little for its dependency, generated-output policy, and a drift check that must build and run the .NET API. Handwriting accepts review discipline at the wire boundary; the full-stack round-trip tests catch mismatches against the real API instead. Revisit generation only if the API grows enough that maintaining this adapter is no longer plainly smaller than maintaining its generator pipeline.
 
 | Wire/TypeScript shape | C# contract/application type | PostgreSQL persistence type |
 |---|---|---|
@@ -336,7 +338,7 @@ These are the application routes the design *uses*. They are not the only ones B
 | `DELETE /api/practice-state` | Bearer JWT | `204` — row removed | CoreEx/PostgreSQL. Serves both "delete all my practice data" and the first step of account deletion |
 | `GET /health/live`, `/health/startup`, `/health/ready` | None | ASP.NET health status | Container/process; readiness checks PostgreSQL |
 
-Two practice routes, not three. `GET` returns an empty schema-v2 envelope when no row exists. `POST` merges and is safe to repeat, so the same call serves a guest's first sync after signing in, ordinary syncing, and any retry — there is no separate endpoint and no precondition header. It is `POST` rather than `PUT` because the semantics are merge-and-return-canonical, not replace. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, and 503 readiness/dependency failure. **409 and 428 no longer occur** ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
+Three practice operations share one route: `GET`, `POST`, and `DELETE`. `GET` returns an empty schema-v2 envelope when no row exists. `POST` merges and is safe to repeat, so the same call serves a guest's first sync after signing in, ordinary syncing, and any retry — there is no separate endpoint and no precondition header. It is `POST` rather than `PUT` because the semantics are merge-and-return-canonical, not replace. `DELETE` removes the row and returns `204`. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, and 503 readiness/dependency failure. **409 and 428 no longer occur** ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 
 #### Authentication call stacks
 
@@ -348,7 +350,7 @@ Two practice routes, not three. `GET` returns an empty schema-v2 envelope when n
 
 ```text
 React PracticeStateStore.loadAccount()
-  -> generated PracticeApi.getPracticeState(): Promise<PracticeStateEnvelopeDto>
+  -> PracticeApi.getPracticeState(): Promise<PracticeStateEnvelopeDto>
   -> fetch GET /api/practice-state + Bearer token
   -> Worker fetch() -> getContainer(env.COREEX, "api").fetch(request)
   -> JwtBearerHandler -> ClaimsPrincipal -> CoreEx ExecutionContext
@@ -364,7 +366,7 @@ React PracticeStateStore.loadAccount()
        FROM practice.practice_state WHERE user_id = @sub
   -> PracticeStateEntity -> PracticeStateMapper -> StoredPracticeState
   -> Result<PracticeStateEnvelope> -> WebApi
-  -> JSON body -> Worker pass-through -> generated client
+  -> JSON body -> Worker pass-through -> handwritten wire adapter
   -> mapper to UI PracticeState + per-user local envelope
 ```
 
@@ -377,7 +379,7 @@ One path serves ordinary syncing, a guest's first sync after signing in, and eve
 ```text
 React local mutation -> PracticeState + receipts/tombstones
   -> debounce ~2-5s, or immediate flush on submit/bookmark/exit/tab-hidden
-  -> generated PracticeApi.postPracticeState(envelope)
+  -> PracticeApi.postPracticeState(envelope)
   -> Worker -> Container -> JWT/ExecutionContext
   -> PracticeStateController.PostAsync()
   -> WebApi.PostWithResultAsync<PracticeStateEnvelope, PracticeStateEnvelope>()
@@ -452,8 +454,8 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 ## Files to modify
 
 - Frontend/runtime: `package.json`, `package-lock.json`, `vite.config.ts`, `wrangler.jsonc`, `.gitignore`
-- Frontend state/auth: `src/App.tsx`, `src/types.ts`, `src/lib/navigation.ts` (a fifth `Account` view and route), new `src/lib/persistence.ts`, `src/lib/auth-client.ts`, generated `src/lib/practice-api.ts`, and focused Vitest files. Types are renamed per [#51](https://github.com/timbarreto/acn-fde/issues/51) (`PersistedState` -> `PracticeState`, `ActiveAttempt` -> `Attempt`, `CompletedAttempt` -> `FinishedAttempt`, `progress` -> `latestAnswers`, `completedAt` -> `finishedAt`, `abandoned` -> `outcome`); per-question receipts live in the receipts structure, **not** inside the exam-facing model; `ExamRunner`'s separate header stays free of sync chrome ([#50](https://github.com/timbarreto/acn-fde/issues/50))
-- Shared contracts: the backend OpenAPI document used to detect TypeScript client drift (no shared merge fixtures — the merge exists only in .NET)
+- Frontend state/auth: `src/App.tsx`, `src/types.ts`, `src/lib/navigation.ts` (a fifth `Account` view and route), new `src/lib/persistence.ts`, `src/lib/auth-client.ts`, handwritten `src/lib/practice-api.ts`, and focused Vitest files. Types are renamed per [#51](https://github.com/timbarreto/acn-fde/issues/51) (`PersistedState` -> `PracticeState`, `ActiveAttempt` -> `Attempt`, `CompletedAttempt` -> `FinishedAttempt`, `progress` -> `latestAnswers`, `completedAt` -> `finishedAt`, `abandoned` -> `outcome`); per-question receipts live in the receipts structure, **not** inside the exam-facing model; `ExamRunner`'s separate header stays free of sync chrome ([#50](https://github.com/timbarreto/acn-fde/issues/50))
+- Wire contract verification: the backend publishes OpenAPI for documentation and focused contract assertions; frontend integration tests exercise the handwritten adapter against the real API (no generated-client drift step and no shared merge fixtures — the merge exists only in .NET)
 - Cloudflare Worker: new `worker/index.ts`, `worker/auth.ts`, test-only auth entry, Worker tests, generated binding types, committed `migrations/*.sql`, plus `wrangler.local.jsonc` and `wrangler.test.jsonc`
 - CoreEx contracts/API: new `backend/src/Acn.Fde.Practice.Contracts/PracticeState*.cs`, `backend/src/Acn.Fde.Practice.Api/Controllers/PracticeStateController.cs`, JWT/execution-context host wiring, OpenAPI, and health configuration
 - CoreEx application/infrastructure: new `PracticeStateService`, validators, `IPracticeStateRepository`, `IPracticeStateMerger`, `StoredPracticeState`, `PracticeStateRepository`, `PracticeStateMapper`, `PracticeStateEntity`, `PracticeDbContext`, and `PracticeEfDb` under the generated Application/Infrastructure projects
@@ -466,16 +468,16 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 - Preserve the shape of `PersistedState`, `ActiveAttempt`, and `CompletedAttempt` in `src/types.ts` while renaming them to `PracticeState`, `Attempt`, and `FinishedAttempt` ([#51](https://github.com/timbarreto/acn-fde/issues/51)); reuse `progressFromAttempts` in `src/lib/exam.ts` when deriving a legacy candidate's latest answers.
 - Evolve the existing static-assets deployment in `wrangler.jsonc` rather than creating a second public origin.
-- Scaffold with CoreEx's `coreex` + `coreex-api` templates and reuse the PostgreSQL, API host, execution-context, validation, repository, health, OpenAPI, and test patterns documented in the upstream [Avanade/CoreEx](https://github.com/Avanade/CoreEx) repository, specifically the [`CoreEx.Template`](https://github.com/Avanade/CoreEx/tree/main/src/CoreEx.Template) project, the [application scaffolding guide](https://github.com/Avanade/CoreEx/blob/main/docs/application-scaffolding-guide.md), and the [consumer instructions](https://github.com/Avanade/CoreEx/tree/main/consumer-instructions). This repository has no local CoreEx checkout; treat these as external references only, and pin/record the CoreEx release or commit actually used once implementation starts.
+- Scaffold the solution and API host with CoreEx's `coreex` + `coreex-api` templates, then author the application-specific practice-state contracts and endpoints using CoreEx's [`coreex-contract`](https://github.com/Avanade/CoreEx/blob/main/.github/skills/coreex-contract/SKILL.md) and [`coreex-api`](https://github.com/Avanade/CoreEx/blob/main/.github/skills/coreex-api/SKILL.md) conventions. The templates create the shape; they do not infer these properties and routes. `[Contract] partial` lets CoreEx generate mechanical contract members, while the PostgreSQL, execution-context, validation, repository, health, OpenAPI, and test patterns come from the upstream [Avanade/CoreEx](https://github.com/Avanade/CoreEx) repository, specifically the [`CoreEx.Template`](https://github.com/Avanade/CoreEx/tree/main/src/CoreEx.Template) project, the [application scaffolding guide](https://github.com/Avanade/CoreEx/blob/main/docs/application-scaffolding-guide.md), and the [consumer instructions](https://github.com/Avanade/CoreEx/tree/main/consumer-instructions). This repository has no local CoreEx checkout; treat these as external references only, and pin/record the CoreEx release actually used once implementation starts rather than copying unreleased `main` assets.
 - Reuse Better Auth's supported D1 database path and JWT/JWKS plugin rather than inventing sessions or sharing the D1 schema with .NET.
-- Generate the frontend API client from the CoreEx/NSwag OpenAPI contract. There is only one merge implementation, in .NET, so no cross-language fixture parity is required.
+- Handwrite the three-operation frontend wire adapter. Keep it deliberately thin, map to UI types at its boundary, and verify it against the running CoreEx API in focused integration tests. OpenAPI remains documentation and a backend contract artifact, not a TypeScript generation input. There is only one merge implementation, in .NET, so no cross-language fixture parity is required.
 - Keep the existing `npm run test`, `lint`, `build`, and explicitly opt-in Playwright policy from this repository's [`AGENTS.md`](../AGENTS.md).
 
 ## Steps
 
 - [ ] Add the Worker entry point and bindings: serve Vite assets, configure D1 and committed auth migrations, initialize Better Auth with GitHub + JWT/JWKS, and route API traffic to one sleeping `basic` CoreEx Container.
 - [ ] Scaffold `Acn.Fde.Practice` with CoreEx's PostgreSQL API templates and remove/avoid unused reference-data, messaging, outbox, relay, subscriber, Redis, and domain-layer features.
-- [ ] Implement the PostgreSQL state schema and migrations, CoreEx contracts/validators/service/repository/controllers, the merge-on-write transaction, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and generate the frontend client with a CI drift check.
+- [ ] Implement the PostgreSQL state schema and migrations, CoreEx contracts/validators/service/repository/controllers, the merge-on-write transaction, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and verify the handwritten frontend adapter against the running API.
 - [ ] Implement the merge and its scenario tests in .NET (the cases and their expected outcomes are settled in #40, **except the `progress` rule, which #50 reversed** — merge `latestAnswers` per-question rather than deriving it, and record `outcome` rather than #40's `abandoned` boolean per #51), then extract/version frontend persistence and add guest/per-user cache isolation, sync metadata/tombstones, and the debounced send-and-adopt loop.
 - [ ] Add the Better Auth client, GitHub sign-in/out UI, in-memory API token flow, typed state client, and the debounced send-and-adopt sync loop — including the flush-before-sign-out and block-or-warn-while-unsynced requirements from #50, since sign-out erases the cache.
 - [ ] Add the `Account` view as a fifth top-level nav item available to guests and signed-in users, holding sync state, the client-side JSON export, self-service reset, and account deletion; add the always-visible `TopNav` sync indicator, and keep it out of `ExamRunner`'s separate header. No modal, banner, or prompt anywhere invites sign-in (#50).
@@ -490,7 +492,7 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 - `npm run test`: frontend persistence, guest-envelope, send-and-adopt, and auth-state tests.
 - `npm run test:worker`: Better Auth D1 adapter, JWT/JWKS, routing precedence, production exclusion of test auth, and local API-origin proxy tests in the Cloudflare Worker test runtime.
-- `npm run lint && npm run build`: lint/type-check frontend and Worker, build Vite assets, and detect generated OpenAPI client drift.
+- `npm run lint && npm run build`: lint/type-check the handwritten frontend wire types/client and Worker, then build Vite assets.
 - `dotnet test backend/Acn.Fde.Practice.slnx`: CoreEx validators/services/repositories/controllers plus the merge scenarios from #40 including idempotency; valid, expired, wrong-issuer/audience, and rotated-key JWTs; and authorization filters.
 
 ### Aspire full-stack suite
@@ -502,7 +504,7 @@ Run `npm run test:full` to start `Acn.Fde.Practice.Test.AppHost` with disposable
 3. Send a v1 guest fixture, verify the canonical merged state, send it again, and prove the second write changed nothing.
 4. Seed an existing account state and verify attempt/bookmark union, 30-attempt retention, newest answer/active attempt, and tombstone behavior.
    Include the case #50 was resolved on: a state whose `latestAnswers` holds answers from attempts that have since fallen off the 30-attempt cap must survive the merge intact. Assert the answered count does **not** drop — that assertion is the regression test for the rule #40 originally specified.
-5. Exercise GET and concurrent POSTs from two clients, verify both contributions survive the merge with no lost update, and confirm the generated client matches OpenAPI.
+5. Exercise GET and concurrent POSTs from two clients through the handwritten adapter, verify both contributions survive the merge with no lost update, and confirm its request/response shapes round-trip against the running API.
 6. Call each user's token against the other's scenarios and verify ownership is always derived from `sub` with no cross-user reads/writes, and that `github_account_id` is never consulted for authorization.
 7. Reset one user's practice state and verify the account survives; delete the other's account and verify the practice row goes first and the D1 identity follows.
 8. Stop/restart the API resource, then PostgreSQL, and verify health transitions, queued client retry, and durable state recovery; repeat for the Worker/D1 process.
