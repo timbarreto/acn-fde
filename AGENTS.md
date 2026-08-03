@@ -7,6 +7,14 @@ offline-first practice exam for the GitHub Certified: Agentic AI Developer
 (GH-600) credential. It is a client-only React application: there is no
 backend, account system, API, or database.
 
+## Vocabulary
+
+[`CONTEXT.md`](CONTEXT.md) is the project glossary and is authoritative for
+new work. Read it before naming anything: several everyday words here are
+deliberately narrowed (*user* never means a guest, *progress* never means
+stored answers, *snapshot* never means anything on the wire), and some agreed
+terms do not yet appear in `src/`.
+
 ## Technology
 
 - React 19 and TypeScript
