@@ -10,8 +10,27 @@
 
 ## Context
 
-ACN FDE is currently a client-only React 19/Vite application with all progress stored in browser `localStorage`; its project guidance explicitly says there is no backend, API, database, or account system.
-The requested change introduces a CoreEx-based backend and Better Auth authentication while preserving guest/offline use. The selected design is a roughly US$5/month Cloudflare-centric deployment, with GitHub-only sign-in and an idempotent newest-wins import of existing anonymous progress.
+ACN FDE is currently a client-only React 19/Vite application with all practice state stored in browser `localStorage`; its project guidance explicitly says there is no backend, API, database, or account system.
+The requested change introduces a CoreEx-based backend and Better Auth authentication while preserving guest/offline use. The selected design is a roughly US$5/month Cloudflare-centric deployment, with GitHub-only sign-in and an idempotent newest-wins merge of a guest's existing practice state on their first sync.
+
+### Vocabulary
+
+This document uses the terms defined in [`CONTEXT.md`](../CONTEXT.md), settled by [#51](https://github.com/timbarreto/acn-fde/issues/51). Several are deliberately narrower than everyday usage, and four earlier drafts of this spec used them loosely enough to hide modelling errors:
+
+| Concept | Name here | Currently in `src/` | Retired wording |
+|---|---|---|---|
+| A person practising | **candidate** | — | "user" for anyone |
+| Signed-in identity | **user**, keyed by **subject** (`sub`) | — | "user" meaning a guest too |
+| Everything remembered about practising | **practice state** | `PersistedState` | "snapshot", "progress", "save data" |
+| That, plus schema version and receipts | **practice state envelope** | — | "snapshot" |
+| One sitting | **attempt** (`Attempt`), ended as a **finished attempt** | `ActiveAttempt` / `CompletedAttempt` | "completed attempt" for all endings |
+| The answer of record per question | **latest answers** | `progress` | "progress" |
+| Derived statistics | **progress**, **readiness** | (computed) | — |
+| Server arrival time per item | **receipt** (`receivedAt`) | — | "sync metadata", "updatedAt", "version" |
+| One client↔server exchange | **sync** | — | "import", "upload", "push" |
+| A database backup | **snapshot** | — | (reserved for this meaning only) |
+
+Two rules that are easy to violate without noticing. **A guest is never a user** — ownership derives from `sub` alone, so no synthetic guest identifier may ever exist. And **no stored value records when a candidate acted**: receipts record server arrival, and only `startedAt`/`finishedAt` describe candidate activity, so nothing in a candidate-facing view may label a receipt "last answered".
 
 ## Approach
 
@@ -129,31 +148,74 @@ Further required configuration:
 - **Set `rateLimit.storage: "database"`.** The in-memory default is per-isolate and effectively meaningless in Workers.
 - **Handle GitHub users with a private primary email.** `user.email` is `NOT NULL UNIQUE`, but GitHub returns `email: null` for those accounts, producing an `email_not_found` failure on first sign-in. Supply a `mapProfileToUser` fallback that reads `/user/emails`.
 
-On D1 specifically: Better Auth ships a **built-in** `D1SqliteDialect` and auto-detects a raw binding, so `database: env.AUTH_DB` is the whole configuration — no `kysely-d1` or Drizzle, despite the public docs still listing only the community dialect. Pin `better-auth >= 1.6.x`. Note that **D1 has no interactive transactions**, so the first-sign-in writes (`user` + `account` + `session`) are *not* atomic — unlike the PostgreSQL import path. The first anonymous `GET /jwks` also **writes** a key row rather than being a pure read.
+On D1 specifically: Better Auth ships a **built-in** `D1SqliteDialect` and auto-detects a raw binding, so `database: env.AUTH_DB` is the whole configuration — no `kysely-d1` or Drizzle, despite the public docs still listing only the community dialect. Pin `better-auth >= 1.6.x`. Note that **D1 has no interactive transactions**, so the first-sign-in writes (`user` + `account` + `session`) are *not* atomic — unlike the PostgreSQL merge path. The first anonymous `GET /jwks` also **writes** a key row rather than being a pure read.
 
 Better Auth generates the `user`/`session`/`account`/`verification`/`jwks` schema exactly as assumed. Because the Better Auth CLI cannot reach D1 (it introspects a live database), produce the committed `migrations/*.sql` out-of-band via `compileMigrations()` or `npx auth@latest generate` against an equivalent local SQLite config, and add a CI drift check so plugin changes cannot silently desynchronise the committed SQL.
 
-### Persistence and import
+### Sign-in as a product decision
 
-Extract the current `localStorage` logic from `App.tsx` behind a persistence/sync layer while leaving `PersistedState` as the UI-facing model:
+Earlier drafts assumed this decision was already made and described only the mechanism. It is now settled explicitly ([#50](https://github.com/timbarreto/acn-fde/issues/50)), because it constrains the frontend far more than the backend. Today's `README.md` lists "No account, API, database, or backend" as a *feature* and the tagline is "offline-first", so introducing accounts changes what the product claims to be, not merely what it stores.
 
-- Guest mode remains fully local and offline-capable. Read the legacy `agentic-ready-gh600-v1` key as the migration source, then use a versioned guest envelope. No import ID is needed ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
-- Account mode uses a per-user local cache, optimistic local updates, and retryable synchronization so a temporary auth/API/database outage does not break practice. Never expose one account's cache to a guest or another account.
-- On first successful GitHub sign-in, POST the guest snapshot to the ordinary state endpoint. There is no separate import operation and no receipt: the server merges, and merging the same snapshot twice is a no-op.
-- Return the canonical merged state. Only after that response succeeds should the browser mark/remove the guest import source and switch to the per-account cache. Failed or interrupted imports keep guest data intact and simply send again.
+The governing rule is **discoverable, never interruptive**:
+
+- **Sign-in is always available and easy to find, and the app never asks for it.** No modal, no banner, no post-attempt prompt, no periodic "your progress is only on this device" nag — not once, not ever. A user who never signs in is not a lapsed conversion; they are using the product as designed.
+- **Guest mode is permanent and first-class.** It is not a trial and not a funnel. Nothing is withheld or degraded, and export and reset are guest features in their own right rather than account perks. This is close to the existing requirement that `npm run dev` stay usable with no backend at all ([#39](https://github.com/timbarreto/acn-fde/issues/39)).
+- **The honest pitch is narrow, and keeping it narrow is the point.** Sign-in buys exactly two things: practice that follows you to a second device, and survival of a cleared browser. GitHub as the only provider is unusually well matched — a GH-600 candidate already has a GitHub account — but it is still an identity handed to a practice-exam app, so the ask stays small and unpressured.
+- **Signing in never costs the user anything visible.** This is why `latestAnswers` is stored and merged rather than derived; see the merge rules.
+
+#### The `Account` view
+
+A fifth top-level nav item, `Account`, shown to everyone including guests. It hosts sync state, the client-side JSON export, self-service reset, and account deletion ([#44](https://github.com/timbarreto/acn-fde/issues/44)) — the first two of which a guest genuinely owns, which is why the surface cannot be an avatar menu that only exists when signed in.
+
+The trade was made knowingly: top-level placement is more discoverable than a footer or settings link, and it does mean guests carry a permanent account surface they may never use. Discoverability was chosen over quietness. It must not drift into a nag — the page leads with sign-in only because that is where a signed-out user's options begin, and the subject is raised nowhere else in the app.
+
+`Account` is a provisional label pending the glossary ([#51](https://github.com/timbarreto/acn-fde/issues/51)), which has to settle what *account*, *user*, and *guest* mean in a product whose first-class mode has none of them.
+
+#### Sync status
+
+`TopNav` carries an always-visible passive indicator — synced with relative time, offline, or not synced. No thresholds, no escalation, no dismissal state, never a modal. It is chrome, not an alert.
+
+This stays out of timed attempts **by construction rather than by discipline**: `ExamRunner` returns early from `App` and renders its own header, so `TopNav` is not mounted during an exam at all. Keep that structure — relocating the indicator into the exam header would put live network status beside a countdown timer.
+
+Note what "not synced" does not mean. A failed sync is not data loss: the local cache holds everything and clients heal the server ([#44](https://github.com/timbarreto/acn-fde/issues/44)), so the condition is *unreplicated*, not *lost*. The copy must say so, or every transient failure reads as a data emergency.
+
+#### Sign-out
+
+Sign-out **erases the account cache from the device** and explains why, leaving an empty guest state with an explanation rather than a bare dashboard. This is the same conservative posture as not retaining the GitHub access token: a practice history is not high-stakes data, but a shared library terminal or classroom machine should not keep the previous user's exam record.
+
+Two hard requirements follow, both owned by the persistence layer ([#56](https://github.com/timbarreto/acn-fde/issues/56)):
+
+- **Pending writes flush before the session ends.** The sync loop is debounced, so signing out mid-debounce would otherwise erase work that was never sent.
+- **Sign-out blocks or warns while unsynced state exists.** Flushing cannot succeed while offline or while the API is down, and the erase is unrecoverable. This is the only path in the design where a user can genuinely destroy their own work, so it is the only one that may interrupt them.
+
+Because the cache is erased and the guest's practice state is consumed by the first sync after signing in, sign-out does not restore an older guest state. That is deliberate: months-stale practice state reappearing reads as catastrophic loss.
+
+### Persistence and syncing
+
+Extract the current `localStorage` logic from `App.tsx` behind a persistence/sync layer. The UI-facing model keeps its own handwritten type rather than importing generated ones, but it is renamed `PersistedState` -> `PracticeState` so browser, wire, and server all use one word for one concept ([#51](https://github.com/timbarreto/acn-fde/issues/51)):
+
+- Guest mode remains fully local and offline-capable. Read the legacy `agentic-ready-gh600-v1` key as the migration source, then use a versioned guest envelope. No correlation id is needed for the first sync ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
+- Account mode uses a per-user local cache, optimistic local updates, and retryable synchronization so a temporary auth/API/database outage does not break practice. Never expose one account's cache to a guest or another account. The cache does not outlive the session: sign-out erases it ([#50](https://github.com/timbarreto/acn-fde/issues/50)), so there is no per-user cache accumulation to evict and no residue on a shared machine.
+- The first sync after signing in POSTs the guest's practice state to the ordinary state endpoint. **There is no import** — no dedicated operation, no `practice_import` table, no correlation id ([#51](https://github.com/timbarreto/acn-fde/issues/51) retired the word, which kept pulling machinery back into the design). The server merges, and merging the same state twice is a no-op.
+- Return the canonical merged state. Only after that response succeeds should the browser **consume** the guest practice state — remove it, not merely flag it — and switch to the per-account cache. A failed or interrupted first sync keeps the guest state intact and simply sends again. Consuming rather than retaining is what stops stale guest practice state resurfacing at sign-out.
 - Store sync timestamps and bookmark tombstones outside the exam-facing model so newest-wins conflict handling also supports bookmark removals.
 
 #### The merge, exactly
 
-Settled by walking concrete conflict scenarios through a prototype ([#40](https://github.com/timbarreto/acn-fde/issues/40)); the same rules run on both sides of the wire and every case below was verified idempotent — re-merging never changes the result.
+Settled by walking concrete conflict scenarios through a prototype ([#40](https://github.com/timbarreto/acn-fde/issues/40)); the same rules run on both sides of the wire and every case below was verified idempotent — re-merging never changes the result. One of #40's four rules was subsequently **reversed** by [#50](https://github.com/timbarreto/acn-fde/issues/50) — see the first bullet, which is now the opposite of what #40 concluded.
 
-- **`progress` is derived, never merged.** It is a cache of the answers held in attempts, so after merging it is recomputed with `progressFromAttempts([activeAttempt, ...attempts])`, exactly as `src/App.tsx` already does for legacy blobs. This deletes per-question timestamps, `progressUpdatedAt`, and the whole per-question newest-wins branch from the design. **Known regression:** answers held only by an attempt that falls off the retention cap are lost, so readiness and answered counts can drop after a sync. Today those answers persist forever; this is a deliberate trade for a far smaller sync payload.
-- **Attempts union by ID, capped at the 30 newest by `completedAt`.** Retention means "your 30 most recent exams", not "the 30 most recently uploaded" — capping by sync time would let a freshly-imported ancient attempt evict a genuinely newer one. A just-imported old guest attempt is therefore dropped on arrival, which is correct: it really is old.
-- **The active attempt resolves by newest sync clock, and the loser is preserved, not destroyed.** When two devices each hold an exam in progress, the losing attempt is submitted as-is into `attempts` flagged `abandoned`, scored on what was answered. Silently deleting it was the original design and would have destroyed a half-finished exam with no trace. This requires an `abandoned?: boolean` on `CompletedAttempt` and UI that renders such an attempt differently from one the user chose to submit. Resolve the active attempt **before** applying the retention cap, so a rescued attempt can evict an older one.
+- **`latestAnswers` is stored and merged per-question, newest-wins.** Each entry is an answer plus a receipt, resolved by the server-stamped clock — structurally identical to the bookmark tombstones below, bounded by the same 102-question bank, needing the same absent garbage collection. This is the **reverse of [#40](https://github.com/timbarreto/acn-fde/issues/40)'s original rule**, which derived the field (then called `progress`) from the retained attempts with `progressFromAttempts`. Two things overturned it:
+  - **The reason #40 gave no longer holds.** It traded losslessness for "a far smaller sync payload". [#43](https://github.com/timbarreto/acn-fde/issues/43) later measured the whole document at **42.7 KiB raw / 1.5 KiB gzipped**, and a bounded 102-entry progress map adds roughly 6 KB raw and a fraction of a KiB gzipped. Payload was never the constraint it was priced as.
+  - **Deriving is not lossless, and [#50](https://github.com/timbarreto/acn-fde/issues/50) requires that signing in cost the user nothing visible.** Today the field is a stored map that outlives the attempts that produced it (`src/App.tsx:52-59` derives it only as a fallback for legacy blobs with an empty map, while `:152` caps attempts at 30). Deriving it from a 30-attempt window drops any answer held only by an older attempt. Ordinary use is unaffected — 30 attempts hold 300–900 answer slots against 102 questions, and the queue prioritises never-answered — but a user who covered the bank early and then drilled a single domain across 30+ short attempts would watch their answered count collapse from ~102 to ~15 and their readiness score crater, at the exact moment they signed in. That is the cramming power user, who is also the most likely to want cross-device sync.
+
+  The residual cost is one more instance of a pattern the design already builds for bookmarks, plus per-question receipts. `progressFromAttempts` survives only where it already lives: deriving a legacy candidate's latest answers when the blob has none.
+- **Attempts union by ID, capped at the 30 newest by `finishedAt`.** Retention means "your 30 most recent attempts", not "the 30 most recently uploaded" — capping by sync time would let a freshly-imported ancient attempt evict a genuinely newer one. A just-imported old guest attempt is therefore dropped on arrival, which is correct: it really is old.
+- **The active attempt resolves by newest receipt, and the loser is preserved, not destroyed.** When two devices each hold an attempt in progress, the losing attempt is finished as-is into `attempts` with `outcome: "abandoned"`, scored on what was answered. Silently deleting it was the original design and would have destroyed a half-finished attempt with no trace. It requires UI that renders such an attempt differently from one the candidate chose to submit. Resolve the active attempt **before** applying the retention cap, so a rescued attempt can evict an older one.
+- **A finished attempt records *how* it ended, not merely that it did.** `outcome` is `"submitted" | "expired" | "abandoned"`, replacing the `abandoned?: boolean` [#40](https://github.com/timbarreto/acn-fde/issues/40) specified ([#51](https://github.com/timbarreto/acn-fde/issues/51)). Naming the concept exposed a third ending nobody had recorded: `src/App.tsx:520` already auto-finishes an attempt when its timer reaches zero (`if (!timerPaused && remaining === 0) onComplete(attempt)`), which today is indistinguishable from the candidate pressing "Submit exam". Running out of time is a pacing signal a GH-600 candidate wants to see in their history, and #40's own argument — that an abandoned attempt must not look like a chosen submission — applies to it verbatim. The enum is also open to further endings; a boolean is not.
 - **A stale in-progress copy of an attempt already completed elsewhere is cleared, not resurrected** — and reported as "no work lost", since the finished version is in history.
 - **Bookmarks carry per-question tombstones** (`{ isBookmarked, updatedAt }`) and resolve by newest clock, which handles remove-then-re-add across three devices correctly. The map needs no garbage collection: it is bounded by the question bank (102 questions), not by user activity.
 - **Sync timestamps are stamped by the server on receipt.** Browser clocks never enter conflict resolution — a device with a fast clock would otherwise win every conflict permanently, with no way for another device to override it. Ordering becomes upload order, which is a sound proxy for causality in a single-user app.
-- **Legacy blobs** derive attempt clocks from `completedAt` and stamp bookmarks at import time. With `progress` derived, the spec's former "a legacy answer without provenance receives the import time" rule no longer exists.
+- **Legacy blobs** derive attempt clocks from `finishedAt` and stamp bookmarks at first-sync time. A legacy answer map carries no per-question provenance, so its entries are stamped at first-sync time too — the rule #40 deleted when it derived the field, restored now that `latestAnswers` is merged again ([#50](https://github.com/timbarreto/acn-fde/issues/50)). First-sync time is the safe stamp: it is the oldest defensible clock, so any later answer from any device wins.
 
 ### CoreEx API and data model
 
@@ -179,13 +241,13 @@ Also set `OTEL_SDK_DISABLED=true` in production. `builder.WithCoreExTelemetry().
 
 Because the merge is deterministic and idempotent ([#40](https://github.com/timbarreto/acn-fde/issues/40)), the server merges rather than replaces, and there is no optimistic-concurrency protocol at all ([#43](https://github.com/timbarreto/acn-fde/issues/43)). The client sends its full state; the server, inside one transaction, takes the row `FOR UPDATE`, merges the incoming state into the stored state, stamps sync timestamps with server time, writes, and returns the canonical result.
 
-This deliberately deletes a large amount of the original design: **no `If-Match`, no ETags, no `409`, no `428`, no client-side merge implementation, no shared TypeScript/.NET merge fixtures, no retry loop, no idempotency key, and no `practice_import` receipt table or dedicated import endpoint.** Re-sending the same state is harmless by construction, which is what made the receipt unnecessary — importing a guest snapshot twice converges on the same result. Importing is therefore an ordinary write, not a special operation.
+This deliberately deletes a large amount of the original design: **no `If-Match`, no ETags, no `409`, no `428`, no client-side merge implementation, no shared TypeScript/.NET merge fixtures, no retry loop, no idempotency key, and no `practice_import` table or dedicated import endpoint.** Re-sending the same state is harmless by construction, which is what made the deleted `practice_import` table unnecessary — sending a guest's practice state twice converges on the same result. A guest's first sync is therefore an ordinary write, not a special operation.
 
 Consequences to design for:
 
-- **A merge can only add information.** Anything that removes data needs an explicit tombstone (bookmarks have one) or its own endpoint. A future "reset my progress" or account deletion cannot be expressed as a write — see [#44](https://github.com/timbarreto/acn-fde/issues/44).
+- **A merge can only add information.** Anything that removes data needs an explicit tombstone (bookmarks have one) or its own endpoint. A future "delete all my practice data" or account deletion cannot be expressed as a write — see [#44](https://github.com/timbarreto/acn-fde/issues/44).
 - **The client adopts canonical state only when it has no unsynced local edits;** otherwise it keeps its own state and sends again. Its own state only ever accumulates, so re-sending converges without the client ever implementing the merge. This is what keeps the merge single-implementation, in .NET only.
-- **Sizing is not a constraint.** A worst-case snapshot — 30 completed 30-question attempts, a live attempt, bookmarks and full progress — is 42.7 KiB raw and **1.5 KiB gzipped**; the payload is highly repetitive and compresses ~28×. Whole-document writes are cheap.
+- **Sizing is not a constraint.** A worst-case envelope — 30 finished 30-question attempts, a live attempt, bookmarks and a full set of latest answers — is 42.7 KiB raw and **1.5 KiB gzipped**; the payload is highly repetitive and compresses ~28×. Whole-document writes are cheap.
 - **Write cadence is debounced (~2–5 s) with immediate flushes on milestones**: submitting an exam, toggling a bookmark, leaving an attempt, and tab-hidden. That is roughly 3–6 writes per exam rather than one per answer. Note this is a bandwidth and database-write concern, *not* a cost lever: the container stays awake for five minutes past any activity, so the awake time of a 20-minute exam is the same either way. `localStorage` remains the crash-resilience story for the few seconds in between.
 
 ### Data ownership, durability, and deletion
@@ -207,7 +269,7 @@ Given this, **no backup cron is built.** The `pg_dump` → R2 pipeline sketched 
 
 **Deletion** needs explicit endpoints because a merge cannot express removal:
 
-- *Reset my progress* — `DELETE /api/practice-state`, keeping the account. This matters more than it looks for a practice-exam tool: question selection is driven by prior answers, so starting fresh is a plausible request.
+- *Delete all my practice data* — `DELETE /api/practice-state`, keeping the account. The label must say what it removes: it deletes attempts, bookmarks, and latest answers, not merely the statistics a candidate sees ([#51](https://github.com/timbarreto/acn-fde/issues/51)). This matters more than it looks for a practice-exam tool: question selection is driven by prior answers, so starting fresh is a plausible request.
 - *Delete my account* — `DELETE /api/practice-state` **first**, then Better Auth's `POST /api/auth/delete-user`. No transaction spans D1 and PostgreSQL, so the order is the safety mechanism: a mid-way failure leaves an account with no data, which is harmless and retryable, rather than an orphaned row nobody can reach. The client retries.
 
 **What is stored about a person:** a Better Auth user id, GitHub display name, avatar URL, and email (Better Auth's schema requires it `NOT NULL UNIQUE`), plus the GitHub account id. The GitHub **access token is not retained** — it is cleared once sign-in completes, since nothing calls the GitHub API afterwards. State this list in the README.
@@ -220,15 +282,15 @@ The CoreEx OpenAPI document is the source for generated camel-case TypeScript in
 
 | Wire/TypeScript shape | C# contract/application type | PostgreSQL persistence type |
 |---|---|---|
-| `ActiveAttemptDto` / `CompletedAttemptDto` (IDs and enums as strings, answer maps, flags, indexes, epoch-millisecond timestamps, plus `abandoned?: boolean` on completed attempts — see the merge rules) | `ActiveAttempt` / `CompletedAttempt` in `Acn.Fde.Practice.Contracts` using `string`, `Dictionary<string, string[]>`, `List<string>`, `int`, `long`, nullable `long`, and `bool?` | Nested JSON inside `PracticeStateEntity.StateJson : JsonElement` (`jsonb`) |
-| `PracticeStateDto { activeAttempt, attempts, bookmarks, progress }` | `PracticeState` with `ActiveAttempt?`, `List<CompletedAttempt>`, `List<string>`, and `Dictionary<string, string[]>` | `PracticeStateEntity.StateJson : JsonElement` (`state jsonb`) |
-| `BookmarkVersionDto { isBookmarked, updatedAt }` | `BookmarkVersion { bool IsBookmarked; DateTimeOffset UpdatedAt; }` | Nested JSON inside `PracticeStateEntity.SyncMetadataJson` |
-| `PracticeSyncMetadataDto { activeAttemptUpdatedAt, attemptUpdatedAt, bookmarks }` — no `progressUpdatedAt`, since `progress` is derived ([#40](https://github.com/timbarreto/acn-fde/issues/40)); all values are server-stamped on receipt | `PracticeSyncMetadata` using nullable `DateTimeOffset` plus `Dictionary<string, DateTimeOffset>` and `Dictionary<string, BookmarkVersion>` | `PracticeStateEntity.SyncMetadataJson : JsonElement` (`sync_metadata jsonb`) |
-| `PracticeStateSnapshotDto { schemaVersion, state, sync }` — no `etag` ([#43](https://github.com/timbarreto/acn-fde/issues/43)) | `PracticeStateSnapshot` with `int SchemaVersion`, `PracticeState State`, and `PracticeSyncMetadata Sync` | Application `StoredPracticeState { string UserId; PracticeStateSnapshot Snapshot; ChangeLog? ChangeLog; }` mapped to one `PracticeStateEntity` |
+| `AttemptDto` / `FinishedAttemptDto` (IDs and enums as strings, answer maps, flags, indexes, epoch-millisecond timestamps, plus `finishedAt`, `score`, and `outcome` on finished attempts — see the merge rules) | `Attempt` / `FinishedAttempt` in `Acn.Fde.Practice.Contracts` using `string`, `Dictionary<string, string[]>`, `List<string>`, `int`, `long`, and an `AttemptOutcome` enum | Nested JSON inside `PracticeStateEntity.StateJson : JsonElement` (`jsonb`) |
+| `PracticeStateDto { activeAttempt, attempts, bookmarks, latestAnswers }` | `PracticeState` with `Attempt?`, `List<FinishedAttempt>`, `List<string>`, and `Dictionary<string, string[]>` | `PracticeStateEntity.StateJson : JsonElement` (`state jsonb`) |
+| `BookmarkReceiptDto { isBookmarked, updatedAt }` | `BookmarkReceipt { bool IsBookmarked; DateTimeOffset UpdatedAt; }` | Nested JSON inside `PracticeStateEntity.ReceiptsJson` |
+| `PracticeStateReceiptsDto { activeAttemptUpdatedAt, attemptUpdatedAt, bookmarks, progress }` — `progress` carries per-question `updatedAt` values because `progress` is merged, not derived ([#50](https://github.com/timbarreto/acn-fde/issues/50) reversing [#40](https://github.com/timbarreto/acn-fde/issues/40)); all values are server-stamped on receipt | `PracticeStateReceipts` using nullable `DateTimeOffset` plus `Dictionary<string, DateTimeOffset>` for attempts and progress, and `Dictionary<string, BookmarkReceipt>` for bookmarks | `PracticeStateEntity.ReceiptsJson : JsonElement` (`receipts jsonb`) |
+| `PracticeStateEnvelopeDto { schemaVersion, state, sync }` — no `etag` ([#43](https://github.com/timbarreto/acn-fde/issues/43)) | `PracticeStateEnvelope` with `int SchemaVersion`, `PracticeState State`, and `PracticeStateReceipts Receipts` | Application `StoredPracticeState { string UserId; PracticeStateEnvelope Envelope; ChangeLog? ChangeLog; }` mapped to one `PracticeStateEntity` |
 
 Concrete persistence models under `Acn.Fde.Practice.Infrastructure.Persistence` are:
 
-- `PracticeStateEntity : IChangeLog`: `string UserId`, `JsonElement StateJson`, `JsonElement SyncMetadataJson`, and CoreEx `ChangeLog` fields (`CreatedBy/On`, `UpdatedBy/On`). No ETag/row-version member: writes serialise on `SELECT … FOR UPDATE`, not on optimistic concurrency.
+- `PracticeStateEntity : IChangeLog`: `string UserId`, `JsonElement StateJson`, `JsonElement ReceiptsJson`, and CoreEx `ChangeLog` fields (`CreatedBy/On`, `UpdatedBy/On`). No ETag/row-version member: writes serialise on `SELECT … FOR UPDATE`, not on optimistic concurrency.
 - `PracticeDbContext : DbContext, IEfDbContext`: maps JSON with `JsonElementStringEfConverter`.
 - `PracticeEfDb : EfDb<PracticeDbContext>`: exposes `EfDbModel<PracticeStateEntity> PracticeStates`.
 - `PracticeStateMapper`: the only serializer boundary, using the shared `JsonSerializerOptions` to convert contract objects to/from `JsonElement`; malformed persisted JSON is treated as a server/data-integrity error, never silently reset.
@@ -242,7 +304,7 @@ CREATE TABLE practice.practice_state (
   user_id varchar(128) PRIMARY KEY,
   github_account_id varchar(64) NOT NULL,
   state jsonb NOT NULL,
-  sync_metadata jsonb NOT NULL,
+  receipts jsonb NOT NULL,
   created_by varchar(250) NOT NULL,
   created_on timestamptz NOT NULL,
   updated_by varchar(250) NOT NULL,
@@ -254,7 +316,7 @@ CREATE INDEX practice_state_github_account_id_idx
 
 `github_account_id` is never used for authorization — ownership always derives from `sub`. It exists solely so that a catastrophic D1 loss is a scripted remap rather than a permanent orphaning of every row ([#44](https://github.com/timbarreto/acn-fde/issues/44)).
 
-One table. The `practice_import` receipt table is gone: it existed to stop a retried import merging twice, and an idempotent merge makes that impossible by construction ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
+One table. The `practice_import` table is gone: it existed to stop a retried first sync merging twice, and an idempotent merge makes that impossible by construction ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 
 #### Public endpoint inventory
 
@@ -269,12 +331,12 @@ These are the application routes the design *uses*. They are not the only ones B
 | `GET /api/auth/token` | Session cookie | `{ token: string }` short-lived JWT | Better Auth D1 session + JWT signing key |
 | `GET /api/auth/jwks` | None | Standard `JsonWebKeySet` | Better Auth D1 signing keys; consumed by ASP.NET |
 | `POST /api/auth/delete-user` | Session cookie | Account deleted in D1 | Better Auth/D1; must be allowlisted |
-| `GET /api/practice-state` | Bearer JWT | `PracticeStateSnapshotDto` | CoreEx/PostgreSQL |
-| `POST /api/practice-state` | Bearer JWT, `PracticeStateSnapshotDto` | Canonical merged `PracticeStateSnapshotDto` | CoreEx/PostgreSQL transaction |
-| `DELETE /api/practice-state` | Bearer JWT | `204` — row removed | CoreEx/PostgreSQL. Serves both "reset my progress" and the first step of account deletion |
+| `GET /api/practice-state` | Bearer JWT | `PracticeStateEnvelopeDto` | CoreEx/PostgreSQL |
+| `POST /api/practice-state` | Bearer JWT, `PracticeStateEnvelopeDto` | Canonical merged `PracticeStateEnvelopeDto` | CoreEx/PostgreSQL transaction |
+| `DELETE /api/practice-state` | Bearer JWT | `204` — row removed | CoreEx/PostgreSQL. Serves both "delete all my practice data" and the first step of account deletion |
 | `GET /health/live`, `/health/startup`, `/health/ready` | None | ASP.NET health status | Container/process; readiness checks PostgreSQL |
 
-Two practice routes, not three. `GET` returns an empty schema-v2 snapshot when no row exists. `POST` merges and is safe to repeat, so the same call serves the first guest import, ordinary syncing, and any retry — there is no separate import endpoint and no precondition header. It is `POST` rather than `PUT` because the semantics are merge-and-return-canonical, not replace. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, and 503 readiness/dependency failure. **409 and 428 no longer occur** ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
+Two practice routes, not three. `GET` returns an empty schema-v2 envelope when no row exists. `POST` merges and is safe to repeat, so the same call serves a guest's first sync after signing in, ordinary syncing, and any retry — there is no separate endpoint and no precondition header. It is `POST` rather than `PUT` because the semantics are merge-and-return-canonical, not replace. Errors use CoreEx `ProblemDetails`: 400 validation, 401 auth, and 503 readiness/dependency failure. **409 and 428 no longer occur** ([#43](https://github.com/timbarreto/acn-fde/issues/43)).
 
 #### Authentication call stacks
 
@@ -286,58 +348,59 @@ Two practice routes, not three. `GET` returns an empty schema-v2 snapshot when n
 
 ```text
 React PracticeStateStore.loadAccount()
-  -> generated PracticeApi.getPracticeState(): Promise<PracticeStateSnapshotDto>
+  -> generated PracticeApi.getPracticeState(): Promise<PracticeStateEnvelopeDto>
   -> fetch GET /api/practice-state + Bearer token
   -> Worker fetch() -> getContainer(env.COREEX, "api").fetch(request)
   -> JwtBearerHandler -> ClaimsPrincipal -> CoreEx ExecutionContext
   -> PracticeStateController.GetAsync()
-  -> WebApi.GetWithResultAsync<PracticeStateSnapshot>()
+  -> WebApi.GetWithResultAsync<PracticeStateEnvelope>()
   -> IPracticeStateService.GetAsync(CancellationToken)
   -> PracticeStateService.GetAsync() reads ExecutionContext.Current.User.Id
   -> IPracticeStateRepository.GetAsync(string userId, CancellationToken)
   -> PracticeStateRepository.GetAsync()
   -> PracticeEfDb.PracticeStates.GetAsync(userId)
   -> PracticeDbContext -> NpgsqlDataSource("Postgres")
-  -> SELECT state, sync_metadata, audit columns
+  -> SELECT state, receipts, audit columns
        FROM practice.practice_state WHERE user_id = @sub
   -> PracticeStateEntity -> PracticeStateMapper -> StoredPracticeState
-  -> Result<PracticeStateSnapshot> -> WebApi
+  -> Result<PracticeStateEnvelope> -> WebApi
   -> JSON body -> Worker pass-through -> generated client
-  -> mapper to UI PersistedState + per-user local envelope
+  -> mapper to UI PracticeState + per-user local envelope
 ```
 
-The service creates only an in-memory empty snapshot when no row exists; it does not write during GET.
+The service creates only an in-memory empty envelope when no row exists; it does not write during GET.
 
 #### `POST /api/practice-state` call stack
 
-One path serves ordinary syncing, the first guest import, and every retry.
+One path serves ordinary syncing, a guest's first sync after signing in, and every retry.
 
 ```text
-React local mutation -> PersistedState + sync clocks/tombstones
+React local mutation -> PracticeState + receipts/tombstones
   -> debounce ~2-5s, or immediate flush on submit/bookmark/exit/tab-hidden
-  -> generated PracticeApi.postPracticeState(snapshot)
+  -> generated PracticeApi.postPracticeState(envelope)
   -> Worker -> Container -> JWT/ExecutionContext
   -> PracticeStateController.PostAsync()
-  -> WebApi.PostWithResultAsync<PracticeStateSnapshot, PracticeStateSnapshot>()
-  -> PracticeStateSnapshotValidator.ValidateWithResultAsync()
+  -> WebApi.PostWithResultAsync<PracticeStateEnvelope, PracticeStateEnvelope>()
+  -> PracticeStateEnvelopeValidator.ValidateWithResultAsync()
      (schema v2, max 30 attempts, bounded IDs/maps/payload, valid timestamps/enums)
-  -> IPracticeStateService.MergeAsync(PracticeStateSnapshot, ct)
+  -> IPracticeStateService.MergeAsync(PracticeStateEnvelope, ct)
   -> IUnitOfWork.TransactionAsync(...)
   -> IPracticeStateRepository.GetForUpdateAsync(userId from ExecutionContext)
-     -> SELECT state, sync_metadata, audit columns
+     -> SELECT state, receipts, audit columns
         FROM practice.practice_state WHERE user_id=@sub FOR UPDATE
-  -> PracticeStateMapper -> stored snapshot (or empty when no row)
+  -> PracticeStateMapper -> stored envelope (or empty when no row)
   -> IPracticeStateMerger.Merge(stored, incoming, serverNow)
-     -> derive progress; union attempts and cap 30 by completedAt;
+     -> merge latestAnswers per question by receipt;
+        union attempts and cap 30 by finishedAt;
         resolve active attempt (rescuing the loser) BEFORE the cap;
-        bookmark tombstones; stamp all sync clocks with server time
+        bookmark tombstones; stamp all receipts with server time
   -> repository INSERTs a new row or UPDATEs the existing one through PracticeEfDb
        UPDATE practice.practice_state
-       SET state=@jsonb, sync_metadata=@jsonb,
+       SET state=@jsonb, receipts=@jsonb,
            updated_by=@sub, updated_on=@now
        WHERE user_id=@sub
   -> PostgresUnitOfWork COMMIT
-  -> canonical PracticeStateSnapshot -> browser
+  -> canonical PracticeStateEnvelope -> browser
   -> client adopts it only if it has no unsynced local edits; otherwise re-sends
 ```
 
@@ -389,7 +452,7 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 ## Files to modify
 
 - Frontend/runtime: `package.json`, `package-lock.json`, `vite.config.ts`, `wrangler.jsonc`, `.gitignore`
-- Frontend state/auth: `src/App.tsx`, `src/types.ts`, new `src/lib/persistence.ts`, `src/lib/auth-client.ts`, generated `src/lib/practice-api.ts`, and focused Vitest files
+- Frontend state/auth: `src/App.tsx`, `src/types.ts`, `src/lib/navigation.ts` (a fifth `Account` view and route), new `src/lib/persistence.ts`, `src/lib/auth-client.ts`, generated `src/lib/practice-api.ts`, and focused Vitest files. Types are renamed per [#51](https://github.com/timbarreto/acn-fde/issues/51) (`PersistedState` -> `PracticeState`, `ActiveAttempt` -> `Attempt`, `CompletedAttempt` -> `FinishedAttempt`, `progress` -> `latestAnswers`, `completedAt` -> `finishedAt`, `abandoned` -> `outcome`); per-question receipts live in the receipts structure, **not** inside the exam-facing model; `ExamRunner`'s separate header stays free of sync chrome ([#50](https://github.com/timbarreto/acn-fde/issues/50))
 - Shared contracts: the backend OpenAPI document used to detect TypeScript client drift (no shared merge fixtures — the merge exists only in .NET)
 - Cloudflare Worker: new `worker/index.ts`, `worker/auth.ts`, test-only auth entry, Worker tests, generated binding types, committed `migrations/*.sql`, plus `wrangler.local.jsonc` and `wrangler.test.jsonc`
 - CoreEx contracts/API: new `backend/src/Acn.Fde.Practice.Contracts/PracticeState*.cs`, `backend/src/Acn.Fde.Practice.Api/Controllers/PracticeStateController.cs`, JWT/execution-context host wiring, OpenAPI, and health configuration
@@ -401,7 +464,7 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 ## Reuse
 
-- Preserve `PersistedState`, `ActiveAttempt`, and `CompletedAttempt` from `src/types.ts`; reuse `progressFromAttempts` in `src/lib/exam.ts` when deriving legacy progress chronology.
+- Preserve the shape of `PersistedState`, `ActiveAttempt`, and `CompletedAttempt` in `src/types.ts` while renaming them to `PracticeState`, `Attempt`, and `FinishedAttempt` ([#51](https://github.com/timbarreto/acn-fde/issues/51)); reuse `progressFromAttempts` in `src/lib/exam.ts` when deriving a legacy candidate's latest answers.
 - Evolve the existing static-assets deployment in `wrangler.jsonc` rather than creating a second public origin.
 - Scaffold with CoreEx's `coreex` + `coreex-api` templates and reuse the PostgreSQL, API host, execution-context, validation, repository, health, OpenAPI, and test patterns documented in the upstream [Avanade/CoreEx](https://github.com/Avanade/CoreEx) repository, specifically the [`CoreEx.Template`](https://github.com/Avanade/CoreEx/tree/main/src/CoreEx.Template) project, the [application scaffolding guide](https://github.com/Avanade/CoreEx/blob/main/docs/application-scaffolding-guide.md), and the [consumer instructions](https://github.com/Avanade/CoreEx/tree/main/consumer-instructions). This repository has no local CoreEx checkout; treat these as external references only, and pin/record the CoreEx release or commit actually used once implementation starts.
 - Reuse Better Auth's supported D1 database path and JWT/JWKS plugin rather than inventing sessions or sharing the D1 schema with .NET.
@@ -413,12 +476,13 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 - [ ] Add the Worker entry point and bindings: serve Vite assets, configure D1 and committed auth migrations, initialize Better Auth with GitHub + JWT/JWKS, and route API traffic to one sleeping `basic` CoreEx Container.
 - [ ] Scaffold `Acn.Fde.Practice` with CoreEx's PostgreSQL API templates and remove/avoid unused reference-data, messaging, outbox, relay, subscriber, Redis, and domain-layer features.
 - [ ] Implement the PostgreSQL state schema and migrations, CoreEx contracts/validators/service/repository/controllers, the merge-on-write transaction, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and generate the frontend client with a CI drift check.
-- [ ] Implement the merge and its scenario tests in .NET (the cases and their expected outcomes are settled in #40), then extract/version frontend persistence and add guest/per-user cache isolation, sync metadata/tombstones, and the debounced send-and-adopt loop.
-- [ ] Add the Better Auth client, GitHub sign-in/out UI, in-memory API token flow, typed state client, the debounced send-and-adopt sync loop, accurate guest/account/offline status messaging, a client-side state export, and reset/delete-account actions.
+- [ ] Implement the merge and its scenario tests in .NET (the cases and their expected outcomes are settled in #40, **except the `progress` rule, which #50 reversed** — merge `latestAnswers` per-question rather than deriving it, and record `outcome` rather than #40's `abandoned` boolean per #51), then extract/version frontend persistence and add guest/per-user cache isolation, sync metadata/tombstones, and the debounced send-and-adopt loop.
+- [ ] Add the Better Auth client, GitHub sign-in/out UI, in-memory API token flow, typed state client, and the debounced send-and-adopt sync loop — including the flush-before-sign-out and block-or-warn-while-unsynced requirements from #50, since sign-out erases the cache.
+- [ ] Add the `Account` view as a fifth top-level nav item available to guests and signed-in users, holding sync state, the client-side JSON export, self-service reset, and account deletion; add the always-visible `TopNav` sync indicator, and keep it out of `ExamRunner`'s separate header. No modal, banner, or prompt anywhere invites sign-in (#50).
 - [ ] Add the Aspire AppHost and its three profiles: provision PostgreSQL, gate API startup on CoreEx migrations, gate Worker startup on local D1 migrations and API readiness, run Vite behind the Worker proxy, forward user-secrets, publish dashboard links/health, and provide `dev:full` plus narrowly scoped local reset commands.
 - [ ] Add the Aspire full-stack test project and test-only Better Auth entry/config; exercise the same-origin stack with isolated stores and no GitHub/network dependency, then add standard CI for TypeScript/.NET/AppHost/container validation.
 - [ ] Add secret-safe production configuration and a manual Cloudflare deployment sequence that applies both D1 and PostgreSQL migrations before `wrangler deploy`.
-- [ ] Update README and agent guidance with the new architecture, setup, exactly what is stored about a signed-in person, the 6-hour recovery window and the fact that client caches are the practical backup, $5 cost assumptions/limits, and operational troubleshooting; never commit GitHub, Better Auth, Cloudflare, or Neon credentials.
+- [ ] Update README and agent guidance with the new architecture, setup, exactly what is stored about a signed-in person, the 6-hour recovery window and the fact that client caches are the practical backup, $5 cost assumptions/limits, and operational troubleshooting; never commit GitHub, Better Auth, Cloudflare, or Neon credentials. Soften the current "No account, API, database, or backend" feature bullet rather than deleting it: sign-in is **optional** and the app remains offline-first and fully usable without an account (#50).
 
 ## Verification
 
@@ -437,6 +501,7 @@ Run `npm run test:full` to start `Acn.Fde.Practice.Test.AppHost` with disposable
 2. Use the isolated Better Auth `testUtils` entry to create two users/sessions and obtain real short-lived JWTs from the local token endpoint.
 3. Send a v1 guest fixture, verify the canonical merged state, send it again, and prove the second write changed nothing.
 4. Seed an existing account state and verify attempt/bookmark union, 30-attempt retention, newest answer/active attempt, and tombstone behavior.
+   Include the case #50 was resolved on: a state whose `latestAnswers` holds answers from attempts that have since fallen off the 30-attempt cap must survive the merge intact. Assert the answered count does **not** drop — that assertion is the regression test for the rule #40 originally specified.
 5. Exercise GET and concurrent POSTs from two clients, verify both contributions survive the merge with no lost update, and confirm the generated client matches OpenAPI.
 6. Call each user's token against the other's scenarios and verify ownership is always derived from `sub` with no cross-user reads/writes, and that `github_account_id` is never consulted for authorization.
 7. Reset one user's practice state and verify the account survives; delete the other's account and verify the practice row goes first and the D1 identity follows.
@@ -447,8 +512,10 @@ The integration profile deletes its temporary stores after the run and emits Asp
 
 ### Manual local acceptance
 
-With local GitHub OAuth user-secrets configured, run `npm run dev:full`, open the frontend from the Aspire dashboard, and verify real GitHub sign-in/callback, guest-to-account import, reload, sign-out/cache isolation, offline guest practice, API/database outage messaging, OpenAPI, health, logs, traces, and clean recovery. Use the `container` profile once to check the production image locally.
+With local GitHub OAuth user-secrets configured, run `npm run dev:full`, open the frontend from the Aspire dashboard, and verify real GitHub sign-in/callback, a guest's first sync after signing in, reload, sign-out/cache isolation, offline guest practice, API/database outage messaging, OpenAPI, health, logs, traces, and clean recovery. Use the `container` profile once to check the production image locally.
+
+Also verify the [#50](https://github.com/timbarreto/acn-fde/issues/50) behaviours, which are frontend-only and therefore invisible to the integration suite: signing out erases the account cache and the following guest session sees nothing of it; signing out with the API stopped warns rather than silently discarding unsynced work; the `TopNav` indicator reports offline and not-synced states accurately and is absent for the whole duration of a timed attempt; and no modal, banner, or prompt invites sign-in anywhere in a full guest session, including after completing an exam.
 
 ### Deployment
 
-Apply D1 and PostgreSQL migrations, run `wrangler deploy --dry-run` where Container support permits, deploy one `basic` instance, verify secrets are injected only at runtime, smoke-test GitHub auth/import/API/cold start, wait at least five idle minutes and confirm sleep/restart without state loss, then inspect actual container memory and awake hours — there are no billing limits to inspect, so awake hours are the only cost signal. Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.
+Apply D1 and PostgreSQL migrations, run `wrangler deploy --dry-run` where Container support permits, deploy one `basic` instance, verify secrets are injected only at runtime, smoke-test GitHub auth, a guest's first sync, the API, and cold start, wait at least five idle minutes and confirm sleep/restart without state loss, then inspect actual container memory and awake hours — there are no billing limits to inspect, so awake hours are the only cost signal. Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.
