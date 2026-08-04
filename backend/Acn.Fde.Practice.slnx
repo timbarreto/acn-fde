@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Acn.Fde.Practice.AppHost/Acn.Fde.Practice.AppHost.csproj" />
+    <Project Path="src\Acn.Fde.Practice.Contracts\Acn.Fde.Practice.Contracts.csproj" />
+    <Project Path="src/Acn.Fde.Practice.Api/Acn.Fde.Practice.Api.csproj" />
+    <Project Path="src\Acn.Fde.Practice.Application\Acn.Fde.Practice.Application.csproj" />
+    <Project Path="src\Acn.Fde.Practice.Infrastructure\Acn.Fde.Practice.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools\Acn.Fde.Practice.Database\Acn.Fde.Practice.Database.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Acn.Fde.Practice.Test.Api/Acn.Fde.Practice.Test.Api.csproj" />
+  </Folder>
+</Solution>

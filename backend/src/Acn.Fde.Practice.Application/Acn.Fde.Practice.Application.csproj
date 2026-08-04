@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Acn.Fde.Practice.Contracts\Acn.Fde.Practice.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CoreEx.Data" />
+    <PackageReference Include="CoreEx.Validation" />
+  </ItemGroup>
+</Project>

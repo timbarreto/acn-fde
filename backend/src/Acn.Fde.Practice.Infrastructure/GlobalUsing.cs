@@ -1,0 +1,14 @@
+global using CoreEx;
+global using CoreEx.Data;
+global using CoreEx.Data.Models;
+global using CoreEx.Database;
+global using CoreEx.Database.Postgres;
+global using CoreEx.DependencyInjection;
+global using CoreEx.Entities;
+global using CoreEx.EntityFrameworkCore;
+global using CoreEx.EntityFrameworkCore.Converters;
+global using CoreEx.Json;
+global using CoreEx.Mapping;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.Extensions.DependencyInjection;
+global using System.Text.Json.Serialization;

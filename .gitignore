@@ -1,6 +1,15 @@
 node_modules/
 dist/
+.aspire/
+.wrangler/
 *.local
+
+# .NET build and test output
+.vs/
+**/[Bb]in/
+**/[Oo]bj/
+**/TestResults/
+*.trx
 
 # Local secrets — never commit
 .dev.vars

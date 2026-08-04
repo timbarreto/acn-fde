@@ -1,0 +1,7 @@
+global using CoreEx;
+global using CoreEx.Data;
+global using CoreEx.DependencyInjection;
+global using CoreEx.Entities;
+global using CoreEx.Events;
+global using CoreEx.Localization;
+global using CoreEx.Validation;

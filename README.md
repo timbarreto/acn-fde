@@ -14,7 +14,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Finished-attempt history with submitted, expired, and abandoned outcomes, plus bookmarks, incorrect-answer review, and resume support with automatic timer pausing on exit
 - A focused study sequence mapped to the published exam domains
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
-- No account, API, database, or backend
+- No account required; standalone guest practice remains browser-only and offline-first
 
 ## Stack
 
@@ -24,6 +24,8 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - shadcn/ui components built on Radix primitives
 - Lucide icons
 - Browser `localStorage`
+- Cloudflare Workers runtime for the optional same-origin development stack
+- .NET 10, CoreEx, Aspire, and PostgreSQL 18 for backend development
 
 ## Run locally
 
@@ -34,10 +36,39 @@ npm run dev
 
 Open the URL printed by Vite (normally `http://localhost:5173`).
 
+This standalone command starts the complete guest application without Docker,
+.NET, PostgreSQL, or any backend service.
+
+## Run the full stack locally
+
+The full-stack path requires the .NET 10 SDK and Docker. Install dependencies
+once, then start the complete development graph:
+
+```bash
+npm ci
+dotnet restore backend/Acn.Fde.Practice.slnx
+npm run dev:full
+```
+
+Open `http://localhost:5173`. Aspire starts PostgreSQL 18.4, applies the
+checked-in CoreEx migration, starts the trimmed CoreEx API, and then starts Vite
+with its Worker in workerd. The Worker serves the application and forwards
+`/api*` and `/health*` on that same origin to CoreEx.
+
+The anonymous health endpoints have separate meanings:
+
+- `/health/live` reports only process liveness.
+- `/health/startup` reports whether application initialization completed.
+- `/health/ready` evaluates current PostgreSQL readiness when requested.
+
+No application timer polls readiness. Ctrl-C stops the full development graph;
+the named Aspire PostgreSQL volume is retained for the next run.
+
 ## Verify a production build
 
 ```bash
 npm run test
+npm run test:backend
 npm run lint
 npm run build
 npm run preview
