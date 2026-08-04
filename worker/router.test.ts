@@ -6,6 +6,52 @@ function response(label: string): Response {
 }
 
 describe("routeRequest", () => {
+  it.each([
+    ["POST", "/api/auth/sign-in/social"],
+    ["GET", "/api/auth/callback/github"],
+    ["GET", "/api/auth/get-session"],
+    ["POST", "/api/auth/sign-out"],
+    ["GET", "/api/auth/token"],
+    ["GET", "/api/auth/jwks"],
+    ["POST", "/api/auth/delete-user"],
+  ])("routes %s %s to Better Auth before CoreEx", async (method, path) => {
+    const auth = vi.fn(async () => response("auth"))
+    const coreEx = vi.fn(async () => response("coreex"))
+    const assets = vi.fn(async () => response("asset"))
+
+    const result = await routeRequest(
+      new Request(`http://localhost${path}`, { method }),
+      { auth, coreEx, assets },
+    )
+
+    expect(await result.text()).toBe("auth")
+    expect(auth).toHaveBeenCalledOnce()
+    expect(coreEx).not.toHaveBeenCalled()
+    expect(assets).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["POST", "/api/auth/sign-up/email"],
+    ["POST", "/api/auth/sign-in/email"],
+    ["GET", "/api/auth/callback/google"],
+    ["GET", "/api/auth/list-sessions"],
+    ["POST", "/api/auth/change-password"],
+  ])("rejects disabled auth route %s %s before CoreEx", async (method, path) => {
+    const auth = vi.fn(async () => response("auth"))
+    const coreEx = vi.fn(async () => response("coreex"))
+    const assets = vi.fn(async () => response("asset"))
+
+    const result = await routeRequest(
+      new Request(`http://localhost${path}`, { method }),
+      { auth, coreEx, assets },
+    )
+
+    expect(result.status).toBe(404)
+    expect(auth).not.toHaveBeenCalled()
+    expect(coreEx).not.toHaveBeenCalled()
+    expect(assets).not.toHaveBeenCalled()
+  })
+
   it.each(["/api", "/api/practice-state", "/health/live", "/health/ready"])(
     "routes %s to CoreEx",
     async (path) => {
@@ -14,7 +60,7 @@ describe("routeRequest", () => {
 
       const result = await routeRequest(
         new Request(`http://localhost${path}`),
-        { coreEx, assets },
+        { auth: vi.fn(async () => response("auth")), coreEx, assets },
       )
 
       expect(await result.text()).toBe("coreex")
@@ -31,7 +77,7 @@ describe("routeRequest", () => {
 
       const result = await routeRequest(
         new Request(`http://localhost${path}`),
-        { coreEx, assets },
+        { auth: vi.fn(async () => response("auth")), coreEx, assets },
       )
 
       expect(await result.text()).toBe("asset")

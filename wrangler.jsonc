@@ -1,9 +1,36 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "agentic-ready-gh-600",
-  "compatibility_date": "2026-07-17",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/auth", "/api/auth/*"]
+  },
+  "vars": {
+    "BETTER_AUTH_URL": "https://agentic-ready-gh-600.timothy-barreto.workers.dev",
+    "AUTH_TOKEN_ISSUER": "https://agentic-ready-gh-600.timothy-barreto.workers.dev",
+    "AUTH_TOKEN_AUDIENCE": "acn-fde-practice-api"
+  },
+  "d1_databases": [
+    {
+      "binding": "AUTH_DB",
+      "database_name": "acn-fde-auth",
+      "database_id": "ea5f600d-fc37-4770-a521-87c75de21bf7",
+      "migrations_dir": "worker/migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
   }
 }
