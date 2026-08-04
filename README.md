@@ -51,7 +51,7 @@ npm run dev:full
 ```
 
 Open `http://localhost:5173`. Aspire starts PostgreSQL 18.4, applies the
-checked-in CoreEx migration, starts the trimmed CoreEx API, and then starts Vite
+checked-in CoreEx migrations, starts the trimmed CoreEx API, and then starts Vite
 with its Worker in workerd. The Worker serves the application and forwards
 `/api*` and `/health*` on that same origin to CoreEx.
 
@@ -75,8 +75,10 @@ npm run auth:migrate:local
 Auth routes use secure, HTTP-only Better Auth session cookies and expose a
 short-lived ES256 identity token for CoreEx. CoreEx authorizes only the opaque
 Better Auth subject; the GitHub account ID in the token is recovery metadata,
-not an authorization identifier. Account UI and practice-state APIs are still
-separate work, so standalone guest practice remains unchanged.
+not an authorization identifier. Authenticated `GET` and `POST`
+`/api/practice-state` load and save a validated schema-v2 envelope in
+PostgreSQL. Account UI and browser sync are still separate work, so standalone
+guest practice remains unchanged.
 
 ## Verify a production build
 
@@ -219,6 +221,12 @@ latest answers; guest state does not fabricate server receipts or make network
 requests for persistence. Existing `agentic-ready-gh600-v1` data is migrated
 automatically, and the legacy value is removed only after its v2 replacement is
 written successfully. Clearing site data removes the practice state.
+
+Authenticated practice state uses the same envelope shape through the
+handwritten browser adapter, the Worker, CoreEx, and PostgreSQL. The API accepts
+only the closed question/option manifest in
+[`contracts/question-recognition-manifest.json`](contracts/question-recognition-manifest.json),
+returns server receipts, and isolates every row by the identity token subject.
 
 ## Disclaimer
 

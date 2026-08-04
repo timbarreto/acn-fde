@@ -1,9 +1,13 @@
 import { handleAuthRequest } from "./auth"
+import { guardPracticeStateRequest } from "./practice-state"
 import { routeRequest, toCoreExRequest } from "./router"
 
 export default {
   async fetch(request, env): Promise<Response> {
-    return routeRequest(request, {
+    const guarded = await guardPracticeStateRequest(request)
+    if (guarded instanceof Response) return guarded
+
+    return routeRequest(guarded, {
       auth: (incoming) => handleAuthRequest(incoming, env),
       coreEx: (incoming) => proxyCoreEx(incoming, env.COREEX_API_ORIGIN),
       assets: (incoming) => env.ASSETS.fetch(incoming),

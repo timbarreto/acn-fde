@@ -6,4 +6,9 @@
     <PackageReference Include="CoreEx.Data" />
     <PackageReference Include="CoreEx.Validation" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\contracts\question-recognition-manifest.json">
+      <LogicalName>QuestionRecognitionManifest</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

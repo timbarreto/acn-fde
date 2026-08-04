@@ -1,9 +1,12 @@
 using Acn.Fde.Practice.Api.Health;
 using Acn.Fde.Practice.Api.Identity;
+using Acn.Fde.Practice.Api.PracticeState;
+using Acn.Fde.Practice.Contracts;
 using Acn.Fde.Practice.Infrastructure.Repositories;
 using CoreEx.HealthChecks;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
+using System.Text.Json.Serialization;
 using ZiggyCreatures.Caching.Fusion;
 
 namespace Acn.Fde.Practice.Api;
@@ -14,6 +17,21 @@ public partial class Program
     {
         // Create the web builder.
         var builder = WebApplication.CreateBuilder(args);
+
+        // Keep the wire contract lossless: enum zero values and false bookmark
+        // tombstones are meaningful, and every enum is camel-case on the wire.
+        var jsonOptions = new JsonSerializerOptions(JsonDefaults.SerializerOptions)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            MaxDepth = 16,
+            RespectNullableAnnotations = true,
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        };
+        jsonOptions.Converters.Insert(0, new ReceiptJsonConverter());
+        jsonOptions.Converters.Insert(0, new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+        JsonDefaults.Configuration.SerializerOptions = jsonOptions;
+        builder.Services.AddSingleton(jsonOptions);
+        HttpNames.ErrorCodeName = "code";
 
         // Add CoreEx host settings.
         builder.AddHostSettings();
@@ -98,6 +116,7 @@ public partial class Program
         app.UseAuthentication();
         app.UseExecutionContext(IdentityAuthentication.ConfigureExecutionContextAsync);
         app.UseAuthorization();
+        app.UseMiddleware<PracticeStateRequestGuardMiddleware>();
         app.MapControllers();
 
         app.UseOpenApi();

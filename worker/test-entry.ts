@@ -1,7 +1,7 @@
-import { createAuth } from "./auth"
+import worker from "./index"
 
 export default {
   fetch(request, env): Promise<Response> {
-    return createAuth(env).handler(request)
+    return worker.fetch(request, env)
   },
 } satisfies ExportedHandler<Cloudflare.Env>
