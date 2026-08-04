@@ -51,9 +51,9 @@ npm run dev:full
 ```
 
 Open `http://localhost:5173`. Aspire starts PostgreSQL 18.4, applies the
-checked-in CoreEx migrations, starts the trimmed CoreEx API, and then starts Vite
-with its Worker in workerd. The Worker serves the application and forwards
-`/api*` and `/health*` on that same origin to CoreEx.
+checked-in CoreEx and local D1 migrations, starts the trimmed CoreEx API, and
+then starts Vite with its Worker in workerd. The Worker serves the application
+and forwards `/api*` and `/health*` on that same origin to CoreEx.
 
 The anonymous health endpoints have separate meanings:
 
@@ -65,8 +65,9 @@ No application timer polls readiness. Ctrl-C stops the full development graph;
 the named Aspire PostgreSQL volume is retained for the next run.
 
 The Worker also owns the GitHub-only session boundary. Its D1 schema is
-versioned under `worker/migrations/`; apply it to the local Wrangler store before
-exercising auth routes directly:
+versioned under `worker/migrations/` and is applied automatically by
+`npm run dev:full`. Apply it manually only when exercising the Worker without
+Aspire:
 
 ```bash
 npm run auth:migrate:local
@@ -80,12 +81,39 @@ not an authorization identifier. Authenticated `GET` and `POST`
 PostgreSQL. Account UI and browser sync are still separate work, so standalone
 guest practice remains unchanged.
 
+## Exercise the signed-in full stack
+
+After installing the local prerequisites above, one command launches and tests
+the complete signed-in path:
+
+```bash
+npm run test:full
+```
+
+The harness creates a fresh, unpersisted PostgreSQL container and a unique
+temporary local D1 store, applies both sets of real migrations, and waits for
+Aspire resource health. It then uses same-origin HTTP to verify application and
+API health, reject an unauthenticated practice-state request with `401`, issue
+real short-lived identity tokens for two independent test subjects, and prove
+that each subject can save and load only its own state.
+
+No GitHub credentials, Cloudflare service, hosted database, or fixed readiness
+delay is involved. Identity issuance lives behind a separate integration-only
+Worker entry point; the production Worker explicitly returns `404` for every
+test-auth path. The harness stops all Aspire resources and deletes its temporary
+D1 store after either success or failure. On failure, it also writes the
+PostgreSQL, migration, CoreEx, and Worker resource logs to the test output.
+
+The same harness runs with the backend tests in the ordinary pull-request CI
+workflow.
+
 ## Verify a production build
 
 ```bash
 npm run test
 npm run test:worker
 npm run test:backend
+npm run test:full
 npm run lint
 npm run build
 npm run preview

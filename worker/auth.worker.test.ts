@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers"
+import { SELF } from "cloudflare:test"
 import { getMigrations } from "better-auth/db/migration"
 import { describe, expect, it } from "vitest"
 import { createAuth, createAuthOptions } from "./auth"
@@ -127,6 +128,17 @@ describe("Better Auth on D1", () => {
           password: "not-a-real-password",
         }),
       }),
+    )
+
+    expect(response.status).toBe(404)
+  })
+})
+
+describe("production authentication boundary", () => {
+  it("does not expose test identity issuance", async () => {
+    const response = await SELF.fetch(
+      "http://localhost:5173/api/test-auth/identity",
+      { method: "POST" },
     )
 
     expect(response.status).toBe(404)

@@ -14,6 +14,7 @@
     <Project Path="tools\Acn.Fde.Practice.Database\Acn.Fde.Practice.Database.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj" />
     <Project Path="tests/Acn.Fde.Practice.Test.Api/Acn.Fde.Practice.Test.Api.csproj" />
   </Folder>
 </Solution>
