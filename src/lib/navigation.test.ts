@@ -12,7 +12,7 @@ const allRoutes: Array<[AppView, string]> = [
 
 const allRoutesAvailable = {
   hasActiveAttempt: true,
-  hasCompletedAttempt: true,
+  hasFinishedAttempt: true,
 }
 
 describe("getPathForView", () => {
@@ -43,17 +43,17 @@ describe("resolveNavigation", () => {
   it("requires an active attempt for the exam route", () => {
     expect(resolveNavigation("/exam", {
       hasActiveAttempt: false,
-      hasCompletedAttempt: true,
+      hasFinishedAttempt: true,
     })).toEqual({
       view: "dashboard",
       pathname: "/",
     })
   })
 
-  it("requires a completed attempt for the results route", () => {
+  it("requires a finished attempt for the results route", () => {
     expect(resolveNavigation("/results", {
       hasActiveAttempt: true,
-      hasCompletedAttempt: false,
+      hasFinishedAttempt: false,
     })).toEqual({
       view: "dashboard",
       pathname: "/",
