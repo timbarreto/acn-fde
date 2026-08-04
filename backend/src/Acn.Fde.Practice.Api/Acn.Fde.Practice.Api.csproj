@@ -8,6 +8,7 @@
     <PackageReference Include="CoreEx.Caching.FusionCache" />
     <PackageReference Include="CoreEx.Database.Postgres" />
     <PackageReference Include="Aspire.Npgsql" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="ZiggyCreatures.FusionCache.Serialization.SystemTextJson" />

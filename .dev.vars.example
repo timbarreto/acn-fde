@@ -1,0 +1,5 @@
+# Type-generation and manual-development placeholders only. Copying this file
+# is optional; never commit real values.
+GITHUB_CLIENT_ID=replace-with-local-github-client-id
+GITHUB_CLIENT_SECRET=replace-with-local-github-client-secret
+BETTER_AUTH_SECRET=replace-with-a-random-secret-of-at-least-32-characters

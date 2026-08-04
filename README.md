@@ -64,10 +64,25 @@ The anonymous health endpoints have separate meanings:
 No application timer polls readiness. Ctrl-C stops the full development graph;
 the named Aspire PostgreSQL volume is retained for the next run.
 
+The Worker also owns the GitHub-only session boundary. Its D1 schema is
+versioned under `worker/migrations/`; apply it to the local Wrangler store before
+exercising auth routes directly:
+
+```bash
+npm run auth:migrate:local
+```
+
+Auth routes use secure, HTTP-only Better Auth session cookies and expose a
+short-lived ES256 identity token for CoreEx. CoreEx authorizes only the opaque
+Better Auth subject; the GitHub account ID in the token is recovery metadata,
+not an authorization identifier. Account UI and practice-state APIs are still
+separate work, so standalone guest practice remains unchanged.
+
 ## Verify a production build
 
 ```bash
 npm run test
+npm run test:worker
 npm run test:backend
 npm run lint
 npm run build
@@ -155,8 +170,19 @@ run instead of reusing the pinned approval.
 
 ## Deploy to Cloudflare
 
-The production build can be deployed as a Cloudflare Workers Static Assets
-application. Authenticate Wrangler once, then build and deploy:
+The production build deploys as a Cloudflare Worker with Static Assets and the
+`AUTH_DB` D1 binding. Before the first auth-capable deployment, configure the
+GitHub OAuth Worker secrets, set a random Better Auth secret once, and apply the
+checked-in D1 migration:
+
+```bash
+./setup-github-secrets.sh --prod
+npx wrangler secret put BETTER_AUTH_SECRET --name agentic-ready-gh-600
+npx wrangler d1 migrations apply acn-fde-auth --remote --config wrangler.jsonc
+```
+
+Secret values are read from stdin and must remain in the password manager; they
+must not be committed. Authenticate Wrangler once, then build and deploy:
 
 ```bash
 npx wrangler login
@@ -164,8 +190,9 @@ npm run deploy
 ```
 
 Wrangler prints the deployed `workers.dev` URL when the upload completes. The
-deployment uses `wrangler.jsonc` to serve the Vite output in `dist/` and return
-the SPA shell for application routes.
+deployment uses `wrangler.jsonc` to serve the Vite output in `dist/`, route
+`/api/auth/*` through the Worker before SPA fallback, and return the SPA shell
+for application routes.
 
 To use a custom domain, deploy the Worker first, then add the hostname under
 **Workers & Pages > agentic-ready-gh-600 > Settings > Domains & Routes** in the
