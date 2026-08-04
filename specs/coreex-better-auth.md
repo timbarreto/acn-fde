@@ -564,6 +564,8 @@ Print a secret-free deployment summary containing the commit SHA, previous and n
 
 ## Verification
 
+This section fixes the verification coverage the build must provide, not the topology of its CI workflow. Exact jobs, runners, caching, parallelism, and service-container mechanics are implementation choices to make once the .NET solution and its tests exist; they are not load-bearing assumptions this spec needs to settle before the build starts.
+
 ### Fast local suites
 
 - `npm run test`: frontend persistence, v1-to-v2 guest migration, send-and-adopt, permanent-rejection rollback, recognition-manifest consistency, and auth-state tests.
