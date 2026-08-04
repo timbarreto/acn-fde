@@ -7,15 +7,15 @@
 
   <!-- CoreEx packages. -->
   <ItemGroup>
-    <PackageVersion Include="CoreEx" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.AspNetCore" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.AspNetCore.NSwag" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.Caching.FusionCache" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.Data" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.Database" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.Database.Postgres" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.EntityFrameworkCore" Version="4.0.0-preview-2" />
-    <PackageVersion Include="CoreEx.Validation" Version="4.0.0-preview-2" />
+    <PackageVersion Include="CoreEx" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.AspNetCore" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.AspNetCore.NSwag" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.Caching.FusionCache" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.Data" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.Database" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.Database.Postgres" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.EntityFrameworkCore" Version="4.0.0-preview-3" />
+    <PackageVersion Include="CoreEx.Validation" Version="4.0.0-preview-3" />
   </ItemGroup>
 
   <!-- Aspire client integration packages. -->
