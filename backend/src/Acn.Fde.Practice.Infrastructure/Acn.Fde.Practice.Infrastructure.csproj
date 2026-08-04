@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Acn.Fde.Practice.Application\Acn.Fde.Practice.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CoreEx.Data" />
+    <PackageReference Include="CoreEx.Database.Postgres" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="CoreEx.EntityFrameworkCore" />
+  </ItemGroup>
+</Project>

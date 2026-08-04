@@ -4,8 +4,10 @@
 
 This repository contains **Agentic Ready — GH-600 Practice**, an unofficial,
 offline-first practice exam for the GitHub Certified: Agentic AI Developer
-(GH-600) credential. It is a client-only React application: there is no
-backend, account system, API, or database.
+(GH-600) credential. Standalone guest practice is a client-only React
+application. The optional full-stack development path adds a same-origin
+Cloudflare Worker, a trimmed CoreEx service, and local PostgreSQL; account and
+practice-state APIs are not implemented yet.
 
 ## Vocabulary
 
@@ -22,6 +24,8 @@ terms do not yet appear in `src/`.
 - Tailwind CSS with shadcn/ui-style Radix components
 - Lucide icons
 - Browser `localStorage` for persistence
+- Cloudflare Workers runtime through the Vite plugin
+- .NET 10, CoreEx, Aspire, and PostgreSQL 18 for full-stack development
 - npm, with `package-lock.json` committed
 
 ## Repository map
@@ -36,6 +40,8 @@ terms do not yet appear in `src/`.
 - `src/components/ui/`: reusable UI primitives.
 - `src/index.css`: global styles and Tailwind layers.
 - `public/`: static assets (favicon, Open Graph cover, touch icon).
+- `worker/`: same-origin routing between application assets and CoreEx.
+- `backend/`: CoreEx API, migrations, tests, and Aspire AppHost.
 - `GH-600/`: source material and study documentation.
 
 ## Development commands
@@ -45,7 +51,9 @@ Run commands from the repository root.
 ```bash
 npm install       # Install dependencies
 npm run dev       # Start the Vite development server
+npm run dev:full  # Start PostgreSQL, migrations, CoreEx, and the Worker app
 npm run test      # Run Vitest unit tests
+npm run test:backend # Run .NET tests
 npm run lint      # Run ESLint
 npm run build     # Type-check and create a production build
 npm run preview   # Serve the production build locally

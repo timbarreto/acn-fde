@@ -1,0 +1,13 @@
+global using CoreEx;
+global using CoreEx.AspNetCore.Mvc;
+global using CoreEx.Caching;
+global using CoreEx.Database;
+global using CoreEx.Database.Postgres;
+global using CoreEx.Entities;
+global using CoreEx.Http;
+global using CoreEx.Json;
+global using CoreEx.Validation;
+global using Microsoft.AspNetCore.Mvc;
+global using NSwag.Annotations;
+global using System.Net;
+global using System.Text.Json;
