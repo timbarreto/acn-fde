@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { answersMatch, calculateScore, countAnswered, domainProgress, getAttemptElapsedMs, getAttemptRemainingSeconds, isAttemptPaused, pauseAttemptTimer, progressFromAttempts, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
-import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, Question } from "@/types"
+import { answersMatch, calculateScore, countAnswered, domainProgress, getAttemptElapsedMs, getAttemptRemainingSeconds, isAttemptPaused, pauseAttemptTimer, latestAnswersFromAttempts, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import type { Attempt, FinishedAttempt, DomainId, AttemptMode, Question } from "@/types"
 
 const allDomains: DomainId[] = ["architecture", "tools", "memory", "evaluation", "orchestration", "guardrails"]
 
@@ -29,13 +29,13 @@ const orderingBank = allDomains.flatMap((domain) => [
   makeQuestion(`${domain}-incorrect`, domain),
   makeQuestion(`${domain}-unseen`, domain),
 ])
-const mixedProgress = Object.fromEntries(allDomains.flatMap((domain) => [
+const mixedLatestAnswers = Object.fromEntries(allDomains.flatMap((domain) => [
   [`${domain}-correct`, ["a"]],
   [`${domain}-incorrect`, ["b"]],
 ]))
 
 let attemptCounter = 0
-function makeAttempt(overrides: Partial<ActiveAttempt> & Pick<ActiveAttempt, "questionIds" | "answers">): ActiveAttempt {
+function makeAttempt(overrides: Partial<Attempt> & Pick<Attempt, "questionIds" | "answers">): Attempt {
   attemptCounter += 1
   return {
     id: `attempt-${attemptCounter}`,
@@ -49,18 +49,27 @@ function makeAttempt(overrides: Partial<ActiveAttempt> & Pick<ActiveAttempt, "qu
   }
 }
 
-function makeCompletedAttempt(questionIds: string[], answers: Record<string, string[]>): CompletedAttempt {
+function makeFinishedAttempt(questionIds: string[], answers: Record<string, string[]>): FinishedAttempt {
+  const attempt = makeAttempt({ questionIds, answers })
   return {
-    ...makeAttempt({ questionIds, answers }),
-    completedAt: 1_000,
+    id: attempt.id,
+    mode: attempt.mode,
+    label: attempt.label,
+    questionIds: attempt.questionIds,
+    answers: attempt.answers,
+    flagged: attempt.flagged,
+    startedAt: attempt.startedAt,
+    durationMinutes: attempt.durationMinutes,
+    finishedAt: 1_000,
     score: 0,
+    outcome: "submitted",
   }
 }
 
-function expectUnseenFirst(selected: Question[], progress: Record<string, string[]>) {
-  const firstAnswered = selected.findIndex((question) => Boolean(progress[question.id]?.length))
+function expectUnseenFirst(selected: Question[], latestAnswers: Record<string, string[]>) {
+  const firstAnswered = selected.findIndex((question) => Boolean(latestAnswers[question.id]?.length))
   if (firstAnswered === -1) return
-  expect(selected.slice(firstAnswered).every((question) => Boolean(progress[question.id]?.length))).toBe(true)
+  expect(selected.slice(firstAnswered).every((question) => Boolean(latestAnswers[question.id]?.length))).toBe(true)
 }
 
 afterEach(() => {
@@ -150,16 +159,16 @@ describe.each([
   ["full", undefined, orderingBank.length],
   ["quick", undefined, 10],
   ["domain", ["tools"], 3],
-] as Array<[ExamMode, DomainId[] | undefined, number]>)('selectQuestions unseen-first ordering in %s mode', (mode, domains, expectedSize) => {
-  const history = makeCompletedAttempt(orderingBank.map((question) => question.id), mixedProgress)
+] as Array<[AttemptMode, DomainId[] | undefined, number]>)('selectQuestions unseen-first ordering in %s mode', (mode, domains, expectedSize) => {
+  const history = makeFinishedAttempt(orderingBank.map((question) => question.id), mixedLatestAnswers)
 
   it("puts every unseen question before prior correct and incorrect answers", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5)
 
-    const selected = selectQuestions(orderingBank, mode, domains, mixedProgress, [history])
+    const selected = selectQuestions(orderingBank, mode, domains, mixedLatestAnswers, [history])
 
     expect(selected).toHaveLength(expectedSize)
-    expectUnseenFirst(selected, mixedProgress)
+    expectUnseenFirst(selected, mixedLatestAnswers)
     expect(selected.some((question) => question.id.endsWith("-correct"))).toBe(true)
     expect(selected.some((question) => question.id.endsWith("-incorrect"))).toBe(true)
   })
@@ -167,7 +176,7 @@ describe.each([
   it("keeps the normal eligible set when every question is unseen", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5)
 
-    const selected = selectQuestions(orderingBank, mode, domains, {}, [makeCompletedAttempt(orderingBank.map((question) => question.id), {})])
+    const selected = selectQuestions(orderingBank, mode, domains, {}, [makeFinishedAttempt(orderingBank.map((question) => question.id), {})])
 
     expect(selected).toHaveLength(expectedSize)
     expect(new Set(selected).size).toBe(expectedSize)
@@ -177,7 +186,7 @@ describe.each([
     vi.spyOn(Math, "random").mockReturnValue(0.5)
     const allAnswered = Object.fromEntries(orderingBank.map((question) => [question.id, ["a"]]))
 
-    const selected = selectQuestions(orderingBank, mode, domains, allAnswered, [makeCompletedAttempt(orderingBank.map((question) => question.id), allAnswered)])
+    const selected = selectQuestions(orderingBank, mode, domains, allAnswered, [makeFinishedAttempt(orderingBank.map((question) => question.id), allAnswered)])
 
     expect(selected).toHaveLength(expectedSize)
     expect(new Set(selected).size).toBe(expectedSize)
@@ -188,14 +197,14 @@ describe.each([
 describe("selectQuestions randomization", () => {
   it("randomizes independently within the unseen and answered partitions", () => {
     const questions = [1, 2, 3, 4].map((number) => makeQuestion(`tools-${number}`, "tools"))
-    const progress = { "tools-1": ["a"], "tools-2": ["b"] }
+    const latestAnswers = { "tools-1": ["a"], "tools-2": ["b"] }
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0.9)
       .mockReturnValueOnce(0.1)
       .mockReturnValueOnce(0.8)
       .mockReturnValueOnce(0.2)
 
-    const selected = selectQuestions(questions, "domain", ["tools"], progress, [makeCompletedAttempt(questions.map((question) => question.id), progress)])
+    const selected = selectQuestions(questions, "domain", ["tools"], latestAnswers, [makeFinishedAttempt(questions.map((question) => question.id), latestAnswers)])
 
     expect(selected.map((question) => question.id)).toEqual(["tools-4", "tools-3", "tools-2", "tools-1"])
   })
@@ -240,14 +249,14 @@ describe("attempt timer", () => {
     expect(getAttemptElapsedMs(secondResume, 51_000)).toBe(30_000)
   })
 
-  it("normalizes an active pause when the attempt is completed", () => {
+  it("normalizes an active pause when the attempt is finalized", () => {
     const attempt = makeAttempt({ questionIds: ["tools-1"], answers: {}, startedAt: 1_000, pausedDurationMs: 5_000 })
     const paused = pauseAttemptTimer(attempt, 21_000)
-    const completed = resumeAttemptTimer(paused, 41_000)
+    const finalized = resumeAttemptTimer(paused, 41_000)
 
-    expect(completed.pausedAt).toBeUndefined()
-    expect(completed.pausedDurationMs).toBe(25_000)
-    expect(getAttemptElapsedMs(completed, 41_000)).toBe(15_000)
+    expect(finalized.pausedAt).toBeUndefined()
+    expect(finalized.pausedDurationMs).toBe(25_000)
+    expect(getAttemptElapsedMs(finalized, 41_000)).toBe(15_000)
   })
 
   it("never returns a negative countdown for an expired attempt", () => {
@@ -284,22 +293,22 @@ describe("calculateScore", () => {
   })
 })
 
-describe("progressFromAttempts", () => {
+describe("latestAnswersFromAttempts", () => {
   it("collects answers from every attempt with the newest answer winning", () => {
     const older = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["b"] } })
     const newer = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": ["a"] } })
-    expect(progressFromAttempts([newer, older])).toEqual({ "tools-1": ["a"] })
+    expect(latestAnswersFromAttempts([newer, older])).toEqual({ "tools-1": ["a"] })
   })
 
-  it("keeps answers from attempts that were never completed", () => {
-    const abandoned = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"] } })
+  it("keeps answers from attempts that were never finished", () => {
+    const unfinished = makeAttempt({ questionIds: ["tools-1", "tools-2"], answers: { "tools-1": ["a"] } })
     const later = makeAttempt({ questionIds: ["memory-1"], answers: { "memory-1": ["a"] } })
-    expect(progressFromAttempts([later, abandoned])).toEqual({ "tools-1": ["a"], "memory-1": ["a"] })
+    expect(latestAnswersFromAttempts([later, unfinished])).toEqual({ "tools-1": ["a"], "memory-1": ["a"] })
   })
 
   it("ignores cleared answers", () => {
     const attempt = makeAttempt({ questionIds: ["tools-1"], answers: { "tools-1": [] } })
-    expect(progressFromAttempts([attempt])).toEqual({})
+    expect(latestAnswersFromAttempts([attempt])).toEqual({})
   })
 })
 
@@ -313,9 +322,9 @@ describe("domainProgress", () => {
     expect(domainProgress({ "tools-1": ["a"], "tools-2": ["a"] }, bank, "tools")).toEqual({ answered: 2, correct: 2, score: 100 })
   })
 
-  it("tracks cumulative progress across exams", () => {
-    const progress = { "tools-1": ["a"], "memory-1": ["a"], "memory-2": ["b"] }
-    expect(domainProgress(progress, bank, "memory")).toEqual({ answered: 2, correct: 1, score: 50 })
+  it("tracks cumulative progress across practice attempts", () => {
+    const latestAnswers = { "tools-1": ["a"], "memory-1": ["a"], "memory-2": ["b"] }
+    expect(domainProgress(latestAnswers, bank, "memory")).toEqual({ answered: 2, correct: 1, score: 50 })
   })
 
   it("ignores cleared answers", () => {

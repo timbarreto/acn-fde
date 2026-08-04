@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { ExamRunner, ExamSetup } from "@/App"
+import { ExamRunner, ExamSetup, FinishedAttemptOutcome } from "@/App"
 import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
-import type { ActiveAttempt, Question } from "@/types"
+import type { Attempt, AttemptOutcome, Question } from "@/types"
 
 function serializeAttributeValue(value: string) {
   const markup = renderToStaticMarkup(<div data-value={value} />)
@@ -31,7 +31,7 @@ describe("ExamRunner", () => {
     const secondQuestion = questions.find(({ id }) => id === "arch-002")!
     const firstPrompt = serializeAttributeValue(firstQuestion.prompt)
     const secondPrompt = serializeAttributeValue(secondQuestion.prompt)
-    const attempt: ActiveAttempt = {
+    const attempt: Attempt = {
       id: "attempt-1",
       mode: "quick",
       label: "Quick practice",
@@ -48,7 +48,7 @@ describe("ExamRunner", () => {
         attempt={attempt}
         bookmarks={[]}
         onUpdate={vi.fn()}
-        onComplete={vi.fn()}
+        onFinish={vi.fn()}
         onBookmark={vi.fn()}
         onExit={vi.fn()}
       />,
@@ -58,5 +58,17 @@ describe("ExamRunner", () => {
     expect(markup).toContain(`aria-label="Question 1: ${firstPrompt}"`)
     expect(markup).toContain(`title="${secondPrompt}"`)
     expect(markup).toContain(`aria-label="Question 2: ${secondPrompt}"`)
+  })
+})
+
+describe("FinishedAttemptOutcome", () => {
+  it.each([
+    ["submitted", "Submitted"],
+    ["expired", "Expired"],
+    ["abandoned", "Abandoned"],
+  ] as Array<[AttemptOutcome, string]>)("renders %s as %s", (outcome, label) => {
+    const markup = renderToStaticMarkup(<FinishedAttemptOutcome outcome={outcome} />)
+
+    expect(markup).toContain(`>${label}</div>`)
   })
 })

@@ -2,7 +2,7 @@ export type AppView = "dashboard" | "setup" | "exam" | "results" | "review" | "r
 
 export interface RouteAvailability {
   hasActiveAttempt: boolean
-  hasCompletedAttempt: boolean
+  hasFinishedAttempt: boolean
 }
 
 export interface ResolvedNavigation {
@@ -30,7 +30,7 @@ export function resolveNavigation(pathname: string, availability: RouteAvailabil
   const requestedView = viewsByPath.get(normalizedPath)
   const view = requestedView === "exam" && !availability.hasActiveAttempt
     ? "dashboard"
-    : requestedView === "results" && !availability.hasCompletedAttempt
+    : requestedView === "results" && !availability.hasFinishedAttempt
       ? "dashboard"
       : requestedView ?? "dashboard"
 

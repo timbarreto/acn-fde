@@ -1,4 +1,4 @@
-import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, Question } from "@/types"
+import type { Attempt, AttemptMode, DomainId, FinishedAttempt, Question } from "@/types"
 
 export const PASS_SCORE = 70
 
@@ -11,19 +11,19 @@ const fullExamDistribution: Array<[DomainId, number]> = [
   ["guardrails", 5],
 ]
 
-function queueByLastSeen(questions: Question[], progress: Record<string, string[]>, attempts: CompletedAttempt[]) {
+function queueByLastSeen(questions: Question[], latestAnswers: Record<string, string[]>, finishedAttempts: FinishedAttempt[]) {
   const lastSeen = new Map<string, number>()
 
-  attempts.forEach((attempt) => {
+  finishedAttempts.forEach((attempt) => {
     Object.entries(attempt.answers).forEach(([id, answer]) => {
-      if (answer.length) lastSeen.set(id, Math.max(lastSeen.get(id) ?? 0, attempt.completedAt))
+      if (answer.length) lastSeen.set(id, Math.max(lastSeen.get(id) ?? 0, attempt.finishedAt))
     })
   })
 
   return questions
     .map((question) => ({
       question,
-      answered: Boolean(progress[question.id]?.length),
+      answered: Boolean(latestAnswers[question.id]?.length),
       lastSeen: lastSeen.get(question.id) ?? 0,
       sort: Math.random(),
     }))
@@ -39,8 +39,8 @@ export function unselectDomain(domains: DomainId[], domain: DomainId) {
   return domains.filter((id) => id !== domain)
 }
 
-export function selectQuestions(questions: Question[], mode: ExamMode, domains?: DomainId[], progress: Record<string, string[]> = {}, attempts: CompletedAttempt[] = []) {
-  const queue = queueByLastSeen(questions, progress, attempts)
+export function selectQuestions(questions: Question[], mode: AttemptMode, domains?: DomainId[], latestAnswers: Record<string, string[]> = {}, finishedAttempts: FinishedAttempt[] = []) {
+  const queue = queueByLastSeen(questions, latestAnswers, finishedAttempts)
 
   if (mode === "domain") return domains?.length ? queue.filter((question) => domains.includes(question.domain)) : []
   if (mode === "quick") {
@@ -65,7 +65,7 @@ export function answersMatch(answer: string[] | undefined, correct: string[]) {
   return [...answer].sort().every((value, index) => value === [...correct].sort()[index])
 }
 
-export function calculateScore(attempt: Pick<ActiveAttempt, "questionIds" | "answers">, questionMap: Map<string, Question>) {
+export function calculateScore(attempt: Pick<Attempt, "questionIds" | "answers">, questionMap: Map<string, Question>) {
   const correct = attempt.questionIds.filter((id) => {
     const question = questionMap.get(id)
     return question ? answersMatch(attempt.answers[id], question.correctAnswers) : false
@@ -73,39 +73,39 @@ export function calculateScore(attempt: Pick<ActiveAttempt, "questionIds" | "ans
   return Math.round((correct / attempt.questionIds.length) * 100) || 0
 }
 
-export function progressFromAttempts(attempts: ActiveAttempt[]) {
-  const progress: Record<string, string[]> = {}
+export function latestAnswersFromAttempts(attempts: Array<Pick<Attempt, "answers">>) {
+  const latestAnswers: Record<string, string[]> = {}
   const oldestFirst = [...attempts].reverse()
   oldestFirst.forEach((attempt) => {
     Object.entries(attempt.answers).forEach(([id, answer]) => {
-      if (answer.length) progress[id] = answer
+      if (answer.length) latestAnswers[id] = answer
     })
   })
-  return progress
+  return latestAnswers
 }
 
-export function countAnswered(progress: Record<string, string[]>, questions: Question[]) {
+export function countAnswered(latestAnswers: Record<string, string[]>, questions: Question[]) {
   const known = new Set(questions.map((question) => question.id))
-  return Object.entries(progress).filter(([id, answer]) => answer.length > 0 && known.has(id)).length
+  return Object.entries(latestAnswers).filter(([id, answer]) => answer.length > 0 && known.has(id)).length
 }
 
-export function readinessScore(progress: Record<string, string[]>, questions: Question[]) {
+export function readinessScore(latestAnswers: Record<string, string[]>, questions: Question[]) {
   if (!questions.length) return 0
   const questionMap = new Map(questions.map((question) => [question.id, question]))
   let correct = 0
-  Object.entries(progress).forEach(([id, answer]) => {
+  Object.entries(latestAnswers).forEach(([id, answer]) => {
     const question = questionMap.get(id)
     if (question && answer.length && answersMatch(answer, question.correctAnswers)) correct += 1
   })
   return Math.round((correct / questions.length) * 100)
 }
 
-export function domainProgress(progress: Record<string, string[]>, questions: Question[], domain: DomainId) {
+export function domainProgress(latestAnswers: Record<string, string[]>, questions: Question[], domain: DomainId) {
   const questionMap = new Map(questions.map((question) => [question.id, question]))
   const total = questions.filter((question) => question.domain === domain).length
   let answered = 0
   let correct = 0
-  Object.entries(progress).forEach(([id, answer]) => {
+  Object.entries(latestAnswers).forEach(([id, answer]) => {
     const question = questionMap.get(id)
     if (question?.domain === domain && answer.length) {
       answered += 1
@@ -121,7 +121,7 @@ export function formatDuration(seconds: number) {
   return `${minutes}:${String(safe % 60).padStart(2, "0")}`
 }
 
-type TimedAttempt = Pick<ActiveAttempt, "startedAt" | "durationMinutes" | "pausedAt" | "pausedDurationMs">
+type TimedAttempt = Pick<Attempt, "startedAt" | "durationMinutes" | "pausedAt" | "pausedDurationMs">
 
 export function isAttemptPaused(attempt: TimedAttempt) {
   return typeof attempt.pausedAt === "number"
@@ -137,12 +137,12 @@ export function getAttemptRemainingSeconds(attempt: TimedAttempt, now = Date.now
   return Math.max(0, Math.ceil((durationMs - getAttemptElapsedMs(attempt, now)) / 1000))
 }
 
-export function pauseAttemptTimer(attempt: ActiveAttempt, now = Date.now()) {
+export function pauseAttemptTimer(attempt: Attempt, now = Date.now()) {
   if (isAttemptPaused(attempt)) return attempt
   return { ...attempt, pausedAt: now }
 }
 
-export function resumeAttemptTimer(attempt: ActiveAttempt, now = Date.now()) {
+export function resumeAttemptTimer(attempt: Attempt, now = Date.now()) {
   const pausedAt = attempt.pausedAt
   if (pausedAt === undefined) return attempt
   const pausedDurationMs = (attempt.pausedDurationMs ?? 0) + Math.max(0, now - pausedAt)

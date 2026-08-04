@@ -20,11 +20,12 @@ export interface Question {
   source: { label: string; url: string }
 }
 
-export type ExamMode = "full" | "quick" | "domain"
+export type AttemptMode = "full" | "quick" | "domain"
+export type AttemptOutcome = "submitted" | "expired" | "abandoned"
 
-export interface ActiveAttempt {
+export interface Attempt {
   id: string
-  mode: ExamMode
+  mode: AttemptMode
   label: string
   questionIds: string[]
   answers: Record<string, string[]>
@@ -37,14 +38,24 @@ export interface ActiveAttempt {
   domains?: DomainId[]
 }
 
-export interface CompletedAttempt extends ActiveAttempt {
-  completedAt: number
+export interface FinishedAttempt {
+  id: string
+  mode: AttemptMode
+  label: string
+  questionIds: string[]
+  answers: Record<string, string[]>
+  flagged: string[]
+  startedAt: number
+  durationMinutes: number
+  domains?: DomainId[]
+  finishedAt: number
   score: number
+  outcome: AttemptOutcome
 }
 
-export interface PersistedState {
-  activeAttempt: ActiveAttempt | null
-  attempts: CompletedAttempt[]
+export interface PracticeState {
+  activeAttempt: Attempt | null
+  attempts: FinishedAttempt[]
   bookmarks: string[]
-  progress: Record<string, string[]>
+  latestAnswers: Record<string, string[]>
 }

@@ -11,7 +11,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Single-answer and multiple-answer scenarios
 - Per-domain scoring, answer explanations, and source links
 - Instant feedback that reveals the correct answer and explanation as you check each question
-- Saved attempts, bookmarks, incorrect-answer review, and resume support with automatic timer pausing on exit
+- Finished-attempt history with submitted, expired, and abandoned outcomes, plus bookmarks, incorrect-answer review, and resume support with automatic timer pausing on exit
 - A focused study sequence mapped to the published exam domains
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account, API, database, or backend
@@ -152,9 +152,9 @@ The question bank is in [`src/data/questions.json`](src/data/questions.json). Ea
 
 Domain display metadata and published weights are in [`src/data/domains.ts`](src/data/domains.ts).
 
-## Saved data
+## Practice state
 
-Attempts and bookmarks are stored under the `agentic-ready-gh600-v1` localStorage key. The app retains the 30 most recent completed attempts. Clearing site data resets progress.
+Practice state is stored under the `agentic-ready-gh600-v1` localStorage key: the active attempt, 30 most recent finished attempts, bookmarks, and latest answers. Clearing site data removes that practice state.
 
 ## Disclaimer
 

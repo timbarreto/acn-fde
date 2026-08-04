@@ -37,45 +37,29 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
-import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptElapsedMs, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, progressFromAttempts, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
+import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
+import { loadPracticeState, retainRecentFinishedAttempts, savePracticeState } from "@/lib/practice-state"
 import { cn } from "@/lib/utils"
-import type { ActiveAttempt, CompletedAttempt, DomainId, ExamMode, PersistedState, Question } from "@/types"
+import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState, Question } from "@/types"
 
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
-const STORAGE_KEY = "agentic-ready-gh600-v1"
-const defaultState: PersistedState = { activeAttempt: null, attempts: [], bookmarks: [], progress: {} }
-
-function loadState(): PersistedState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return defaultState
-    const parsed = { ...defaultState, ...JSON.parse(raw) } as PersistedState
-    if (!Object.keys(parsed.progress).length) {
-      const attempts = parsed.activeAttempt ? [parsed.activeAttempt, ...parsed.attempts] : parsed.attempts
-      parsed.progress = progressFromAttempts(attempts)
-    }
-    return parsed
-  } catch {
-    return defaultState
-  }
-}
 
 function App() {
-  const [saved, setSaved] = useState<PersistedState>(loadState)
+  const [practiceState, setPracticeState] = useState<PracticeState>(loadPracticeState)
   const [view, setView] = useState<AppView>(() => resolveNavigation(window.location.pathname, {
-    hasActiveAttempt: Boolean(saved.activeAttempt),
-    hasCompletedAttempt: saved.attempts.length > 0,
+    hasActiveAttempt: Boolean(practiceState.activeAttempt),
+    hasFinishedAttempt: practiceState.attempts.length > 0,
   }).view)
-  const [result, setResult] = useState<CompletedAttempt | null>(saved.attempts[0] ?? null)
+  const [latestFinishedAttempt, setLatestFinishedAttempt] = useState<FinishedAttempt | null>(practiceState.attempts[0] ?? null)
   const [mobileNav, setMobileNav] = useState(false)
-  const hasActiveAttempt = Boolean(saved.activeAttempt)
-  const hasCompletedAttempt = saved.attempts.length > 0
+  const hasActiveAttempt = Boolean(practiceState.activeAttempt)
+  const hasFinishedAttempt = practiceState.attempts.length > 0
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved))
-  }, [saved])
+    savePracticeState(practiceState)
+  }, [practiceState])
 
   const navigate = useCallback((next: AppView) => {
     const pathname = getPathForView(next)
@@ -91,7 +75,7 @@ function App() {
     const syncLocation = () => {
       const resolved = resolveNavigation(window.location.pathname, {
         hasActiveAttempt,
-        hasCompletedAttempt,
+        hasFinishedAttempt,
       })
       if (window.location.pathname !== resolved.pathname || window.location.search || window.location.hash) {
         window.history.replaceState(null, "", resolved.pathname)
@@ -104,14 +88,14 @@ function App() {
     syncLocation()
     window.addEventListener("popstate", syncLocation)
     return () => window.removeEventListener("popstate", syncLocation)
-  }, [hasActiveAttempt, hasCompletedAttempt])
+  }, [hasActiveAttempt, hasFinishedAttempt])
 
-  const startAttempt = (mode: ExamMode, domains?: DomainId[]) => {
-    const selected = selectQuestions(questions, mode, domains, saved.progress, saved.attempts)
+  const startAttempt = (mode: AttemptMode, domains?: DomainId[]) => {
+    const selected = selectQuestions(questions, mode, domains, practiceState.latestAnswers, practiceState.attempts)
     if (!selected.length) return
     const durationMinutes = mode === "full" ? 45 : mode === "quick" ? 15 : Math.max(10, selected.length * 2)
     const label = mode === "full" ? "Full practice exam" : mode === "quick" ? "Quick knowledge check" : domains!.length === 1 ? `${domainMap[domains![0]].short} drill` : `Focused drill · ${domains!.length} domains`
-    const attempt: ActiveAttempt = {
+    const attempt: Attempt = {
       id: crypto.randomUUID(),
       mode,
       label,
@@ -124,53 +108,62 @@ function App() {
       pausedDurationMs: 0,
       domains,
     }
-    setSaved((current) => ({ ...current, activeAttempt: attempt }))
+    setPracticeState((current) => ({ ...current, activeAttempt: attempt }))
     navigate("exam")
   }
 
-  const updateAttempt = (attempt: ActiveAttempt) => {
-    setSaved((current) => {
-      const progress = { ...current.progress }
+  const updateAttempt = (attempt: Attempt) => {
+    setPracticeState((current) => {
+      const latestAnswers = { ...current.latestAnswers }
       Object.entries(attempt.answers).forEach(([id, answer]) => {
-        if (answer.length) progress[id] = answer
+        if (answer.length) latestAnswers[id] = answer
       })
-      return { ...current, activeAttempt: attempt, progress }
+      return { ...current, activeAttempt: attempt, latestAnswers }
     })
   }
 
-  const completeAttempt = useCallback((attempt: ActiveAttempt) => {
-    const completedAt = Date.now()
-    const finalizedAttempt = resumeAttemptTimer(attempt, completedAt)
-    const completed: CompletedAttempt = {
-      ...finalizedAttempt,
-      completedAt,
-      score: calculateScore(finalizedAttempt, questionMap),
+  const finishAttempt = useCallback((attempt: Attempt, outcome: AttemptOutcome) => {
+    const finishedAt = Date.now()
+    const finalized = resumeAttemptTimer(attempt, finishedAt)
+    const finishedAttempt: FinishedAttempt = {
+      id: finalized.id,
+      mode: finalized.mode,
+      label: finalized.label,
+      questionIds: finalized.questionIds,
+      answers: finalized.answers,
+      flagged: finalized.flagged,
+      startedAt: finalized.startedAt,
+      durationMinutes: finalized.durationMinutes,
+      domains: finalized.domains,
+      finishedAt,
+      score: calculateScore(finalized, questionMap),
+      outcome,
     }
-    setSaved((current) => ({
+    setPracticeState((current) => ({
       ...current,
       activeAttempt: null,
-      attempts: [completed, ...current.attempts].slice(0, 30),
+      attempts: retainRecentFinishedAttempts([finishedAttempt, ...current.attempts]),
     }))
-    setResult(completed)
+    setLatestFinishedAttempt(finishedAttempt)
     navigate("results")
   }, [navigate])
 
   const resumeActiveAttempt = () => {
     const resumedAt = Date.now()
-    setSaved((current) => ({
+    setPracticeState((current) => ({
       ...current,
       activeAttempt: current.activeAttempt ? resumeAttemptTimer(current.activeAttempt, resumedAt) : null,
     }))
     navigate("exam")
   }
 
-  const exitAttempt = (attempt: ActiveAttempt) => {
-    setSaved((current) => ({ ...current, activeAttempt: attempt }))
+  const exitAttempt = (attempt: Attempt) => {
+    setPracticeState((current) => ({ ...current, activeAttempt: attempt }))
     navigate("dashboard")
   }
 
   const toggleBookmark = (id: string) => {
-    setSaved((current) => ({
+    setPracticeState((current) => ({
       ...current,
       bookmarks: current.bookmarks.includes(id)
         ? current.bookmarks.filter((questionId) => questionId !== id)
@@ -178,13 +171,13 @@ function App() {
     }))
   }
 
-  if (view === "exam" && saved.activeAttempt) {
+  if (view === "exam" && practiceState.activeAttempt) {
     return (
       <ExamRunner
-        attempt={saved.activeAttempt}
-        bookmarks={saved.bookmarks}
+        attempt={practiceState.activeAttempt}
+        bookmarks={practiceState.bookmarks}
         onUpdate={updateAttempt}
-        onComplete={completeAttempt}
+        onFinish={finishAttempt}
         onBookmark={toggleBookmark}
         onExit={exitAttempt}
       />
@@ -197,7 +190,7 @@ function App() {
       <main>
         {view === "dashboard" && (
           <Dashboard
-            saved={saved}
+            practiceState={practiceState}
             onStart={() => navigate("setup")}
             onResume={resumeActiveAttempt}
             onDomain={(domain) => startAttempt("domain", [domain])}
@@ -206,17 +199,17 @@ function App() {
           />
         )}
         {view === "setup" && <ExamSetup onStart={startAttempt} />}
-        {view === "results" && result && (
+        {view === "results" && latestFinishedAttempt && (
           <Results
-            attempt={result}
-            bookmarks={saved.bookmarks}
+            attempt={latestFinishedAttempt}
+            bookmarks={practiceState.bookmarks}
             onBookmark={toggleBookmark}
             onDashboard={() => navigate("dashboard")}
-            onRetry={() => startAttempt(result.mode, result.domains)}
+            onRetry={() => startAttempt(latestFinishedAttempt.mode, latestFinishedAttempt.domains)}
             onReview={() => navigate("review")}
           />
         )}
-        {view === "review" && <Review saved={saved} onBookmark={toggleBookmark} onPractice={() => navigate("setup")} />}
+        {view === "review" && <Review practiceState={practiceState} onBookmark={toggleBookmark} onPractice={() => navigate("setup")} />}
         {view === "resources" && <Resources onPractice={() => navigate("setup")} />}
       </main>
       <Footer />
@@ -304,24 +297,24 @@ function TopNav({
 }
 
 function Dashboard({
-  saved,
+  practiceState,
   onStart,
   onResume,
   onDomain,
   onReview,
   onResources,
 }: {
-  saved: PersistedState
+  practiceState: PracticeState
   onStart: () => void
   onResume: () => void
   onDomain: (domain: DomainId) => void
   onReview: () => void
   onResources: () => void
 }) {
-  const attempts = saved.attempts
-  const readiness = readinessScore(saved.progress, questions)
-  const answered = countAnswered(saved.progress, questions)
-  const best = attempts.length ? Math.max(...attempts.map((attempt) => attempt.score)) : 0
+  const finishedAttempts = practiceState.attempts
+  const readiness = readinessScore(practiceState.latestAnswers, questions)
+  const answered = countAnswered(practiceState.latestAnswers, questions)
+  const best = finishedAttempts.length ? Math.max(...finishedAttempts.map((attempt) => attempt.score)) : 0
 
   return (
     <>
@@ -340,15 +333,15 @@ function Dashboard({
               Scenario-based drills for operating, supervising, evaluating, and governing AI agents with GitHub as the control plane.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              {saved.activeAttempt ? (
-                <Button size="lg" onClick={onResume}><Play className="h-4 w-4 fill-current" /> Resume {saved.activeAttempt.label}</Button>
+              {practiceState.activeAttempt ? (
+                <Button size="lg" onClick={onResume}><Play className="h-4 w-4 fill-current" /> Resume {practiceState.activeAttempt.label}</Button>
               ) : (
                 <Button size="lg" onClick={onStart}><Play className="h-4 w-4 fill-current" /> Start a practice exam</Button>
               )}
               <Button size="lg" variant="outline" onClick={onResources}>View study path <ArrowRight className="h-4 w-4" /></Button>
             </div>
             <p className="mt-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <ShieldCheck className="h-4 w-4 text-success" /> Unofficial practice tool · progress stays in this browser
+              <ShieldCheck className="h-4 w-4 text-success" /> Unofficial practice tool · your practice state stays in this browser
             </p>
           </div>
           <ReadinessCard score={readiness} answered={answered} best={best} />
@@ -365,7 +358,7 @@ function Dashboard({
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {domains.map((domain) => {
-            const { score, answered: domainAnswered } = domainProgress(saved.progress, questions, domain.id)
+            const { score, answered: domainAnswered } = domainProgress(practiceState.latestAnswers, questions, domain.id)
             const tested = domainAnswered > 0
             return (
               <button key={domain.id} onClick={() => onDomain(domain.id)} className="group rounded-xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -432,7 +425,7 @@ function ReadinessCard({ score, answered, best }: { score: number; answered: num
   )
 }
 
-export function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domains?: DomainId[]) => void }) {
+export function ExamSetup({ onStart }: { onStart: (mode: AttemptMode, domains?: DomainId[]) => void }) {
   const [selectedDomains, setSelectedDomains] = useState<DomainId[]>([])
   const selectedCount = questions.filter((question) => selectedDomains.includes(question.domain)).length
   return (
@@ -440,7 +433,7 @@ export function ExamSetup({ onStart }: { onStart: (mode: ExamMode, domains?: Dom
       <div className="max-w-2xl">
         <Eyebrow>Practice modes</Eyebrow>
         <h1 className="section-title text-4xl">Choose the kind of pressure you need.</h1>
-        <p className="mt-4 text-lg leading-8 text-muted-foreground">Every mode uses the same local question bank. Answers are saved automatically, so you can leave and resume.</p>
+        <p className="mt-4 text-lg leading-8 text-muted-foreground">Every mode uses the same local question bank. Answers are recorded automatically, so you can leave and resume.</p>
       </div>
       <div className="mt-10 grid gap-5 lg:grid-cols-3">
         <ModeCard icon={Trophy} eyebrow="Best simulation" title="Full practice exam" description="30 weighted questions across all six domains. Timed and scored after submission." meta="45 min · 30 questions" onClick={() => onStart("full")} accent />
@@ -495,7 +488,7 @@ function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, acce
   )
 }
 
-export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmark, onExit }: { attempt: ActiveAttempt; bookmarks: string[]; onUpdate: (attempt: ActiveAttempt) => void; onComplete: (attempt: ActiveAttempt) => void; onBookmark: (id: string) => void; onExit: (attempt: ActiveAttempt) => void }) {
+export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark, onExit }: { attempt: Attempt; bookmarks: string[]; onUpdate: (attempt: Attempt) => void; onFinish: (attempt: Attempt, outcome: AttemptOutcome) => void; onBookmark: (id: string) => void; onExit: (attempt: Attempt) => void }) {
   const [now, setNow] = useState(Date.now())
   const [mapOpen, setMapOpen] = useState(false)
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
@@ -517,8 +510,8 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmar
   }, [timerPaused])
 
   useEffect(() => {
-    if (!timerPaused && remaining === 0) onComplete(attempt)
-  }, [remaining, onComplete, attempt, timerPaused])
+    if (!timerPaused && remaining === 0) onFinish(attempt, "expired")
+  }, [remaining, onFinish, attempt, timerPaused])
 
   const choose = (optionId: string) => {
     if (isRevealed) return
@@ -535,13 +528,13 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmar
     setNow(changedAt)
     onUpdate(timerPaused ? resumeAttemptTimer(attempt, changedAt) : pauseAttemptTimer(attempt, changedAt))
   }
-  const saveAndExit = () => onExit(pauseAttemptTimer(attempt))
+  const pauseAndExit = () => onExit(pauseAttemptTimer(attempt))
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b bg-card">
         <div className="container flex h-[72px] items-center justify-between gap-4">
-          <button onClick={saveAndExit} className="hidden rounded-xl text-left focus-visible:ring-2 sm:block"><Brand /></button>
+          <button onClick={pauseAndExit} className="hidden rounded-xl text-left focus-visible:ring-2 sm:block"><Brand /></button>
           <div className="min-w-0 flex-1 sm:flex-none">
             <div className="truncate text-sm font-bold">{attempt.label}</div>
             <div className="text-xs text-muted-foreground">Question {attempt.currentIndex + 1} of {attempt.questionIds.length}</div>
@@ -563,7 +556,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmar
               <span className="font-mono">{formatDuration(remaining)}</span>
               {timerPaused && <span className="hidden text-xs sm:inline">Paused</span>}
             </button>
-            <Button variant="outline" className="hidden sm:flex" onClick={saveAndExit}>Save & exit</Button>
+            <Button variant="outline" className="hidden sm:flex" onClick={pauseAndExit}>Pause & exit</Button>
             <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMapOpen(!mapOpen)} aria-label="Toggle question map"><Layers3 className="h-4 w-4" /></Button>
           </div>
         </div>
@@ -650,7 +643,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmar
               <Button variant="secondary" disabled={!answer.length} onClick={() => setRevealed((current) => ({ ...current, [currentId]: true }))}>Check answer <CheckCircle2 className="h-4 w-4" /></Button>
             )}
             {attempt.currentIndex === attempt.questionIds.length - 1 ? (
-              <Button onClick={() => onComplete(attempt)}>Submit exam <CheckCircle2 className="h-4 w-4" /></Button>
+              <Button onClick={() => onFinish(attempt, "submitted")}>Submit attempt <CheckCircle2 className="h-4 w-4" /></Button>
             ) : (
               <Button onClick={() => setIndex(attempt.currentIndex + 1)}>Next question <ArrowRight className="h-4 w-4" /></Button>
             )}
@@ -693,11 +686,11 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onComplete, onBookmar
   )
 }
 
-function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: CompletedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
+function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: FinishedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const passed = attempt.score >= PASS_SCORE
   const correctCount = attempt.questionIds.filter((id) => answersMatch(attempt.answers[id], questionMap.get(id)!.correctAnswers)).length
-  const duration = Math.max(1, Math.round(getAttemptElapsedMs(attempt, attempt.completedAt) / 60_000))
+  const duration = Math.min(attempt.durationMinutes, Math.max(1, Math.round((attempt.finishedAt - attempt.startedAt) / 60_000)))
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
       <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
@@ -713,7 +706,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
           </CardContent>
         </Card>
         <div>
-          <Eyebrow>Attempt complete</Eyebrow>
+          <div className="mb-3 flex items-center gap-3"><Eyebrow>Attempt finished</Eyebrow><FinishedAttemptOutcome outcome={attempt.outcome} /></div>
           <h1 className="section-title text-4xl">{passed ? "Strong work. Your controls held." : "You found the edges. Now tune them."}</h1>
           <p className="mt-4 text-lg leading-8 text-muted-foreground">{passed ? "You cleared the 70% practice threshold. Review domain signals before the next full simulation." : "Use the explanations below to separate guidance, evidence, and enforceable controls—the distinction behind many scenarios."}</p>
           <div className="mt-7 flex flex-wrap gap-3">
@@ -763,7 +756,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
                     <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6">{question.explanation}</p></div>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                       <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
-                      <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? "Saved" : "Save for later"}</Button>
+                      <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? "Bookmarked" : "Bookmark"}</Button>
                     </div>
                   </div>
                 )}
@@ -780,34 +773,43 @@ function AnswerSummary({ label, ids, question, correct }: { label: string; ids: 
   return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
 }
 
-function Review({ saved, onBookmark, onPractice }: { saved: PersistedState; onBookmark: (id: string) => void; onPractice: () => void }) {
-  const [filter, setFilter] = useState<"missed" | "saved" | "history">("missed")
+export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome }) {
+  const labels: Record<AttemptOutcome, string> = {
+    submitted: "Submitted",
+    expired: "Expired",
+    abandoned: "Abandoned",
+  }
+  return <Badge variant="outline" className="capitalize">{labels[outcome]}</Badge>
+}
+
+function Review({ practiceState, onBookmark, onPractice }: { practiceState: PracticeState; onBookmark: (id: string) => void; onPractice: () => void }) {
+  const [filter, setFilter] = useState<"missed" | "bookmarks" | "history">("missed")
   const missedIds = useMemo(() => {
     const found: string[] = []
-    saved.attempts.forEach((attempt) => attempt.questionIds.forEach((id) => {
+    practiceState.attempts.forEach((attempt) => attempt.questionIds.forEach((id) => {
       const question = questionMap.get(id)
       if (question && !answersMatch(attempt.answers[id], question.correctAnswers) && !found.includes(id)) found.push(id)
     }))
     return found
-  }, [saved.attempts])
-  const visible = filter === "saved" ? saved.bookmarks : missedIds
+  }, [practiceState.attempts])
+  const visible = filter === "bookmarks" ? practiceState.bookmarks : missedIds
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
       <Eyebrow>Review center</Eyebrow>
       <h1 className="section-title text-4xl">Turn misses into durable knowledge.</h1>
-      <p className="mt-4 max-w-2xl text-lg leading-8 text-muted-foreground">Revisit incorrect and bookmarked scenarios, or inspect your recent attempts. The queue is assembled from this browser's saved history.</p>
+      <p className="mt-4 max-w-2xl text-lg leading-8 text-muted-foreground">Revisit incorrect and bookmarked scenarios, or inspect your recent finished attempts. The queue is assembled from this browser's practice history.</p>
       <div className="mt-8 flex flex-wrap gap-2 rounded-xl border bg-card p-1.5 sm:w-fit">
         {([[
           "missed", `Missed (${missedIds.length})`, XCircle,
-        ], ["saved", `Saved (${saved.bookmarks.length})`, Bookmark], ["history", `History (${saved.attempts.length})`, History]] as const).map(([value, label, Icon]) => (
+        ], ["bookmarks", `Bookmarks (${practiceState.bookmarks.length})`, Bookmark], ["history", `History (${practiceState.attempts.length})`, History]] as const).map(([value, label, Icon]) => (
           <button key={value} onClick={() => setFilter(value)} className={cn("flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition", filter === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}><Icon className="h-4 w-4" />{label}</button>
         ))}
       </div>
       {filter === "history" ? (
         <div className="mt-7 space-y-3">
-          {saved.attempts.length ? saved.attempts.map((attempt) => (
-            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{new Date(attempt.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {attempt.questionIds.length} questions</div></div></div><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></CardContent></Card>
-          )) : <EmptyState title="No attempts yet" description="Complete a practice set and your scores will appear here." onAction={onPractice} />}
+          {practiceState.attempts.length ? practiceState.attempts.map((attempt) => (
+            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{new Date(attempt.finishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {attempt.questionIds.length} questions</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></div></CardContent></Card>
+          )) : <EmptyState title="No finished attempts yet" description="Finish a practice attempt and your scores will appear here." onAction={onPractice} />}
         </div>
       ) : (
         <div className="mt-7 space-y-3">
@@ -815,8 +817,8 @@ function Review({ saved, onBookmark, onPractice }: { saved: PersistedState; onBo
             const question = questionMap.get(id)
             if (!question) return null
             const domain = domainMap[question.domain]
-            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7">{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> {question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}<p className="mt-2 text-muted-foreground">{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", saved.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
-          }) : <EmptyState title={filter === "saved" ? "Nothing saved yet" : "No missed questions yet"} description={filter === "saved" ? "Bookmark questions during an exam or from your results." : "Start a practice set to build your review queue."} onAction={onPractice} />}
+            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7">{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> {question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}<p className="mt-2 text-muted-foreground">{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
+          }) : <EmptyState title={filter === "bookmarks" ? "No bookmarks yet" : "No missed questions yet"} description={filter === "bookmarks" ? "Bookmark questions during an attempt or from a finished attempt." : "Start a practice set to build your review queue."} onAction={onPractice} />}
         </div>
       )}
     </div>
