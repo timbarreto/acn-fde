@@ -39,7 +39,7 @@ import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
-import { loadPracticeState, retainRecentFinishedAttempts, savePracticeState } from "@/lib/practice-state"
+import { usePracticeState } from "@/lib/use-practice-state"
 import { cn } from "@/lib/utils"
 import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState, Question } from "@/types"
 
@@ -47,7 +47,7 @@ const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 
 function App() {
-  const [practiceState, setPracticeState] = useState<PracticeState>(loadPracticeState)
+  const { practiceState, updatePracticeState: setPracticeState } = usePracticeState()
   const [view, setView] = useState<AppView>(() => resolveNavigation(window.location.pathname, {
     hasActiveAttempt: Boolean(practiceState.activeAttempt),
     hasFinishedAttempt: practiceState.attempts.length > 0,
@@ -56,10 +56,6 @@ function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const hasActiveAttempt = Boolean(practiceState.activeAttempt)
   const hasFinishedAttempt = practiceState.attempts.length > 0
-
-  useEffect(() => {
-    savePracticeState(practiceState)
-  }, [practiceState])
 
   const navigate = useCallback((next: AppView) => {
     const pathname = getPathForView(next)
@@ -142,11 +138,11 @@ function App() {
     setPracticeState((current) => ({
       ...current,
       activeAttempt: null,
-      attempts: retainRecentFinishedAttempts([finishedAttempt, ...current.attempts]),
+      attempts: [finishedAttempt, ...current.attempts],
     }))
     setLatestFinishedAttempt(finishedAttempt)
     navigate("results")
-  }, [navigate])
+  }, [navigate, setPracticeState])
 
   const resumeActiveAttempt = () => {
     const resumedAt = Date.now()

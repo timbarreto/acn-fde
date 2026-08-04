@@ -34,6 +34,10 @@ terms do not yet appear in `src/`.
 - `src/App.tsx`: primary application component and view/state orchestration.
 - `src/types.ts`: shared question, exam, and persistence types.
 - `src/lib/exam.ts`: question selection, scoring, and exam utilities.
+- `src/lib/persistence.ts`: framework-independent practice-state storage and
+  legacy migration.
+- `src/lib/use-practice-state.ts`: thin React integration for the persistence
+  store.
 - `src/lib/utils.ts`: shared UI utilities, including `cn`.
 - `src/data/questions.json`: question bank.
 - `src/data/domains.ts`: domain labels, weights, colors, and icons.
@@ -95,10 +99,12 @@ documentation.
 Domain IDs are the closed set defined by `DomainId`; update the type, metadata,
 selection logic, and related content together if that set changes.
 
-Persisted progress uses the `agentic-ready-gh600-v1` localStorage key. Treat
-changes to `PersistedState` as data migrations: maintain compatibility with
-previously saved browser data or deliberately version the key. The application
-retains the 30 most recent completed attempts.
+Guest practice state uses the `agentic-ready-gh600-v2:guest` localStorage key
+and a schema-v2 practice state envelope. The persistence store migrates the
+legacy `agentic-ready-gh600-v1` shape and removes it only after a successful v2
+write. Treat envelope changes as data migrations and keep browser storage
+behind `src/lib/persistence.ts`. The application retains the 30 most recent
+finished attempts.
 
 ## Change guidelines
 

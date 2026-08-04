@@ -59,3 +59,21 @@ export interface PracticeState {
   bookmarks: string[]
   latestAnswers: Record<string, string[]>
 }
+
+export interface BookmarkReceipt {
+  isBookmarked: boolean
+  receivedAt?: string
+}
+
+export interface PracticeStateReceipts {
+  activeAttemptReceivedAt?: string
+  finishedAttempts: Record<string, string>
+  bookmarks: Record<string, BookmarkReceipt>
+  latestAnswers: Record<string, string>
+}
+
+export interface PracticeStateEnvelope {
+  schemaVersion: 2
+  state: PracticeState
+  receipts: PracticeStateReceipts
+}
