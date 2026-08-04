@@ -59,7 +59,9 @@ npm install       # Install dependencies
 npm run dev       # Start the Vite development server
 npm run dev:full  # Start PostgreSQL, migrations, CoreEx, and the Worker app
 npm run test      # Run Vitest unit tests
+npm run test:worker # Run Worker integration tests
 npm run test:backend # Run .NET tests
+npm run test:full # Exercise the isolated signed-in stack end to end
 npm run lint      # Run ESLint
 npm run build     # Type-check and create a production build
 npm run preview   # Serve the production build locally

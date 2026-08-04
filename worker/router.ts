@@ -41,6 +41,15 @@ export function routeRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname
 
+  if (pathname === "/api/test-auth" || pathname.startsWith("/api/test-auth/")) {
+    return Promise.resolve(
+      Response.json(
+        { title: "Not found", status: 404 },
+        { status: 404 },
+      ),
+    )
+  }
+
   if (isEnabledAuthRequest(request)) return handlers.auth(request)
 
   if (isAuthPath(pathname)) {

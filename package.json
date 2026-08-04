@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "test:backend": "dotnet test backend/Acn.Fde.Practice.slnx",
+    "test:full": "dotnet test backend/tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj",
     "test:qa": "playwright test",
     "typegen:worker": "wrangler types --config=wrangler.local.jsonc --env-file=.dev.vars.example --strict-vars=false",
     "preview": "vite preview"
