@@ -6,8 +6,9 @@ This repository contains **Agentic Ready — GH-600 Practice**, an unofficial,
 offline-first practice exam for the GitHub Certified: Agentic AI Developer
 (GH-600) credential. Standalone guest practice is a client-only React
 application. The optional full-stack development path adds a same-origin
-Cloudflare Worker, a trimmed CoreEx service, and local PostgreSQL; account and
-practice-state APIs are not implemented yet.
+Cloudflare Worker, a trimmed CoreEx service, local PostgreSQL, and authenticated
+schema-v2 practice-state load/save APIs; account UI and browser sync are not
+implemented yet.
 
 ## Vocabulary
 
@@ -46,6 +47,7 @@ terms do not yet appear in `src/`.
 - `public/`: static assets (favicon, Open Graph cover, touch icon).
 - `worker/`: same-origin routing between application assets and CoreEx.
 - `backend/`: CoreEx API, migrations, tests, and Aspire AppHost.
+- `contracts/`: append-only recognition data shared across browser and backend contracts.
 - `GH-600/`: source material and study documentation.
 
 ## Development commands

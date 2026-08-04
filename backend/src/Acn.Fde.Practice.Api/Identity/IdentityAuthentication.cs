@@ -1,3 +1,4 @@
+using Acn.Fde.Practice.Application;
 using CoreEx.AspNetCore;
 using CoreEx.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -90,15 +91,18 @@ public static class IdentityAuthentication
 
         var subject = httpContext.User
             .FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        var githubAccountId = httpContext.User
+            .FindFirst(GitHubAccountIdClaim)?.Value;
 
-        if (string.IsNullOrWhiteSpace(subject))
+        if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(githubAccountId))
             return;
 
-        executionContext.User = new AuthenticationUser
+        executionContext.User = new PracticeAuthenticationUser
         {
             Type = AuthenticationType.AccountUser,
             Id = subject,
             UserName = subject,
+            GitHubAccountId = githubAccountId,
         };
     }
 }

@@ -10,7 +10,8 @@
     "GITHUB_CLIENT_SECRET": "test-github-client-secret",
     "BETTER_AUTH_SECRET": "test-secret-that-is-at-least-thirty-two-characters",
     "AUTH_TOKEN_ISSUER": "http://localhost:5173",
-    "AUTH_TOKEN_AUDIENCE": "acn-fde-practice-api"
+    "AUTH_TOKEN_AUDIENCE": "acn-fde-practice-api",
+    "COREEX_API_ORIGIN": "http://127.0.0.1:1"
   },
   "d1_databases": [
     {

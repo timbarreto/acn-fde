@@ -4,4 +4,6 @@ global using CoreEx.DependencyInjection;
 global using CoreEx.Entities;
 global using CoreEx.Events;
 global using CoreEx.Localization;
+global using CoreEx.Json;
+global using CoreEx.Results;
 global using CoreEx.Validation;
