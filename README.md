@@ -185,7 +185,13 @@ Domain display metadata and published weights are in [`src/data/domains.ts`](src
 
 ## Practice state
 
-Practice state is stored under the `agentic-ready-gh600-v1` localStorage key: the active attempt, 30 most recent finished attempts, bookmarks, and latest answers. Clearing site data removes that practice state.
+Guest practice state is stored locally under the
+`agentic-ready-gh600-v2:guest` key as a schema-v2 practice state envelope. It
+contains the active attempt, 30 most recent finished attempts, bookmarks, and
+latest answers; guest state does not fabricate server receipts or make network
+requests for persistence. Existing `agentic-ready-gh600-v1` data is migrated
+automatically, and the legacy value is removed only after its v2 replacement is
+written successfully. Clearing site data removes the practice state.
 
 ## Disclaimer
 

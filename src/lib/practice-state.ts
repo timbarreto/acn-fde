@@ -1,11 +1,8 @@
 import { latestAnswersFromAttempts } from "@/lib/exam"
 import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState } from "@/types"
 
-export const PRACTICE_STATE_STORAGE_KEY = "agentic-ready-gh600-v1"
 export const FINISHED_ATTEMPT_LIMIT = 30
 
-type StorageReader = Pick<Storage, "getItem">
-type StorageWriter = Pick<Storage, "setItem">
 type JsonRecord = Record<string, unknown>
 
 const attemptModes: AttemptMode[] = ["full", "quick", "domain"]
@@ -153,12 +150,4 @@ export function migrateStoredPracticeState(raw: string | null): PracticeState {
   } catch {
     return emptyPracticeState()
   }
-}
-
-export function loadPracticeState(storage: StorageReader = localStorage): PracticeState {
-  return migrateStoredPracticeState(storage.getItem(PRACTICE_STATE_STORAGE_KEY))
-}
-
-export function savePracticeState(practiceState: PracticeState, storage: StorageWriter = localStorage) {
-  storage.setItem(PRACTICE_STATE_STORAGE_KEY, JSON.stringify(practiceState))
 }
