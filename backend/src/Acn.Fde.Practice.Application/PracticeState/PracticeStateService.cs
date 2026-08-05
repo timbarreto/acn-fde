@@ -7,11 +7,13 @@ namespace Acn.Fde.Practice.Application.PracticeState;
 public sealed class PracticeStateService(
     CoreEx.ExecutionContext executionContext,
     IUnitOfWork unitOfWork,
-    IPracticeStateRepository repository) : IPracticeStateService
+    IPracticeStateRepository repository,
+    IPracticeStateMerger merger) : IPracticeStateService
 {
     private readonly CoreEx.ExecutionContext _executionContext = executionContext.ThrowIfNull();
     private readonly IUnitOfWork _unitOfWork = unitOfWork.ThrowIfNull();
     private readonly IPracticeStateRepository _repository = repository.ThrowIfNull();
+    private readonly IPracticeStateMerger _merger = merger.ThrowIfNull();
 
     public async Task<Result<PracticeStateEnvelope>> GetAsync(CancellationToken cancellationToken = default)
     {
@@ -20,7 +22,7 @@ public sealed class PracticeStateService(
         return Result.Ok(stored?.Envelope ?? EmptyEnvelope());
     }
 
-    public Task<Result<PracticeStateEnvelope>> SaveAsync(
+    public Task<Result<PracticeStateEnvelope>> MergeAsync(
         PracticeStateEnvelope envelope,
         CancellationToken cancellationToken = default)
     {
@@ -33,11 +35,14 @@ public sealed class PracticeStateService(
 
         return _unitOfWork.TransactionAsync(async ct =>
         {
-            var stored = await _repository.GetAsync(user.Id!, ct).ConfigureAwait(false);
-            if (stored is not null && StatesAreEqual(stored.Envelope.State, envelope.State))
+            var stored = await _repository.GetForUpdateAsync(user.Id!, ct).ConfigureAwait(false);
+            var canonical = _merger.Merge(
+                stored?.Envelope ?? EmptyEnvelope(),
+                envelope,
+                CanonicalReceipt(_executionContext.Timestamp));
+            if (stored is not null && EnvelopesAreEqual(stored.Envelope, canonical))
                 return Result.Ok(stored.Envelope);
 
-            var canonical = Canonicalize(envelope, _executionContext.Timestamp);
             await _repository.SaveAsync(new StoredPracticeState
             {
                 Subject = user.Id!,
@@ -59,40 +64,12 @@ public sealed class PracticeStateService(
         Receipts = new PracticeStateReceipts(),
     };
 
-    private static bool StatesAreEqual(Contracts.PracticeState left, Contracts.PracticeState right)
+    private static bool EnvelopesAreEqual(PracticeStateEnvelope left, PracticeStateEnvelope right)
         => JsonSerializer.Serialize(left, JsonDefaults.SerializerOptions)
             == JsonSerializer.Serialize(right, JsonDefaults.SerializerOptions);
 
-    private static PracticeStateEnvelope Canonicalize(
-        PracticeStateEnvelope incoming,
-        DateTimeOffset receivedAt)
-    {
-        var receipt = new DateTimeOffset(
+    private static DateTimeOffset CanonicalReceipt(DateTimeOffset receivedAt)
+        => new(
             receivedAt.UtcDateTime.Ticks - receivedAt.UtcDateTime.Ticks % TimeSpan.TicksPerMillisecond,
             TimeSpan.Zero);
-        var bookmarkReceipts = incoming.Receipts.Bookmarks
-            .ToDictionary(
-                pair => pair.Key,
-                pair => new BookmarkReceipt
-                {
-                    IsBookmarked = pair.Value.IsBookmarked,
-                    ReceivedAt = receipt,
-                });
-
-        foreach (var questionId in incoming.State.Bookmarks)
-            bookmarkReceipts[questionId] = new BookmarkReceipt { IsBookmarked = true, ReceivedAt = receipt };
-
-        return new PracticeStateEnvelope
-        {
-            SchemaVersion = 2,
-            State = incoming.State,
-            Receipts = new PracticeStateReceipts
-            {
-                ActiveAttemptReceivedAt = incoming.State.ActiveAttempt is null ? null : receipt,
-                FinishedAttempts = incoming.State.Attempts.ToDictionary(attempt => attempt.Id, _ => receipt),
-                Bookmarks = bookmarkReceipts,
-                LatestAnswers = incoming.State.LatestAnswers.ToDictionary(answer => answer.Key, _ => receipt),
-            },
-        };
-    }
 }

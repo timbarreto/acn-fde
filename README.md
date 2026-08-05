@@ -256,8 +256,9 @@ written successfully. Clearing site data removes the practice state.
 
 Authenticated practice state uses the same envelope shape through the
 handwritten browser adapter, the Worker, CoreEx, and PostgreSQL. The API accepts
-only the closed question/option manifest in
+only the closed question/option and scoring manifest in
 [`contracts/question-recognition-manifest.json`](contracts/question-recognition-manifest.json),
+uses its answer keys only when a merge preserves an abandoned active attempt,
 returns server receipts, and isolates every row by the identity token subject.
 
 ## Disclaimer

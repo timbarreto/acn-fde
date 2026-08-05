@@ -68,6 +68,75 @@ public sealed class PracticeStateApiTests
     }
 
     [Test]
+    public async Task Devices_saving_disjoint_practice_state_receive_the_canonical_union_Async()
+    {
+        using var firstDevice = CreateClient("subject-converges", "1013");
+        using var secondDevice = CreateClient("subject-converges", "1013");
+        using var firstSave = await firstDevice.PostAsync(
+            "/api/practice-state",
+            new StringContent(CompleteEnvelopeJson, Encoding.UTF8, "application/json"));
+        var secondEnvelope = JsonNode.Parse(EmptyEnvelopeJson)!;
+        secondEnvelope["state"]!["bookmarks"]!.AsArray().Add("arch-002");
+        secondEnvelope["state"]!["latestAnswers"]!["arch-002"] = new JsonArray("b");
+        secondEnvelope["receipts"]!["bookmarks"]!["arch-002"] = new JsonObject
+        {
+            ["isBookmarked"] = true,
+        };
+
+        using var secondSave = await secondDevice.PostAsync(
+            "/api/practice-state",
+            new StringContent(secondEnvelope.ToJsonString(), Encoding.UTF8, "application/json"));
+        var canonical = JsonNode.Parse(await secondSave.Content.ReadAsStringAsync())!;
+
+        firstSave.StatusCode.Should().Be(HttpStatusCode.OK);
+        secondSave.StatusCode.Should().Be(HttpStatusCode.OK);
+        canonical["state"]!["activeAttempt"].Should().NotBeNull();
+        canonical["state"]!["attempts"]!.AsArray().Should().ContainSingle();
+        canonical["state"]!["bookmarks"]!.AsArray()
+            .Select(bookmark => bookmark!.GetValue<string>())
+            .Should().BeEquivalentTo("arch-002", "arch-003");
+        canonical["state"]!["latestAnswers"]!.AsObject().Select(answer => answer.Key)
+            .Should().BeEquivalentTo("arch-001", "arch-002", "arch-003");
+    }
+
+    [Test]
+    public async Task Concurrent_device_saves_are_serialized_without_losing_either_contribution_Async()
+    {
+        using var seedClient = CreateClient("subject-concurrent", "1014");
+        using var firstDevice = CreateClient("subject-concurrent", "1014");
+        using var secondDevice = CreateClient("subject-concurrent", "1014");
+        using var seed = await seedClient.PostAsync(
+            "/api/practice-state",
+            JsonContent(EnvelopeWithAnswer("arch-003", "a")));
+        seed.StatusCode.Should().Be(HttpStatusCode.OK);
+        await InstallUpdateDelayAsync();
+
+        try
+        {
+            var firstSaveTask = firstDevice.PostAsync(
+                "/api/practice-state",
+                JsonContent(EnvelopeWithAnswer("arch-001", "b")));
+            var secondSaveTask = secondDevice.PostAsync(
+                "/api/practice-state",
+                JsonContent(EnvelopeWithAnswer("arch-002", "b")));
+            var saves = await Task.WhenAll(firstSaveTask, secondSaveTask);
+
+            saves.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.OK);
+            using var loadedResponse = await seedClient.GetAsync("/api/practice-state");
+            var loaded = JsonNode.Parse(await loadedResponse.Content.ReadAsStringAsync())!;
+            loaded["state"]!["latestAnswers"]!.AsObject().Select(answer => answer.Key)
+                .Should().BeEquivalentTo("arch-001", "arch-002", "arch-003");
+
+            foreach (var response in saves)
+                response.Dispose();
+        }
+        finally
+        {
+            await RemoveUpdateDelayAsync();
+        }
+    }
+
+    [Test]
     public async Task Unknown_question_is_rejected_without_saving_Async()
     {
         using var client = CreateClient("subject-invalid-question", "1002");
@@ -354,6 +423,46 @@ public sealed class PracticeStateApiTests
     private static string CanonicalReceipt(DateTimeOffset value)
         => value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
+    private static StringContent JsonContent(JsonNode envelope)
+        => new(envelope.ToJsonString(), Encoding.UTF8, "application/json");
+
+    private static JsonNode EnvelopeWithAnswer(string questionId, string optionId)
+    {
+        var envelope = JsonNode.Parse(EmptyEnvelopeJson)!;
+        envelope["state"]!["latestAnswers"]![questionId] = new JsonArray(optionId);
+        return envelope;
+    }
+
+    private async Task InstallUpdateDelayAsync()
+    {
+        await using var connection = new NpgsqlConnection(_database.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""
+            CREATE OR REPLACE FUNCTION practice.delay_practice_state_update()
+            RETURNS trigger LANGUAGE plpgsql AS $function$
+            BEGIN
+              PERFORM pg_sleep(0.25);
+              RETURN NEW;
+            END
+            $function$;
+            CREATE TRIGGER delay_practice_state_update
+            BEFORE UPDATE ON practice.practice_state
+            FOR EACH ROW EXECUTE FUNCTION practice.delay_practice_state_update();
+            """, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task RemoveUpdateDelayAsync()
+    {
+        await using var connection = new NpgsqlConnection(_database.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""
+            DROP TRIGGER IF EXISTS delay_practice_state_update ON practice.practice_state;
+            DROP FUNCTION IF EXISTS practice.delay_practice_state_update();
+            """, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task ApplyMigrationsAsync(string connectionString)
     {
         var root = FindRepositoryRoot();
@@ -416,6 +525,23 @@ public sealed class PracticeStateApiTests
           "receipts": {
             "finishedAttempts": {},
             "bookmarks": { "arch-003": { "isBookmarked": true } },
+            "latestAnswers": {}
+          }
+        }
+        """;
+
+    private const string EmptyEnvelopeJson = """
+        {
+          "schemaVersion": 2,
+          "state": {
+            "activeAttempt": null,
+            "attempts": [],
+            "bookmarks": [],
+            "latestAnswers": {}
+          },
+          "receipts": {
+            "finishedAttempts": {},
+            "bookmarks": {},
             "latestAnswers": {}
           }
         }

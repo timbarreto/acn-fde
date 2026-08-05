@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "questions": [
     {
       "id": "arch-001",
@@ -9,6 +9,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -19,6 +22,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -29,6 +35,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "c"
       ]
     },
     {
@@ -39,6 +49,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -49,6 +62,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -59,6 +75,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -69,6 +88,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "c"
       ]
     },
     {
@@ -79,6 +102,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -89,6 +115,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -99,6 +128,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -109,6 +141,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "c"
       ]
     },
     {
@@ -119,6 +155,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -129,6 +168,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -139,6 +181,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -149,6 +194,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -159,6 +207,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "c"
       ]
     },
     {
@@ -169,6 +221,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -179,6 +234,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -189,6 +247,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b"
       ]
     },
     {
@@ -199,6 +261,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -209,6 +274,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -219,6 +287,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -229,6 +300,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -239,6 +313,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -249,6 +326,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -259,6 +339,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -269,6 +352,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "c"
       ]
     },
     {
@@ -279,6 +366,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -289,6 +379,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b"
       ]
     },
     {
@@ -299,6 +393,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -309,6 +406,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -319,6 +419,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -329,6 +432,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -339,6 +445,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b"
       ]
     },
     {
@@ -349,6 +459,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b"
       ]
     },
     {
@@ -359,6 +473,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -369,6 +486,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -377,6 +497,10 @@
       "optionIds": [
         "a",
         "b",
+        "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "c",
         "d"
       ]
@@ -389,6 +513,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "d"
       ]
     },
     {
@@ -398,6 +525,10 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "b",
         "d"
       ]
     },
@@ -409,6 +540,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -419,6 +553,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "d"
       ]
     },
     {
@@ -427,6 +564,10 @@
       "optionIds": [
         "a",
         "b",
+        "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "c",
         "d"
       ]
@@ -439,6 +580,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -448,6 +592,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -459,6 +606,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -468,6 +618,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -479,6 +632,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b",
+        "d"
       ]
     },
     {
@@ -488,6 +645,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -499,6 +659,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -507,6 +670,10 @@
       "optionIds": [
         "a",
         "b",
+        "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "c",
         "d"
       ]
@@ -519,6 +686,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -527,6 +697,10 @@
       "optionIds": [
         "a",
         "b",
+        "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "c",
         "d"
       ]
@@ -539,6 +713,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c",
+        "d"
       ]
     },
     {
@@ -548,6 +726,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -559,6 +740,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -568,6 +752,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -579,6 +766,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b",
+        "d"
       ]
     },
     {
@@ -589,6 +780,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -598,6 +792,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -609,6 +806,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -618,6 +818,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -629,6 +832,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -639,6 +845,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -649,6 +858,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "d"
       ]
     },
     {
@@ -657,6 +869,10 @@
       "optionIds": [
         "a",
         "b",
+        "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "c",
         "d"
       ]
@@ -669,6 +885,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -678,6 +897,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -689,6 +911,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "d"
       ]
     },
     {
@@ -698,6 +923,10 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "b",
         "d"
       ]
     },
@@ -709,6 +938,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -718,6 +950,9 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
         "d"
       ]
     },
@@ -729,6 +964,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -738,6 +976,11 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
         "d"
       ]
     },
@@ -749,6 +992,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -759,6 +1005,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -769,6 +1018,11 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c"
       ]
     },
     {
@@ -778,6 +1032,11 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
         "d"
       ]
     },
@@ -790,6 +1049,12 @@
         "c",
         "d",
         "e"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c",
+        "d"
       ]
     },
     {
@@ -800,6 +1065,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "c"
       ]
     },
     {
@@ -810,6 +1078,11 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c"
       ]
     },
     {
@@ -820,6 +1093,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -830,6 +1106,11 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c"
       ]
     },
     {
@@ -839,6 +1120,11 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
         "d"
       ]
     },
@@ -850,6 +1136,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -861,6 +1150,12 @@
         "c",
         "d",
         "e"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c",
+        "d"
       ]
     },
     {
@@ -871,6 +1166,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -880,6 +1178,11 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
         "d"
       ]
     },
@@ -891,6 +1194,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -902,6 +1208,12 @@
         "c",
         "d",
         "e"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c",
+        "d"
       ]
     },
     {
@@ -913,6 +1225,12 @@
         "c",
         "d",
         "e"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c",
+        "d"
       ]
     },
     {
@@ -922,6 +1240,11 @@
         "a",
         "b",
         "c",
+        "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
         "d"
       ]
     },
@@ -933,6 +1256,11 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c"
       ]
     },
     {
@@ -944,6 +1272,12 @@
         "c",
         "d",
         "e"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c",
+        "d"
       ]
     },
     {
@@ -954,6 +1288,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -964,6 +1301,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -975,6 +1315,12 @@
         "c",
         "d",
         "e"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b",
+        "c",
+        "d"
       ]
     },
     {
@@ -985,6 +1331,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -995,6 +1344,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     },
     {
@@ -1005,6 +1357,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "b"
       ]
     },
     {
@@ -1015,6 +1370,10 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a",
+        "b"
       ]
     },
     {
@@ -1025,6 +1384,9 @@
         "b",
         "c",
         "d"
+      ],
+      "correctAnswerIds": [
+        "a"
       ]
     }
   ]

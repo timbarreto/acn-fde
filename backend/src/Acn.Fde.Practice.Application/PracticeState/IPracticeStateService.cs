@@ -6,7 +6,7 @@ public interface IPracticeStateService
 {
     Task<Result<PracticeStateEnvelope>> GetAsync(CancellationToken cancellationToken = default);
 
-    Task<Result<PracticeStateEnvelope>> SaveAsync(
+    Task<Result<PracticeStateEnvelope>> MergeAsync(
         PracticeStateEnvelope envelope,
         CancellationToken cancellationToken = default);
 }
