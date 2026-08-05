@@ -59,6 +59,15 @@ import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, P
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 
+export function readSignInFailureNotice(search: string) {
+  const failure = new URLSearchParams(search).get("error")
+  if (!failure) return null
+  return {
+    kind: "error" as const,
+    message: "GitHub sign-in did not finish, so you are still practicing as a guest. Your practice state on this device is unchanged.",
+  }
+}
+
 function App() {
   const {
     practiceState,
@@ -77,14 +86,18 @@ function App() {
   }).view)
   const [mobileNav, setMobileNav] = useState(false)
   const [accountAction, setAccountAction] = useState<"sign-in" | "sign-out" | null>(null)
-  const [accountNotice, setAccountNotice] = useState<{ kind: "success" | "error"; message: string } | null>(null)
+  const [accountNotice, setAccountNotice] = useState<{ kind: "success" | "error"; message: string } | null>(
+    () => readSignInFailureNotice(window.location.search),
+  )
   const hasActiveAttempt = Boolean(practiceState.activeAttempt)
   const hasFinishedAttempt = practiceState.attempts.length > 0
   const latestFinishedAttempt = practiceState.attempts[0] ?? null
-  const displayedView = practiceMode.kind === "reauthenticating" ? "account" : view
+  const pinnedToAccount = practiceMode.kind === "reauthenticating"
+  const displayedView = pinnedToAccount ? "account" : view
   const hasAccount = practiceMode.kind === "account" || practiceMode.kind === "transitioning"
 
   const navigate = useCallback((next: AppView) => {
+    if (pinnedToAccount && next !== "account") return
     const pathname = getPathForView(next)
     if (window.location.pathname !== pathname || window.location.search || window.location.hash) {
       window.history.pushState(null, "", pathname)
@@ -92,7 +105,7 @@ function App() {
     setView(next)
     setMobileNav(false)
     window.scrollTo({ top: 0, behavior: "smooth" })
-  }, [])
+  }, [pinnedToAccount])
 
   useEffect(() => {
     if (isInitializing) return
@@ -116,12 +129,12 @@ function App() {
   }, [hasActiveAttempt, hasFinishedAttempt, isInitializing])
 
   useEffect(() => {
-    if (practiceMode.kind !== "reauthenticating" || view === "account") return
+    if (!pinnedToAccount || view === "account") return
     window.history.replaceState(null, "", getPathForView("account"))
     setView("account")
     setMobileNav(false)
     window.scrollTo({ top: 0 })
-  }, [practiceMode.kind, view])
+  }, [pinnedToAccount, view])
 
   const beginSignIn = async () => {
     if (!accountAvailable || accountAction) return
@@ -286,6 +299,7 @@ function App() {
       <TopNav
         view={displayedView}
         syncStatus={syncStatus}
+        pinnedToAccount={pinnedToAccount}
         onNavigate={navigate}
         mobileOpen={mobileNav}
         onMobileOpen={setMobileNav}
@@ -381,15 +395,19 @@ function Waymark() {
   )
 }
 
+export const RECOVERY_NAVIGATION_HINT = "Sign in again from Account to unlock the rest of the practice tool. Your practice state is protected on this device."
+
 export function TopNav({
   view,
   syncStatus,
+  pinnedToAccount = false,
   onNavigate,
   mobileOpen,
   onMobileOpen,
 }: {
   view: AppView
   syncStatus: PracticeSyncStatus
+  pinnedToAccount?: boolean
   onNavigate: (view: AppView) => void
   mobileOpen: boolean
   onMobileOpen: (open: boolean) => void
@@ -401,6 +419,18 @@ export function TopNav({
     { view: "resources", label: "Study path", icon: BookOpen },
     { view: "account", label: "Account", icon: UserRound },
   ]
+  const isLocked = (destination: AppView) => pinnedToAccount && destination !== "account"
+  const lockProps = (destination: AppView): {
+    disabled?: boolean
+    title?: string
+    "aria-describedby"?: string
+  } => isLocked(destination)
+    ? {
+        disabled: true,
+        title: RECOVERY_NAVIGATION_HINT,
+        "aria-describedby": "recovery-navigation-hint",
+      }
+    : {}
   return (
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur">
       <div className="container flex min-h-[72px] flex-wrap items-center">
@@ -412,15 +442,16 @@ export function TopNav({
         >
           <Brand />
         </button>
-        <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Primary navigation">
+        <nav className="ml-auto hidden items-center gap-1 md:flex" aria-label="Primary navigation">
           {items.map((item) => (
             <button
               type="button"
               key={item.view}
               onClick={() => onNavigate(item.view)}
               aria-current={view === item.view ? "page" : undefined}
+              {...lockProps(item.view)}
               className={cn(
-                "rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
                 view === item.view ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
               )}
             >
@@ -431,7 +462,7 @@ export function TopNav({
         <Button
           variant="ghost"
           size="icon"
-          className="ml-auto lg:hidden"
+          className="ml-auto md:hidden"
           onClick={() => onMobileOpen(!mobileOpen)}
           aria-label="Toggle navigation"
           aria-expanded={mobileOpen}
@@ -441,21 +472,30 @@ export function TopNav({
         </Button>
         <div className="order-last flex w-full items-center justify-between gap-3 border-t border-border/70 py-2.5 lg:order-none lg:ml-4 lg:w-auto lg:border-0 lg:py-0">
           <SyncStatusIndicator status={syncStatus} />
-          <Button size="sm" className="hidden xl:flex" onClick={() => onNavigate("setup")}>
+          <Button
+            size="sm"
+            className="hidden md:flex"
+            onClick={() => onNavigate("setup")}
+            {...lockProps("setup")}
+          >
             <Play className="h-4 w-4 fill-current" /> Start practice
           </Button>
         </div>
+        {pinnedToAccount && (
+          <p id="recovery-navigation-hint" className="sr-only">{RECOVERY_NAVIGATION_HINT}</p>
+        )}
       </div>
       {mobileOpen && (
-        <nav id="mobile-primary-navigation" className="container grid gap-1 border-t py-3 lg:hidden" aria-label="Mobile navigation">
+        <nav id="mobile-primary-navigation" className="container grid gap-1 border-t py-3 md:hidden" aria-label="Mobile navigation">
           {items.map((item) => (
             <button
               type="button"
               key={item.view}
               onClick={() => onNavigate(item.view)}
               aria-current={view === item.view ? "page" : undefined}
+              {...lockProps(item.view)}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
                 view === item.view ? "bg-muted" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
               )}
             >
@@ -471,22 +511,25 @@ export function TopNav({
 export function SyncStatusIndicator({
   status,
   now,
+  announce = true,
   className,
 }: {
   status: PracticeSyncStatus
   now?: number
+  announce?: boolean
   className?: string
 }) {
   const [clock, setClock] = useState(() => now ?? Date.now())
+  const syncedAt = status.kind === "synced" ? status.syncedAt : null
 
   useEffect(() => {
-    if (now !== undefined || status.kind !== "synced" || status.syncedAt === null) return
+    if (now !== undefined || syncedAt === null) return
     const timer = window.setInterval(() => setClock(Date.now()), 30_000)
     return () => window.clearInterval(timer)
-  }, [now, status])
+  }, [now, syncedAt])
 
   const currentTime = now ?? clock
-  const label = syncStatusLabel(status, currentTime)
+  const { state, elapsed } = syncStatusCopy(status, currentTime)
   const iconAndColor: Record<PracticeSyncStatus["kind"], { icon: typeof Cloud; color: string }> = {
     guest: { icon: HardDrive, color: "text-muted-foreground" },
     syncing: { icon: LoaderCircle, color: "text-brand-bright" },
@@ -503,9 +546,6 @@ export function SyncStatusIndicator({
   return (
     <div
       className={cn("inline-flex min-w-0 items-center gap-2 text-xs font-semibold", color, className)}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
       title={title}
     >
       <Icon
@@ -515,35 +555,45 @@ export function SyncStatusIndicator({
         )}
         aria-hidden="true"
       />
-      <span>{label}</span>
+      <span
+        role={announce ? "status" : undefined}
+        aria-live={announce ? "polite" : undefined}
+        aria-atomic={announce ? "true" : undefined}
+      >
+        {state}
+      </span>
+      {elapsed && <span>{elapsed}</span>}
     </div>
   )
 }
 
-function syncStatusLabel(status: PracticeSyncStatus, now = Date.now()) {
+export function syncStatusCopy(status: PracticeSyncStatus, now = Date.now()) {
   switch (status.kind) {
     case "guest":
-      return "Saved on this device"
+      return { state: "Saved on this device", elapsed: "" }
     case "syncing":
-      return "Syncing…"
+      return { state: "Syncing…", elapsed: "" }
     case "offline":
-      return "Offline · saved on this device"
+      return { state: "Offline · saved on this device", elapsed: "" }
     case "attention":
-      return "Not synced · saved on this device"
+      return { state: "Not synced · saved on this device", elapsed: "" }
     case "signing-out":
-      return "Signing out…"
-    case "synced": {
-      if (status.syncedAt === null) return "Synced"
-      const elapsed = Math.max(0, now - status.syncedAt)
-      if (elapsed < 60_000) return "Synced just now"
-      const minutes = Math.floor(elapsed / 60_000)
-      if (minutes < 60) return `Synced ${minutes} min ago`
-      const hours = Math.floor(minutes / 60)
-      if (hours < 24) return `Synced ${hours} hr ago`
-      const days = Math.floor(hours / 24)
-      return `Synced ${days} ${days === 1 ? "day" : "days"} ago`
-    }
+      return { state: "Signing out…", elapsed: "" }
+    case "synced":
+      return { state: "Synced", elapsed: relativeAcceptanceTime(status.syncedAt, now) }
   }
+}
+
+function relativeAcceptanceTime(syncedAt: number | null, now: number) {
+  if (syncedAt === null) return ""
+  const elapsed = Math.max(0, now - syncedAt)
+  if (elapsed < 60_000) return " just now"
+  const minutes = Math.floor(elapsed / 60_000)
+  if (minutes < 60) return ` ${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return ` ${hours} hr ago`
+  const days = Math.floor(hours / 24)
+  return ` ${days} ${days === 1 ? "day" : "days"} ago`
 }
 
 export function AccountView({
@@ -611,7 +661,7 @@ export function AccountView({
           </CardHeader>
           <CardContent>
             <div className="rounded-xl border bg-muted/40 p-4">
-              <SyncStatusIndicator status={syncStatus} />
+              <SyncStatusIndicator status={syncStatus} announce={false} />
             </div>
           </CardContent>
         </Card>

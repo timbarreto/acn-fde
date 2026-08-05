@@ -6,6 +6,8 @@ import {
   ExamRunner,
   ExamSetup,
   FinishedAttemptOutcome,
+  readSignInFailureNotice,
+  RECOVERY_NAVIGATION_HINT,
   SyncNotificationBanner,
   SyncStatusIndicator,
   TopNav,
@@ -14,6 +16,10 @@ import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import type { PracticeStateMode, PracticeSyncStatus } from "@/lib/persistence"
 import type { Attempt, AttemptOutcome, Question } from "@/types"
+
+function markupText(markup: string) {
+  return markup.replace(/<[^>]+>/g, "")
+}
 
 function serializeAttributeValue(value: string) {
   const markup = renderToStaticMarkup(<div data-value={value} />)
@@ -83,7 +89,7 @@ describe("SyncStatusIndicator", () => {
     )
 
     expect(markup).toContain('role="status"')
-    expect(markup).toContain(label)
+    expect(markupText(markup)).toContain(label)
   })
 
   it("turns a synced acceptance time into human-readable relative copy", () => {
@@ -94,7 +100,49 @@ describe("SyncStatusIndicator", () => {
       />,
     )
 
-    expect(markup).toContain("Synced 2 min ago")
+    expect(markupText(markup)).toContain("Synced 2 min ago")
+  })
+
+  it("keeps the elapsed time out of the live region so ticking is not announced", () => {
+    const liveRegion = /<span role="status"[^>]*>([^<]*)<\/span>/
+
+    const early = renderToStaticMarkup(
+      <SyncStatusIndicator status={{ kind: "synced", syncedAt: 10_000 }} now={130_000} />,
+    )
+    const later = renderToStaticMarkup(
+      <SyncStatusIndicator status={{ kind: "synced", syncedAt: 10_000 }} now={190_000} />,
+    )
+
+    expect(markupText(early)).toContain("Synced 2 min ago")
+    expect(markupText(later)).toContain("Synced 3 min ago")
+    expect(early.match(liveRegion)![1]).toBe("Synced")
+    expect(later.match(liveRegion)![1]).toBe("Synced")
+  })
+
+  it("announces from a single live region when the same status is shown twice", () => {
+    const markup = renderToStaticMarkup(
+      <>
+        <SyncStatusIndicator status={{ kind: "synced", syncedAt: 10_000 }} now={10_000} />
+        <SyncStatusIndicator status={{ kind: "synced", syncedAt: 10_000 }} now={10_000} announce={false} />
+      </>,
+    )
+
+    expect(markup.match(/role="status"/g)).toHaveLength(1)
+    expect(markupText(markup)).toContain("Synced just now")
+  })
+})
+
+describe("readSignInFailureNotice", () => {
+  it("explains a failed GitHub authorization returned on the Account callback", () => {
+    const notice = readSignInFailureNotice("?error=access_denied")
+
+    expect(notice?.kind).toBe("error")
+    expect(notice?.message).toContain("GitHub sign-in did not finish")
+  })
+
+  it("stays silent when the callback carries no error", () => {
+    expect(readSignInFailureNotice("")).toBeNull()
+    expect(readSignInFailureNotice("?code=abc")).toBeNull()
   })
 })
 
@@ -130,11 +178,47 @@ describe("TopNav", () => {
 
     expect(onNavigate).toHaveBeenCalledWith("account")
   })
+
+  it("keeps the inline destinations and header practice action from the medium breakpoint", () => {
+    const markup = renderToStaticMarkup(
+      <TopNav
+        view="dashboard"
+        syncStatus={{ kind: "guest" }}
+        onNavigate={vi.fn()}
+        mobileOpen={false}
+        onMobileOpen={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain("md:flex")
+    expect(markup).toContain("md:hidden")
+    expect(markup).not.toContain("xl:flex")
+  })
+
+  it("explains why other destinations are unavailable during account recovery", () => {
+    const onNavigate = vi.fn()
+    const props = {
+      view: "account" as const,
+      syncStatus: { kind: "attention" } as PracticeSyncStatus,
+      pinnedToAccount: true,
+      onNavigate,
+      mobileOpen: false,
+      onMobileOpen: vi.fn(),
+    }
+    const tree = TopNav(props)
+    const markup = renderToStaticMarkup(<TopNav {...props} />)
+
+    expect(findInteraction(tree, "Dashboard").disabled).toBe(true)
+    expect(findInteraction(tree, "Start practice").disabled).toBe(true)
+    expect(findInteraction(tree, "Account").disabled).toBeUndefined()
+    expect(markup).toContain('id="recovery-navigation-hint"')
+    expect(markupText(markup)).toContain(RECOVERY_NAVIGATION_HINT)
+  })
 })
 
 describe("AccountView", () => {
   for (const [modeName, mode] of accountModes) {
-    it.each(syncStatusCases)(`renders every sync state for ${modeName} mode`, (status) => {
+    it.each(syncStatusCases)(`renders every sync state for ${modeName} mode`, (status, label) => {
       const markup = renderToStaticMarkup(
         <AccountView
           mode={mode}
@@ -147,10 +231,28 @@ describe("AccountView", () => {
         />,
       )
 
-      expect(markup).toContain('role="status"')
+      expect(markupText(markup)).toContain(status.kind === "synced" ? "Synced" : label)
+      expect(markup).not.toContain("aria-live")
       expect(markup).toContain(modeName === "guest" ? "Optional GitHub sign-in" : "Sign out safely")
     })
   }
+
+  it("surfaces a failed GitHub authorization returned to Account", () => {
+    const markup = renderToStaticMarkup(
+      <AccountView
+        mode={{ kind: "guest" }}
+        syncStatus={{ kind: "guest" }}
+        accountAvailable
+        signingIn={false}
+        notice={readSignInFailureNotice("?error=access_denied")}
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain('role="alert"')
+    expect(markupText(markup)).toContain("GitHub sign-in did not finish")
+  })
 
   it("starts GitHub sign-in only from the guest Account action", () => {
     const onSignIn = vi.fn()

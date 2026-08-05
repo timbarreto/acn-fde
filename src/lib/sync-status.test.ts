@@ -7,7 +7,7 @@ import {
   type PracticeAuth,
   type PracticeSession,
 } from "@/lib/persistence"
-import type { PracticeApi } from "@/lib/practice-api"
+import { PracticeApiError, type PracticeApi } from "@/lib/practice-api"
 import type { PracticeStateEnvelope } from "@/types"
 
 class MemoryStorage implements Storage {
@@ -100,13 +100,22 @@ afterEach(() => {
 })
 
 describe("practice sync status", () => {
-  it("reports local guest state and lets browser connectivity take precedence", async () => {
+  it("keeps standalone guest practice out of the offline state", async () => {
     const store = createBrowserPracticeStateStore({ storage: new MemoryStorage() })
 
     await store.initialize()
 
     expect(store.getSnapshot().syncStatus).toEqual({ kind: "guest" })
     expect(syncStatusWithConnectivity(store.getSnapshot().syncStatus, false))
+      .toEqual({ kind: "guest" })
+  })
+
+  it("reports offline for account states that depend on the network", () => {
+    expect(syncStatusWithConnectivity({ kind: "synced", syncedAt: 10_000 }, false))
+      .toEqual({ kind: "offline" })
+    expect(syncStatusWithConnectivity({ kind: "syncing" }, false))
+      .toEqual({ kind: "offline" })
+    expect(syncStatusWithConnectivity({ kind: "attention" }, false))
       .toEqual({ kind: "offline" })
   })
 
@@ -140,6 +149,82 @@ describe("practice sync status", () => {
 
     await store.flush()
 
+    expect(store.getSnapshot().syncStatus).toEqual({ kind: "attention" })
+  })
+
+  it("stays synced after a rejection rollback whether or not the explanation is dismissed", async () => {
+    vi.useFakeTimers()
+    const storage = new MemoryStorage()
+    storage.setItem(
+      accountPracticeStateKey(subject),
+      JSON.stringify(acceptedEnvelope()),
+    )
+    const auth = new FakeAuth(subject)
+    const store = createBrowserPracticeStateStore({
+      storage,
+      auth,
+      practiceApi: api(async () => {
+        throw new PracticeApiError(400)
+      }),
+    })
+    await store.initialize()
+
+    store.update((current) => ({
+      ...current,
+      bookmarks: [...current.bookmarks, "bookmark-2"],
+    }), { flush: "immediate" })
+    await store.flush()
+
+    expect(store.getSnapshot().notification).not.toBeNull()
+    expect(store.getSnapshot().error).not.toBeNull()
+    expect(store.getSnapshot().syncStatus).toEqual({
+      kind: "synced",
+      syncedAt: Date.parse(receivedAt),
+    })
+
+    store.dismissSyncNotification()
+
+    expect(store.getSnapshot().syncStatus).toEqual({
+      kind: "synced",
+      syncedAt: Date.parse(receivedAt),
+    })
+  })
+
+  it("stays synced when a first sync succeeds but guest cleanup fails", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(50_000)
+    const storage = new MemoryStorage()
+    storage.removeItem = () => {
+      throw new Error("Practice state storage is unavailable.")
+    }
+    const store = createBrowserPracticeStateStore({
+      storage,
+      auth: new FakeAuth(subject),
+      practiceApi: api(async () => createEmptyPracticeStateEnvelope()),
+    })
+
+    await store.initialize()
+
+    expect(store.getSnapshot().error).not.toBeNull()
+    expect(store.getSnapshot().syncStatus).toEqual({
+      kind: "synced",
+      syncedAt: 50_000,
+    })
+  })
+
+  it("reports attention when the first sync cannot reach the service", async () => {
+    vi.useFakeTimers()
+    const store = createBrowserPracticeStateStore({
+      storage: new MemoryStorage(),
+      auth: new FakeAuth(subject),
+      practiceApi: api(async () => {
+        throw new TypeError("service unavailable")
+      }),
+    })
+
+    await store.initialize()
+
+    expect(store.getSnapshot().mode).toEqual({ kind: "transitioning", subject })
     expect(store.getSnapshot().syncStatus).toEqual({ kind: "attention" })
   })
 
