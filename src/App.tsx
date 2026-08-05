@@ -39,6 +39,7 @@ import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
+import type { PracticeSyncNotification } from "@/lib/persistence"
 import { usePracticeState } from "@/lib/use-practice-state"
 import { cn } from "@/lib/utils"
 import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState, Question } from "@/types"
@@ -51,6 +52,8 @@ function App() {
     practiceState,
     updatePracticeState: setPracticeState,
     isInitializing,
+    syncNotification,
+    dismissSyncNotification,
   } = usePracticeState()
   const [view, setView] = useState<AppView>(() => resolveNavigation(window.location.pathname, {
     hasActiveAttempt: Boolean(practiceState.activeAttempt),
@@ -188,19 +191,29 @@ function App() {
 
   if (view === "exam" && practiceState.activeAttempt) {
     return (
-      <ExamRunner
-        attempt={practiceState.activeAttempt}
-        bookmarks={practiceState.bookmarks}
-        onUpdate={updateAttempt}
-        onFinish={finishAttempt}
-        onBookmark={toggleBookmark}
-        onExit={exitAttempt}
-      />
+      <>
+        <SyncNotificationBanner
+          notification={syncNotification}
+          onDismiss={dismissSyncNotification}
+        />
+        <ExamRunner
+          attempt={practiceState.activeAttempt}
+          bookmarks={practiceState.bookmarks}
+          onUpdate={updateAttempt}
+          onFinish={finishAttempt}
+          onBookmark={toggleBookmark}
+          onExit={exitAttempt}
+        />
+      </>
     )
   }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <SyncNotificationBanner
+        notification={syncNotification}
+        onDismiss={dismissSyncNotification}
+      />
       <TopNav view={view} onNavigate={navigate} mobileOpen={mobileNav} onMobileOpen={setMobileNav} />
       <main>
         {view === "dashboard" && (
@@ -228,6 +241,33 @@ function App() {
         {view === "resources" && <Resources onPractice={() => navigate("setup")} />}
       </main>
       <Footer />
+    </div>
+  )
+}
+
+export function SyncNotificationBanner({
+  notification,
+  onDismiss,
+}: {
+  notification: PracticeSyncNotification | null
+  onDismiss: () => void
+}) {
+  if (!notification) return null
+
+  return (
+    <div className="fixed inset-x-4 top-4 z-50 mx-auto flex max-w-2xl items-start gap-3 rounded-xl border border-destructive/30 bg-card p-4 text-card-foreground shadow-lg" role="alert">
+      <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
+      <p className="min-w-0 flex-1 text-sm leading-6">{notification.message}</p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="-mr-2 -mt-2 h-9 w-9 shrink-0"
+        onClick={onDismiss}
+        aria-label="Dismiss sync explanation"
+      >
+        <X className="h-4 w-4" />
+      </Button>
     </div>
   )
 }

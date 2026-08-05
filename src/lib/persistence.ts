@@ -29,7 +29,8 @@ export interface PracticeSession {
 
 export interface PracticeAuth {
   getSession: () => Promise<PracticeSession | null>
-  getIdentityToken: () => Promise<string>
+  getIdentityToken: (expectedSubject: string) => Promise<string>
+  invalidateIdentityToken: (token: string) => void
   signOut: () => Promise<void>
   subscribeSession: (
     listener: (session: PracticeSession | null) => void,
@@ -40,13 +41,31 @@ export type PracticeStateMode =
   | { kind: "initializing" }
   | { kind: "guest" }
   | { kind: "transitioning"; subject: string }
+  | { kind: "reauthenticating"; subject: string }
   | { kind: "account"; subject: string }
+
+export interface PracticeSyncNotification {
+  kind: "sync-rejected"
+  message: string
+}
 
 export interface BrowserPracticeStateSnapshot {
   envelope: PracticeStateEnvelope
   mode: PracticeStateMode
   error: Error | null
   firstSyncRejected: boolean
+  notification: PracticeSyncNotification | null
+}
+
+export type SafeSignOutResult =
+  | { status: "signed-out"; error: Error | null }
+  | { status: "blocked"; error: Error }
+
+export class PracticeSessionMismatchError extends Error {
+  constructor() {
+    super("The authenticated session changed before practice state could sync.")
+    this.name = "PracticeSessionMismatchError"
+  }
 }
 
 export interface BrowserPracticeStateStore {
@@ -58,7 +77,16 @@ export interface BrowserPracticeStateStore {
     options?: { flush?: PracticeStateFlush },
   ) => PracticeStateEnvelope
   flush: () => Promise<void>
+  signOutSafely: () => Promise<SafeSignOutResult>
+  dismissSyncNotification: () => void
   subscribe: (listener: () => void) => () => void
+}
+
+interface SessionEndIntent {
+  kind: "safe-sign-out" | "first-sync-rejection"
+  subject: string
+  resolution: number
+  nullObserved: boolean
 }
 
 interface BrowserPracticeStateStoreOptions {
@@ -276,16 +304,26 @@ export function createBrowserPracticeStateStore({
   let firstSync: FirstSyncCoordinator | null = null
   const subjectFlights = new Map<string, Promise<void>>()
   let observedSessionVersion = 0
+  let authenticatedSubject: string | null = null
+  let completedSignOutSubject: string | null = null
+  let sessionEndIntent: SessionEndIntent | null = null
+  let safeSignOutPending = false
+  let signOutFlight: Promise<SafeSignOutResult> | null = null
   let snapshot: BrowserPracticeStateSnapshot = {
     envelope: createEmptyPracticeStateEnvelope(),
     mode: { kind: "initializing" },
     error: null,
     firstSyncRejected: false,
+    notification: null,
   }
 
   function publish(next: BrowserPracticeStateSnapshot) {
     snapshot = next
     listeners.forEach((listener) => listener())
+  }
+
+  function currentMode() {
+    return snapshot.mode
   }
 
   function getGuestStore() {
@@ -303,13 +341,33 @@ export function createBrowserPracticeStateStore({
     return guestStore
   }
 
-  function activateGuest(error: Error | null = null, firstSyncRejected = false) {
+  function activateGuest(
+    error: Error | null = null,
+    firstSyncRejected = false,
+    notification: PracticeSyncNotification | null = null,
+  ) {
+    const persistedFirstSyncSubject = auth
+      ? readFirstSyncSubject(storage.getItem(GUEST_PRACTICE_STATE_KEY))
+      : null
+    if (persistedFirstSyncSubject) {
+      quarantineAccountState(persistedFirstSyncSubject)
+      if (error || notification) {
+        publish({
+          ...snapshot,
+          error: error ?? snapshot.error,
+          notification,
+        })
+      }
+      return
+    }
+
     const envelope = getActiveGuestStore().load()
     publish({
       envelope,
       mode: { kind: "guest" },
       error,
       firstSyncRejected,
+      notification,
     })
   }
 
@@ -327,7 +385,11 @@ export function createBrowserPracticeStateStore({
     storage.setItem(key, serializeAccountCache(cache))
   }
 
-  function activateAccount(subject: string, cache: AccountPracticeStateCache) {
+  function activateAccount(
+    subject: string,
+    cache: AccountPracticeStateCache,
+    consumeGuestState = true,
+  ) {
     const coordinator: AccountSyncCoordinator = {
       subject,
       key: accountPracticeStateKey(subject),
@@ -339,13 +401,14 @@ export function createBrowserPracticeStateStore({
       rollbackError: null,
     }
     activeAccount = coordinator
-    guestPracticeStateConsumed = true
-    const cleanupError = cleanupGuestPracticeState()
+    if (consumeGuestState) guestPracticeStateConsumed = true
+    const cleanupError = consumeGuestState ? cleanupGuestPracticeState() : null
     publish({
       envelope: cache.envelope,
       mode: { kind: "account", subject },
       error: cleanupError,
       firstSyncRejected: false,
+      notification: snapshot.notification,
     })
     if (hasPendingMutations(cache)) scheduleSync(coordinator, "immediate")
   }
@@ -433,28 +496,56 @@ export function createBrowserPracticeStateStore({
 
       let canonical: PracticeStateEnvelope
       try {
-        const identityToken = await auth!.getIdentityToken()
-        if (activeAccount !== coordinator) return
-        canonical = await practiceApi!.postPracticeState(identityToken, sentEnvelope)
+        const response = await postPracticeStateWithAuthentication(
+          coordinator.subject,
+          sentEnvelope,
+          () => activeAccount === coordinator,
+        )
+        if (!response) return
+        canonical = response
       } catch (error) {
         if (activeAccount !== coordinator) return
-        if (isPermanentSyncRejection(error)) {
-          const rollback = rollbackAccountCache(coordinator.cache)
+        if (error instanceof PracticeSessionMismatchError) {
+          quarantineAccountState(coordinator.subject)
+          publish({ ...snapshot, error })
+        } else if (isPermanentSyncRejection(error)) {
+          let canonicalEnvelope = coordinator.cache.canonicalEnvelope
+          if (!hasCompleteReceipts(canonicalEnvelope)) {
+            try {
+              const recovered = await authenticatedPracticeRequest(
+                coordinator.subject,
+                () => activeAccount === coordinator,
+                (identityToken) => practiceApi!.getPracticeState(identityToken),
+              )
+              if (!recovered) return
+              canonicalEnvelope = recovered
+            } catch (recoveryError) {
+              if (activeAccount !== coordinator) return
+              if (recoveryError instanceof PracticeSessionMismatchError) {
+                quarantineAccountState(coordinator.subject)
+              } else {
+                coordinator.retryRequested = true
+              }
+              publish({ ...snapshot, error: toError(recoveryError) })
+              return
+            }
+          }
+          const rollback = rollbackAccountCache(
+            coordinator.cache,
+            canonicalEnvelope,
+          )
           try {
             writeAccountCache(coordinator.key, rollback)
           } catch (storageError) {
             coordinator.cache = rollback
             coordinator.rollbackError = toError(error)
-            try {
-              storage.removeItem(coordinator.key)
-            } catch {
-              coordinator.rollbackPending = true
-              coordinator.retryRequested = true
-            }
+            coordinator.rollbackPending = true
+            coordinator.retryRequested = true
             publish({
               ...snapshot,
               envelope: rollback.envelope,
               error: toError(storageError),
+              notification: syncRejectionNotification(error),
             })
             return
           }
@@ -463,6 +554,7 @@ export function createBrowserPracticeStateStore({
             ...snapshot,
             envelope: rollback.envelope,
             error: toError(error),
+            notification: syncRejectionNotification(error),
           })
         } else {
           publish({ ...snapshot, error: toError(error) })
@@ -496,8 +588,23 @@ export function createBrowserPracticeStateStore({
     if (existingFlight) await existingFlight
     if (currentResolution !== resolution) return
 
+    const guestRaw = storage.getItem(GUEST_PRACTICE_STATE_KEY)
+    const pendingFirstSyncSubject = readFirstSyncSubject(guestRaw)
     const key = accountPracticeStateKey(subject)
     const existing = readAccountCache(storage.getItem(key))
+    if (
+      pendingFirstSyncSubject &&
+      pendingFirstSyncSubject !== subject &&
+      !guestPracticeStateConsumed
+    ) {
+      if (existing) {
+        activateAccount(subject, existing, false)
+        return
+      }
+      quarantineAccountState(pendingFirstSyncSubject)
+      return
+    }
+
     if (existing) {
       if (currentResolution === resolution) activateAccount(subject, existing)
       return
@@ -506,7 +613,7 @@ export function createBrowserPracticeStateStore({
     guestStore = null
     const guest = getActiveGuestStore().load()
     const resumed = readFirstSyncCache(
-      storage.getItem(GUEST_PRACTICE_STATE_KEY),
+      guestRaw,
       subject,
     )
     const coordinator: FirstSyncCoordinator = {
@@ -523,6 +630,7 @@ export function createBrowserPracticeStateStore({
       mode: { kind: "transitioning", subject },
       error: null,
       firstSyncRejected: false,
+      notification: snapshot.notification,
     })
 
     if (!resumed) {
@@ -593,12 +701,19 @@ export function createBrowserPracticeStateStore({
     let canonical: PracticeStateEnvelope
 
     try {
-      const identityToken = await auth!.getIdentityToken()
-      if (firstSync !== coordinator) return
-      canonical = await practiceApi!.postPracticeState(identityToken, sentEnvelope)
+      const response = await postPracticeStateWithAuthentication(
+        coordinator.subject,
+        sentEnvelope,
+        () => firstSync === coordinator,
+      )
+      if (!response) return
+      canonical = response
     } catch (error) {
       if (firstSync !== coordinator) return
-      if (isPermanentSyncRejection(error)) {
+      if (error instanceof PracticeSessionMismatchError) {
+        quarantineAccountState(coordinator.subject)
+        publish({ ...snapshot, error })
+      } else if (isPermanentSyncRejection(error)) {
         await rejectFirstSync(coordinator, error)
       } else {
         publish({
@@ -606,6 +721,7 @@ export function createBrowserPracticeStateStore({
           mode: { kind: "transitioning", subject: coordinator.subject },
           error: toError(error),
           firstSyncRejected: false,
+          notification: snapshot.notification,
         })
         coordinator.retryRequested = true
       }
@@ -626,6 +742,7 @@ export function createBrowserPracticeStateStore({
         mode: { kind: "transitioning", subject: coordinator.subject },
         error: toError(error),
         firstSyncRejected: false,
+        notification: snapshot.notification,
       })
       coordinator.retryRequested = true
       return
@@ -640,25 +757,62 @@ export function createBrowserPracticeStateStore({
     rejection: unknown,
   ) {
     const rejectionResolution = resolution
+    const notification = firstSyncRejectionNotification()
     let surfacedError = toError(rejection)
-    const restoreError = restoreGuestPracticeState(coordinator.cache.envelope)
-    if (restoreError) surfacedError = restoreError
-    firstSync = null
     clearFirstSyncTimer(coordinator)
+    const intent: SessionEndIntent = {
+      kind: "first-sync-rejection",
+      subject: coordinator.subject,
+      resolution: rejectionResolution,
+      nullObserved: false,
+    }
+    sessionEndIntent = intent
 
+    let signOutSucceeded = false
     try {
       await auth!.signOut()
+      signOutSucceeded = true
     } catch (signOutError) {
       surfacedError = toError(signOutError)
     }
+    if (sessionEndIntent === intent) sessionEndIntent = null
+    if (
+      (signOutSucceeded || intent.nullObserved) &&
+      resolution === rejectionResolution
+    ) {
+      authenticatedSubject = null
+      completedSignOutSubject = intent.nullObserved
+        ? null
+        : coordinator.subject
+    }
 
-    if (resolution === rejectionResolution) {
-      activateGuest(surfacedError, true)
+    if (!signOutSucceeded && !intent.nullObserved) {
+      if (firstSync === coordinator && resolution === rejectionResolution) {
+        publish({
+          envelope: coordinator.cache.envelope,
+          mode: { kind: "transitioning", subject: coordinator.subject },
+          error: surfacedError,
+          firstSyncRejected: true,
+          notification: {
+            kind: "sync-rejected",
+            message: "Your practice state could not be synced to the account. It remains protected on this device, but sign-out could not finish.",
+          },
+        })
+      }
+      return
+    }
+
+    if (firstSync === coordinator && resolution === rejectionResolution) {
+      firstSync = null
+      const restoreError = restoreGuestPracticeState(coordinator.cache.envelope)
+      if (restoreError) surfacedError = restoreError
+      activateGuest(surfacedError, true, notification)
     } else if (snapshot.mode.kind === "guest") {
       publish({
         ...snapshot,
         error: surfacedError,
         firstSyncRejected: true,
+        notification,
       })
     }
   }
@@ -686,18 +840,88 @@ export function createBrowserPracticeStateStore({
     activeAccount = null
   }
 
+  function deactivateCoordinators() {
+    deactivateFirstSync()
+    deactivateAccount()
+  }
+
+  function quarantineAccountState(subject: string) {
+    deactivateCoordinators()
+    publish({
+      envelope: createEmptyPracticeStateEnvelope(),
+      mode: { kind: "reauthenticating", subject },
+      error: new Error(
+        "Your session ended before syncing finished. Sign in to the same account to resume safely.",
+      ),
+      firstSyncRejected: false,
+      notification: snapshot.notification,
+    })
+  }
+
   async function applySession(session: PracticeSession | null) {
+    const intent = sessionEndIntent
+    if (
+      !session &&
+      intent &&
+      intent.resolution === resolution &&
+      intent.subject === authenticatedSubject
+    ) {
+      intent.nullObserved = true
+      authenticatedSubject = null
+      completedSignOutSubject = null
+      return
+    }
+    if (session?.subject && session.subject === completedSignOutSubject) {
+      return
+    }
+    if (!session || session.subject !== completedSignOutSubject) {
+      completedSignOutSubject = null
+    }
+    if (
+      session?.subject &&
+      intent?.nullObserved &&
+      session.subject === intent.subject
+    ) {
+      authenticatedSubject = session.subject
+      resolution += 1
+      return
+    }
+    if (
+      session?.subject &&
+      authenticatedSubject === session.subject &&
+      snapshot.mode.kind === "account" &&
+      snapshot.mode.subject === session.subject &&
+      activeAccount?.subject === session.subject
+    ) {
+      return
+    }
+
+    authenticatedSubject = session?.subject ?? null
     const currentResolution = ++resolution
     pendingSubject = null
-
     if (!session) {
-      const transitioningGuest = firstSync?.cache.envelope ?? null
+      const interruptedSubject = activeAccount?.subject ?? firstSync?.subject ??
+        (snapshot.mode.kind === "reauthenticating" ? snapshot.mode.subject : null)
+      if (interruptedSubject) {
+        quarantineAccountState(interruptedSubject)
+        return
+      }
+      const persistedFirstSyncSubject = auth
+        ? readFirstSyncSubject(storage.getItem(GUEST_PRACTICE_STATE_KEY))
+        : null
+      if (persistedFirstSyncSubject) {
+        quarantineAccountState(persistedFirstSyncSubject)
+        return
+      }
+
       const firstSyncRejected = snapshot.firstSyncRejected
       const rejectionError = firstSyncRejected ? snapshot.error : null
-      hideAccountState()
-      if (transitioningGuest) restoreGuestPracticeState(transitioningGuest)
       try {
-        activateGuest(rejectionError, firstSyncRejected)
+        activateGuest(
+          rejectionError,
+          firstSyncRejected,
+          firstSyncRejected ? snapshot.notification : null,
+        )
       } catch (error) {
         publish({ ...snapshot, error: toError(error) })
       }
@@ -710,7 +934,6 @@ export function createBrowserPracticeStateStore({
       return
     }
 
-    if (snapshot.mode.kind === "account" && snapshot.mode.subject === session.subject) return
     hideAccountState()
 
     const promise = transitionGuestToAccount(session.subject, currentResolution)
@@ -727,15 +950,204 @@ export function createBrowserPracticeStateStore({
   }
 
   function hideAccountState() {
-    deactivateFirstSync()
-    deactivateAccount()
-    if (snapshot.mode.kind !== "account") return
+    deactivateCoordinators()
     publish({
       envelope: createEmptyPracticeStateEnvelope(),
       mode: { kind: "initializing" },
       error: null,
       firstSyncRejected: false,
+      notification: snapshot.notification,
     })
+  }
+
+  async function postPracticeStateWithAuthentication(
+    expectedSubject: string,
+    envelope: PracticeStateEnvelope,
+    isCurrent: () => boolean,
+  ) {
+    return await authenticatedPracticeRequest(
+      expectedSubject,
+      isCurrent,
+      (identityToken) => practiceApi!.postPracticeState(identityToken, envelope),
+    )
+  }
+
+  async function authenticatedPracticeRequest<T>(
+    expectedSubject: string,
+    isCurrent: () => boolean,
+    request: (identityToken: string) => Promise<T>,
+  ): Promise<T | null> {
+    const identityToken = await auth!.getIdentityToken(expectedSubject)
+    if (!isCurrent()) return null
+
+    try {
+      return await request(identityToken)
+    } catch (error) {
+      if (!(error instanceof PracticeApiError) || error.status !== 401) throw error
+      if (!isCurrent()) return null
+      auth!.invalidateIdentityToken(identityToken)
+      const refreshedToken = await auth!.getIdentityToken(expectedSubject)
+      if (!isCurrent()) return null
+      return await request(refreshedToken)
+    }
+  }
+
+  async function performSafeSignOut(): Promise<SafeSignOutResult> {
+    if (!auth) {
+      return { status: "signed-out", error: null }
+    }
+    if (snapshot.mode.kind === "guest") {
+      return { status: "signed-out", error: null }
+    }
+    if (snapshot.mode.kind === "reauthenticating") {
+      const recoverySubject = snapshot.mode.subject
+      const unrelatedSubject = authenticatedSubject
+      if (unrelatedSubject && unrelatedSubject !== recoverySubject) {
+        const unrelatedCache = readAccountCache(
+          storage.getItem(accountPracticeStateKey(unrelatedSubject)),
+        )
+        if (unrelatedCache) {
+          activateAccount(unrelatedSubject, unrelatedCache, false)
+          return await performSafeSignOut()
+        }
+        safeSignOutPending = true
+        try {
+          const intent: SessionEndIntent = {
+            kind: "safe-sign-out",
+            subject: unrelatedSubject,
+            resolution,
+            nullObserved: false,
+          }
+          const signOutResolution = resolution
+          sessionEndIntent = intent
+          try {
+            await auth.signOut()
+          } catch (error) {
+            const signOutError = toError(error)
+            if (sessionEndIntent === intent) sessionEndIntent = null
+            publish({ ...snapshot, error: signOutError })
+            return { status: "blocked", error: signOutError }
+          }
+          if (sessionEndIntent === intent) sessionEndIntent = null
+          if (resolution !== signOutResolution) {
+            const error = new Error(
+              "Sign-out did not finish because the authenticated account changed.",
+            )
+            return { status: "blocked", error }
+          }
+          authenticatedSubject = null
+          completedSignOutSubject = intent.nullObserved
+            ? null
+            : unrelatedSubject
+          publish({
+            ...snapshot,
+            error: new Error(
+              "Sign in to the same account to resume the interrupted first sync.",
+            ),
+          })
+          return { status: "signed-out", error: null }
+        } finally {
+          safeSignOutPending = false
+        }
+      }
+      const error = snapshot.error ?? new Error(
+        "Sign in to the same account before signing out safely.",
+      )
+      return { status: "blocked", error }
+    }
+
+    const subject = activeAccount?.subject ?? firstSync?.subject
+    if (!subject) {
+      const error = new Error("Sign-out is blocked until account state is available.")
+      publish({ ...snapshot, error })
+      return { status: "blocked", error }
+    }
+
+    safeSignOutPending = true
+    try {
+      await (firstSync
+        ? startFirstSync(firstSync)
+        : activeAccount
+          ? startAccountSync(activeAccount)
+          : Promise.resolve())
+
+      const modeAfterFlush = currentMode()
+      if (modeAfterFlush.kind === "guest") {
+        return { status: "signed-out", error: snapshot.error }
+      }
+      if (
+        modeAfterFlush.kind === "reauthenticating" ||
+        !activeAccount ||
+        activeAccount?.subject !== subject ||
+        hasCoordinatorWork(activeAccount)
+      ) {
+        const error = snapshot.error ?? new Error(
+          "Sign-out is blocked until pending practice state is synced.",
+        )
+        publish({ ...snapshot, error })
+        return { status: "blocked", error }
+      }
+
+      const accountKey = accountPracticeStateKey(subject)
+      const retainedCache = serializeAccountCache(activeAccount.cache)
+      try {
+        storage.removeItem(accountKey)
+      } catch (error) {
+        const removalError = toError(error)
+        publish({ ...snapshot, error: removalError })
+        return { status: "blocked", error: removalError }
+      }
+
+      const intent: SessionEndIntent = {
+        kind: "safe-sign-out",
+        subject,
+        resolution,
+        nullObserved: false,
+      }
+      const signOutResolution = resolution
+      sessionEndIntent = intent
+      try {
+        await auth.signOut()
+      } catch (error) {
+        let signOutError = toError(error)
+        try {
+          storage.setItem(accountKey, retainedCache)
+        } catch (restoreError) {
+          signOutError = toError(restoreError)
+        }
+        if (sessionEndIntent === intent) sessionEndIntent = null
+        if (resolution !== signOutResolution) {
+          return { status: "blocked", error: signOutError }
+        }
+        if (intent.nullObserved) {
+          quarantineAccountState(subject)
+          publish({ ...snapshot, error: signOutError })
+        } else {
+          publish({ ...snapshot, error: signOutError })
+        }
+        return { status: "blocked", error: signOutError }
+      }
+      if (sessionEndIntent === intent) sessionEndIntent = null
+      if (resolution !== signOutResolution) {
+        let error = new Error(
+          "Sign-out did not finish because the authenticated account changed.",
+        )
+        try {
+          storage.setItem(accountKey, retainedCache)
+        } catch (restoreError) {
+          error = toError(restoreError)
+        }
+        return { status: "blocked", error }
+      }
+      authenticatedSubject = null
+      completedSignOutSubject = intent.nullObserved ? null : subject
+
+      deactivateCoordinators()
+      activateGuest(null, false, snapshot.notification)
+      return { status: "signed-out", error: null }
+    } finally {
+      safeSignOutPending = false
+    }
   }
 
   function resolveSession(session: PracticeSession | null) {
@@ -777,8 +1189,14 @@ export function createBrowserPracticeStateStore({
     },
     resolveSession,
     update(updater, options) {
-      if (snapshot.mode.kind === "initializing") {
+      if (
+        snapshot.mode.kind === "initializing" ||
+        snapshot.mode.kind === "reauthenticating"
+      ) {
         throw new Error("Practice state is not initialized.")
+      }
+      if (safeSignOutPending) {
+        throw new Error("Practice state cannot change while safe sign-out is in progress.")
       }
 
       if (snapshot.mode.kind === "transitioning" && firstSync) {
@@ -841,6 +1259,18 @@ export function createBrowserPracticeStateStore({
       }
       return startAccountSync(activeAccount)
     },
+    signOutSafely() {
+      if (signOutFlight) return signOutFlight
+      const pending = performSafeSignOut().finally(() => {
+        if (signOutFlight === pending) signOutFlight = null
+      })
+      signOutFlight = pending
+      return pending
+    },
+    dismissSyncNotification() {
+      if (!snapshot.notification) return
+      publish({ ...snapshot, notification: null })
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -893,10 +1323,11 @@ function createPendingFirstSyncCache(
 
 function rollbackAccountCache(
   current: AccountPracticeStateCache,
+  canonicalEnvelope = current.canonicalEnvelope,
 ): AccountPracticeStateCache {
   return {
-    envelope: current.canonicalEnvelope,
-    canonicalEnvelope: current.canonicalEnvelope,
+    envelope: canonicalEnvelope,
+    canonicalEnvelope,
     revision: current.revision,
     acknowledgedRevision: current.revision,
     journal: [],
@@ -1150,6 +1581,36 @@ function hasPendingMutations(cache: AccountPracticeStateCache) {
   return cache.journal.length > 0
 }
 
+function hasCompleteReceipts(envelope: PracticeStateEnvelope) {
+  if (
+    envelope.state.activeAttempt &&
+    !envelope.receipts.activeAttemptReceivedAt
+  ) {
+    return false
+  }
+  if (
+    envelope.state.attempts.some(
+      (attempt) => !envelope.receipts.finishedAttempts[attempt.id],
+    )
+  ) {
+    return false
+  }
+  if (
+    Object.keys(envelope.state.latestAnswers).some(
+      (questionId) => !envelope.receipts.latestAnswers[questionId],
+    )
+  ) {
+    return false
+  }
+  const bookmarkIds = new Set([
+    ...envelope.state.bookmarks,
+    ...Object.keys(envelope.receipts.bookmarks),
+  ])
+  return [...bookmarkIds].every(
+    (questionId) => Boolean(envelope.receipts.bookmarks[questionId]?.receivedAt),
+  )
+}
+
 function hasCoordinatorWork(coordinator: AccountSyncCoordinator) {
   return coordinator.rollbackPending || hasPendingMutations(coordinator.cache)
 }
@@ -1222,6 +1683,28 @@ function readFirstSyncCache(
     return null
   }
   return readCacheMetadata(firstSync, envelope)
+}
+
+function readFirstSyncSubject(raw: string | null) {
+  const envelope = readEnvelope(raw)
+  if (!envelope || raw === null) return null
+
+  let parsed: JsonRecord | null
+  try {
+    parsed = asRecord(JSON.parse(raw))
+  } catch {
+    return null
+  }
+  const firstSync = asRecord(parsed?.firstSync)
+  if (
+    !firstSync ||
+    firstSync.version !== FIRST_SYNC_CACHE_VERSION ||
+    typeof firstSync.subject !== "string" ||
+    !readCacheMetadata(firstSync, envelope)
+  ) {
+    return null
+  }
+  return firstSync.subject
 }
 
 function readCacheMetadata(
@@ -1404,6 +1887,41 @@ function readNonNegativeInteger(value: unknown) {
 
 function isPermanentSyncRejection(error: unknown) {
   return error instanceof PracticeApiError && [400, 413, 415].includes(error.status)
+}
+
+function syncRejectionNotification(error: unknown): PracticeSyncNotification {
+  const practiceError = error instanceof PracticeApiError ? error : null
+  const detail = (() => {
+    switch (practiceError?.code) {
+      case "unsupported_schema_version":
+        return "This app version could not sync the latest changes."
+      case "practice_state_too_large":
+        return "The latest changes were too large to sync."
+      case "unsupported_media_type":
+        return "The sync service did not accept the practice-state format."
+      case "malformed_json":
+        return "The sync service could not read the latest changes."
+      case "invalid_practice_state":
+        return "The latest changes were not valid."
+      default:
+        return practiceError?.status === 413
+          ? "The latest changes were too large to sync."
+          : practiceError?.status === 415
+            ? "The sync service did not accept the practice-state format."
+            : "The latest changes could not be synced."
+    }
+  })()
+  return {
+    kind: "sync-rejected",
+    message: `${detail} The last synced practice state has been restored.`,
+  }
+}
+
+function firstSyncRejectionNotification(): PracticeSyncNotification {
+  return {
+    kind: "sync-rejected",
+    message: "Your practice state could not be synced to the account, so sign-in was ended. Your guest practice remains saved on this device.",
+  }
 }
 
 function sameValue(left: unknown, right: unknown) {

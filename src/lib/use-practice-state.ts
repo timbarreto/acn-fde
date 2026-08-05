@@ -37,6 +37,11 @@ export function usePracticeState() {
     store.update(updater, options)
   }, [store])
   const flush = useCallback(() => store.flush(), [store])
+  const signOutSafely = useCallback(() => store.signOutSafely(), [store])
+  const dismissSyncNotification = useCallback(
+    () => store.dismissSyncNotification(),
+    [store],
+  )
 
   useEffect(() => {
     const flushWhenHidden = () => {
@@ -50,6 +55,11 @@ export function usePracticeState() {
     practiceState: snapshot.envelope.state,
     updatePracticeState,
     flush,
-    isInitializing: snapshot.mode.kind === "initializing",
+    signOutSafely,
+    syncNotification: snapshot.notification,
+    dismissSyncNotification,
+    isInitializing:
+      snapshot.mode.kind === "initializing" ||
+      snapshot.mode.kind === "reauthenticating",
   }
 }

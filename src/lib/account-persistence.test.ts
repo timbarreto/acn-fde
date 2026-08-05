@@ -59,6 +59,7 @@ class FakeAuth implements PracticeAuth {
     if (this.emitOnSignOut) this.emitSession(null)
   })
   readonly getIdentityToken = vi.fn(async () => "identity-token")
+  readonly invalidateIdentityToken = vi.fn()
   readonly listeners = new Set<(session: PracticeSession | null) => void>()
 
   constructor(
@@ -134,6 +135,7 @@ describe("subject-isolated browser practice-state store", () => {
         resolveSession = resolve
       }),
       getIdentityToken: async () => "identity-token",
+      invalidateIdentityToken: () => {},
       signOut: async () => {},
       subscribeSession: () => () => {},
     }
@@ -149,7 +151,7 @@ describe("subject-isolated browser practice-state store", () => {
     resolveSession?.({ subject: "resolved-subject" })
     await initialization
 
-    expect(storage.reads[0]).toBe(accountPracticeStateKey("resolved-subject"))
+    expect(storage.reads).toContain(accountPracticeStateKey("resolved-subject"))
   })
 
   it("writes the canonical account cache before retiring guest state", async () => {
@@ -309,10 +311,13 @@ describe("subject-isolated browser practice-state store", () => {
       mode: { kind: "guest" },
       envelope: guest,
       firstSyncRejected: true,
+      notification: {
+        message: expect.stringContaining("guest practice remains saved"),
+      },
     })
   })
 
-  it("hides account state after sign-out without reviving consumed guest state", async () => {
+  it("quarantines account state after an unexpected session loss", async () => {
     const storage = new MemoryStorage()
     const guest = envelope("guest-bookmark")
     const canonical = envelope("account-bookmark", "2026-08-05T00:00:00.000Z")
@@ -328,7 +333,7 @@ describe("subject-isolated browser practice-state store", () => {
     await store.resolveSession(null)
 
     expect(store.getSnapshot()).toMatchObject({
-      mode: { kind: "guest" },
+      mode: { kind: "reauthenticating", subject: "subject-1" },
       envelope: { state: { bookmarks: [] } },
     })
     expect(storage.getItem(accountPracticeStateKey("subject-1"))).not.toBeNull()
@@ -408,6 +413,7 @@ describe("subject-isolated browser practice-state store", () => {
         resolveInitialSession = resolve
       }),
       getIdentityToken: async () => "identity-token",
+      invalidateIdentityToken: () => {},
       signOut: async () => {},
       subscribeSession(listener) {
         sessionListener = listener

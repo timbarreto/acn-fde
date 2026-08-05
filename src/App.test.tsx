@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { ExamRunner, ExamSetup, FinishedAttemptOutcome } from "@/App"
+import {
+  ExamRunner,
+  ExamSetup,
+  FinishedAttemptOutcome,
+  SyncNotificationBanner,
+} from "@/App"
 import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import type { Attempt, AttemptOutcome, Question } from "@/types"
@@ -70,5 +75,23 @@ describe("FinishedAttemptOutcome", () => {
     const markup = renderToStaticMarkup(<FinishedAttemptOutcome outcome={outcome} />)
 
     expect(markup).toContain(`>${label}</div>`)
+  })
+})
+
+describe("SyncNotificationBanner", () => {
+  it("renders a permanent-sync explanation as a dismissible alert", () => {
+    const markup = renderToStaticMarkup(
+      <SyncNotificationBanner
+        notification={{
+          kind: "sync-rejected",
+          message: "The latest changes were not valid. The last synced practice state has been restored.",
+        }}
+        onDismiss={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain('role="alert"')
+    expect(markup).toContain("The last synced practice state has been restored.")
+    expect(markup).toContain('aria-label="Dismiss sync explanation"')
   })
 })
