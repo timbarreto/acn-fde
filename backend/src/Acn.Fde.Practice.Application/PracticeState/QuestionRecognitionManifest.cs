@@ -1,3 +1,4 @@
+using Acn.Fde.Practice.Contracts;
 using System.Reflection;
 using System.Text.Json;
 
@@ -36,6 +37,21 @@ internal sealed class QuestionRecognitionManifest
             && question.OptionIds.Contains(optionId, StringComparer.Ordinal));
     }
 
+    public int CalculateScore(Attempt attempt)
+    {
+        var correct = attempt.QuestionIds.Count(questionId =>
+            _questions.TryGetValue(questionId, out var question)
+            && attempt.Answers.TryGetValue(questionId, out var answer)
+            && AnswersMatch(answer, question.CorrectAnswerIds));
+        return (int)Math.Round(
+            correct * 100m / attempt.QuestionIds.Count,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static bool AnswersMatch(IReadOnlyCollection<string> answer, IReadOnlyCollection<string> correctAnswer)
+        => answer.Count == correctAnswer.Count
+            && answer.Order(StringComparer.Ordinal).SequenceEqual(correctAnswer.Order(StringComparer.Ordinal));
+
     private static QuestionRecognitionManifest Load()
     {
         using var stream = Assembly.GetExecutingAssembly()
@@ -43,7 +59,7 @@ internal sealed class QuestionRecognitionManifest
             ?? throw new InvalidOperationException("The question recognition manifest is unavailable.");
         var document = JsonSerializer.Deserialize<ManifestDocument>(stream, JsonDefaults.SerializerOptions)
             ?? throw new InvalidDataException("The question recognition manifest is malformed.");
-        return document.SchemaVersion == 1
+        return document.SchemaVersion == 2
             ? new QuestionRecognitionManifest(document.Questions)
             : throw new InvalidDataException("The question recognition manifest version is unsupported.");
     }
@@ -59,5 +75,6 @@ internal sealed class QuestionRecognitionManifest
         public string Id { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public List<string> OptionIds { get; set; } = [];
+        public List<string> CorrectAnswerIds { get; set; } = [];
     }
 }

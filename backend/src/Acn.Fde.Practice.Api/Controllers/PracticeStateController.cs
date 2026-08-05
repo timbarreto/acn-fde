@@ -27,7 +27,7 @@ public sealed class PracticeStateController(WebApi webApi, IPracticeStateService
     public Task<IActionResult> PostAsync(CancellationToken cancellationToken = default)
         => _webApi.PostWithResultAsync<PracticeStateEnvelope, PracticeStateEnvelope>(
             Request,
-            (options, ct) => _service.SaveAsync(options.Value, ct),
+            (options, ct) => _service.MergeAsync(options.Value, ct),
             HttpStatusCode.OK,
             cancellationToken: cancellationToken);
 }

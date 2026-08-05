@@ -21,6 +21,28 @@ public sealed class PracticeStateRepository(
         return entity is null ? null : PracticeStateMapper.Map(entity);
     }
 
+    public async Task<StoredPracticeState?> GetForUpdateAsync(
+        string subject,
+        CancellationToken cancellationToken = default)
+    {
+        // The row lock serializes established subjects. The transaction-scoped
+        // advisory lock also serializes the first exchange, when no row exists
+        // yet for SELECT ... FOR UPDATE to lock.
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({subject}, 0))",
+            cancellationToken).ConfigureAwait(false);
+        var entity = await _dbContext.Set<PracticeStateEntity>()
+            .FromSqlInterpolated($"""
+                SELECT *
+                FROM practice.practice_state
+                WHERE user_id = {subject}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return entity is null ? null : PracticeStateMapper.Map(entity);
+    }
+
     public async Task SaveAsync(
         StoredPracticeState practiceState,
         CancellationToken cancellationToken = default)

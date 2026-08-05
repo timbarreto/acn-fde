@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import recognitionManifest from "../../contracts/question-recognition-manifest.json"
 import questions from "@/data/questions.json"
 import type { DomainId } from "@/types"
 
@@ -39,6 +40,18 @@ describe("question bank integrity", () => {
         expect(question.prompt, question.id).toMatch(/Select (?:all that apply|\w+)\./)
       }
     }
+  })
+
+  it("keeps the backend recognition and scoring manifest aligned", () => {
+    expect(recognitionManifest).toEqual({
+      schemaVersion: 2,
+      questions: questions.map((question) => ({
+        id: question.id,
+        type: question.type,
+        optionIds: question.options.map((option) => option.id),
+        correctAnswerIds: question.correctAnswers,
+      })),
+    })
   })
 
   it("covers recovery from a stalled cloud-agent session", () => {
