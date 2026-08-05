@@ -80,6 +80,7 @@ export interface PracticeApi {
     identityToken: string,
     envelope: PracticeStateEnvelope,
   ) => Promise<PracticeStateEnvelope>
+  deletePracticeState: (identityToken: string) => Promise<void>
 }
 
 export class PracticeApiError extends Error {
@@ -109,6 +110,14 @@ export function createPracticeApi(fetcher: PracticeApiFetch = fetch): PracticeAp
       })
       return fromEnvelopeDto(await readResponse(response))
     },
+
+    async deletePracticeState(identityToken) {
+      const response = await fetcher("/api/practice-state", {
+        method: "DELETE",
+        headers: requestHeaders(identityToken),
+      })
+      if (!response.ok) await throwResponseError(response)
+    },
   }
 }
 
@@ -123,7 +132,10 @@ function requestHeaders(identityToken: string, hasBody = false): Headers {
 
 async function readResponse(response: Response): Promise<PracticeStateEnvelopeDto> {
   if (response.ok) return await response.json() as PracticeStateEnvelopeDto
+  return await throwResponseError(response)
+}
 
+async function throwResponseError(response: Response): Promise<never> {
   let code: string | undefined
   try {
     const problem = await response.json() as { code?: unknown }

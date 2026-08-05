@@ -309,6 +309,37 @@ public sealed class PracticeStateApiTests
     }
 
     [Test]
+    public async Task User_can_delete_only_their_practice_state_and_keep_their_identity_Async()
+    {
+        using var firstUser = CreateClient("subject-delete-a", "1015");
+        using var secondUser = CreateClient("subject-delete-b", "1016");
+        using var firstSave = await firstUser.PostAsync(
+            "/api/practice-state",
+            new StringContent(CompleteEnvelopeJson, Encoding.UTF8, "application/json"));
+        using var secondSave = await secondUser.PostAsync(
+            "/api/practice-state",
+            new StringContent(CompleteEnvelopeJson, Encoding.UTF8, "application/json"));
+
+        using var delete = await firstUser.DeleteAsync("/api/practice-state");
+        using var repeatedDelete = await firstUser.DeleteAsync("/api/practice-state");
+        using var firstLoad = await firstUser.GetAsync("/api/practice-state");
+        using var secondLoad = await secondUser.GetAsync("/api/practice-state");
+        var firstState = JsonNode.Parse(await firstLoad.Content.ReadAsStringAsync())!;
+        var secondState = JsonNode.Parse(await secondLoad.Content.ReadAsStringAsync())!;
+
+        firstSave.StatusCode.Should().Be(HttpStatusCode.OK);
+        secondSave.StatusCode.Should().Be(HttpStatusCode.OK);
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        repeatedDelete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        firstLoad.StatusCode.Should().Be(HttpStatusCode.OK);
+        firstState["state"]!["attempts"]!.AsArray().Should().BeEmpty();
+        firstState["state"]!["bookmarks"]!.AsArray().Should().BeEmpty();
+        firstState["state"]!["latestAnswers"]!.AsObject().Should().BeEmpty();
+        secondLoad.StatusCode.Should().Be(HttpStatusCode.OK);
+        secondState["state"]!["attempts"]!.AsArray().Should().ContainSingle();
+    }
+
+    [Test]
     public async Task Practice_state_endpoints_require_authentication_Async()
     {
         using var client = _factory.CreateClient();
@@ -316,9 +347,11 @@ public sealed class PracticeStateApiTests
         using var post = await client.PostAsync(
             "/api/practice-state",
             new StringContent(CompleteEnvelopeJson, Encoding.UTF8, "application/json"));
+        using var delete = await client.DeleteAsync("/api/practice-state");
 
         get.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         post.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        delete.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [TestCase("unknown-option")]
@@ -355,6 +388,7 @@ public sealed class PracticeStateApiTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         document["paths"]!["/api/practice-state"]!["get"].Should().NotBeNull();
         document["paths"]!["/api/practice-state"]!["post"].Should().NotBeNull();
+        document["paths"]!["/api/practice-state"]!["delete"].Should().NotBeNull();
         var envelope = document["components"]!["schemas"]!["PracticeStateEnvelope"]!;
         envelope["properties"]!["schemaVersion"].Should().NotBeNull();
         envelope["properties"]!["state"].Should().NotBeNull();

@@ -15,6 +15,21 @@ export async function signInWithGitHub(callbackURL: string) {
   if (result.error) throw authError("start GitHub sign-in", result.error)
 }
 
+interface BetterAuthDeletionResult {
+  error: {
+    message?: string
+    status: number
+    statusText: string
+  } | null
+}
+
+export async function deleteBetterAuthAccount(
+  deleteUser: () => Promise<BetterAuthDeletionResult> = () => authClient.deleteUser({}),
+) {
+  const result = await deleteUser()
+  if (result.error) throw authError("delete the account", result.error)
+}
+
 export interface IdentityTokenAdapter {
   getIdentityToken: () => Promise<string>
   invalidateIdentityToken: (token: string) => void
@@ -97,6 +112,10 @@ export const browserPracticeAuth: PracticeAuth = {
   async signOut() {
     const result = await authClient.signOut()
     if (result.error) throw authError("end the session", result.error)
+    identityTokens.clearIdentityToken()
+  },
+  async deleteAccount() {
+    await deleteBetterAuthAccount()
     identityTokens.clearIdentityToken()
   },
   subscribeSession(listener) {

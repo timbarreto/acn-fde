@@ -54,6 +54,16 @@ public sealed class PracticeStateService(
         }, cancellationToken);
     }
 
+    public Task<Result> DeleteAsync(CancellationToken cancellationToken = default)
+    {
+        var subject = GetUser().Id!;
+        return _unitOfWork.TransactionAsync(async ct =>
+        {
+            await _repository.DeleteAsync(subject, ct).ConfigureAwait(false);
+            return Result.Success;
+        }, cancellationToken);
+    }
+
     private PracticeAuthenticationUser GetUser() => _executionContext.User as PracticeAuthenticationUser
         ?? throw new InvalidOperationException("The authenticated practice identity is unavailable.");
 

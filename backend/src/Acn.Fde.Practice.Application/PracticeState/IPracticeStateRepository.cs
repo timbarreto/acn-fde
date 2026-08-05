@@ -15,6 +15,8 @@ public interface IPracticeStateRepository
         CancellationToken cancellationToken = default);
 
     Task SaveAsync(StoredPracticeState practiceState, CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(string subject, CancellationToken cancellationToken = default);
 }
 
 public sealed class StoredPracticeState

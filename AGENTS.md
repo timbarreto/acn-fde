@@ -7,9 +7,10 @@ offline-first practice exam for the GitHub Certified: Agentic AI Developer
 (GH-600) credential. Standalone guest practice is a client-only React
 application. The optional full-stack development path adds a same-origin
 Cloudflare Worker, a trimmed CoreEx service, local PostgreSQL, and authenticated
-schema-v2 practice-state load/save APIs plus first-sign-in sync into a
+schema-v2 practice-state load/merge/delete APIs plus first-sign-in sync into a
 subject-isolated browser cache with durable send-and-rebase synchronization,
-safe authentication recovery, optional account UI, and passive sync status.
+safe authentication recovery, passive sync status, and optional account UI
+with export, reset, and ordered account deletion controls.
 
 ## Vocabulary
 
@@ -36,8 +37,10 @@ terms do not yet appear in `src/`.
 - `src/App.tsx`: primary application component and view/state orchestration.
 - `src/types.ts`: shared question, exam, and persistence types.
 - `src/lib/exam.ts`: question selection, scoring, and exam utilities.
-- `src/lib/persistence.ts`: framework-independent practice-state storage and
-  legacy migration.
+- `src/lib/persistence.ts`: framework-independent practice-state storage,
+  synchronization, destructive data controls, and legacy migration.
+- `src/lib/data-controls.ts`: client-side practice-state export creation and
+  download.
 - `src/lib/use-practice-state.ts`: thin React integration for the persistence
   store.
 - `src/lib/utils.ts`: shared UI utilities, including `cn`.

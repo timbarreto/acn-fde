@@ -58,6 +58,8 @@ export function usePracticeState() {
     store.update(updater, options)
   }, [store])
   const flush = useCallback(() => store.flush(), [store])
+  const resetPracticeState = useCallback(() => store.resetPracticeState(), [store])
+  const deleteAccount = useCallback(() => store.deleteAccount(), [store])
   const signOutSafely = useCallback(() => store.signOutSafely(), [store])
   const dismissSyncNotification = useCallback(
     () => store.dismissSyncNotification(),
@@ -76,9 +78,12 @@ export function usePracticeState() {
     practiceState: snapshot.envelope.state,
     practiceMode: snapshot.mode,
     syncStatus: syncStatusWithConnectivity(snapshot.syncStatus, online),
+    accountDeletionStage: snapshot.accountDeletionStage,
     accountAvailable: import.meta.env.ACN_FDE_FULL_STACK,
     updatePracticeState,
     flush,
+    resetPracticeState,
+    deleteAccount,
     signOutSafely,
     syncNotification: snapshot.notification,
     dismissSyncNotification,

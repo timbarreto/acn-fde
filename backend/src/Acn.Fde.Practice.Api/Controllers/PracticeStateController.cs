@@ -30,4 +30,14 @@ public sealed class PracticeStateController(WebApi webApi, IPracticeStateService
             (options, ct) => _service.MergeAsync(options.Value, ct),
             HttpStatusCode.OK,
             cancellationToken: cancellationToken);
+
+    [HttpDelete]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public Task<IActionResult> DeleteAsync(CancellationToken cancellationToken = default)
+        => _webApi.DeleteWithResultAsync(
+            Request,
+            (_, ct) => _service.DeleteAsync(ct),
+            HttpStatusCode.NoContent,
+            cancellationToken);
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   createIdentityTokenAdapter,
+  deleteBetterAuthAccount,
   identityTokenSubject,
   resolvedPracticeSession,
 } from "@/lib/auth-client"
@@ -15,6 +16,33 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+describe("Better Auth account deletion", () => {
+  it("accepts account deletion only after Better Auth confirms it", async () => {
+    const deleteUser = vi.fn(async () => ({
+      data: { success: true, message: "User deleted" },
+      error: null,
+    }))
+
+    await deleteBetterAuthAccount(deleteUser)
+
+    expect(deleteUser).toHaveBeenCalledOnce()
+  })
+
+  it("turns a Better Auth deletion failure into a retryable error", async () => {
+    const deleteUser = vi.fn(async () => ({
+      data: null,
+      error: {
+        message: "Session is not fresh",
+        status: 400,
+        statusText: "Bad Request",
+      },
+    }))
+
+    await expect(deleteBetterAuthAccount(deleteUser))
+      .rejects.toThrow("Could not delete the account: Session is not fresh (400).")
+  })
+})
 
 describe("identity token adapter", () => {
   it("shares token acquisition and the refresh after invalidation", async () => {

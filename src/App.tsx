@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,6 +13,7 @@ import {
   Clock3,
   Cloud,
   CloudOff,
+  Download,
   ExternalLink,
   FileText,
   Flag,
@@ -45,6 +46,7 @@ import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import { signInWithGitHub } from "@/lib/auth-client"
+import { downloadPracticeStateExport } from "@/lib/data-controls"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import type {
@@ -73,8 +75,11 @@ function App() {
     practiceState,
     practiceMode,
     syncStatus,
+    accountDeletionStage,
     accountAvailable,
     updatePracticeState: setPracticeState,
+    resetPracticeState,
+    deleteAccount,
     signOutSafely,
     isInitializing,
     syncNotification,
@@ -85,14 +90,18 @@ function App() {
     hasFinishedAttempt: practiceState.attempts.length > 0,
   }).view)
   const [mobileNav, setMobileNav] = useState(false)
-  const [accountAction, setAccountAction] = useState<"sign-in" | "sign-out" | null>(null)
+  const [accountAction, setAccountAction] = useState<"sign-in" | "sign-out" | "reset" | "delete-account" | null>(null)
+  const [accountConfirmation, setAccountConfirmation] = useState<"reset" | "delete-account" | null>(null)
   const [accountNotice, setAccountNotice] = useState<{ kind: "success" | "error"; message: string } | null>(
     () => readSignInFailureNotice(window.location.search),
   )
   const hasActiveAttempt = Boolean(practiceState.activeAttempt)
   const hasFinishedAttempt = practiceState.attempts.length > 0
   const latestFinishedAttempt = practiceState.attempts[0] ?? null
-  const pinnedToAccount = practiceMode.kind === "reauthenticating"
+  const pinnedToAccount = practiceMode.kind === "reauthenticating" || accountDeletionStage === "identity"
+  const navigationLockMessage = accountDeletionStage === "identity"
+    ? ACCOUNT_DELETION_NAVIGATION_HINT
+    : RECOVERY_NAVIGATION_HINT
   const displayedView = pinnedToAccount ? "account" : view
   const hasAccount = practiceMode.kind === "account" || practiceMode.kind === "transitioning"
 
@@ -174,6 +183,68 @@ function App() {
       })
     } finally {
       setAccountAction(null)
+    }
+  }
+
+  const resetVisiblePracticeState = async () => {
+    if (accountAction) return
+    const resettingGuest = practiceMode.kind === "guest"
+    setAccountAction("reset")
+    setAccountNotice(null)
+    try {
+      const result = await resetPracticeState()
+      setAccountNotice(result.status === "completed"
+        ? {
+            kind: "success",
+            message: resettingGuest
+              ? "Practice state was deleted from this browser. You now have a new empty guest practice state."
+              : "Practice state was deleted from the server and this device. Your account remains signed in with a new empty practice state.",
+          }
+        : {
+            kind: "error",
+            message: "Practice state could not be deleted. Try again; no other subject’s state was changed.",
+          })
+    } catch {
+      setAccountNotice({
+        kind: "error",
+        message: "Practice state could not be deleted. Try again; no other subject’s state was changed.",
+      })
+    } finally {
+      setAccountAction(null)
+      setAccountConfirmation(null)
+    }
+  }
+
+  const deleteCurrentAccount = async () => {
+    if (accountAction) return
+    setAccountAction("delete-account")
+    setAccountNotice(null)
+    try {
+      const result = await deleteAccount()
+      if (result.status === "completed") {
+        setAccountNotice({
+          kind: "success",
+          message: "Your practice data and account were deleted. This device now has a new empty guest practice state.",
+        })
+      } else if (result.step === "identity") {
+        setAccountNotice({
+          kind: "error",
+          message: "Your practice data is deleted, but the account identity step did not finish. Retry account deletion to continue from that step.",
+        })
+      } else {
+        setAccountNotice({
+          kind: "error",
+          message: "Account deletion stopped before your identity was changed. Your practice state remains available so you can retry safely.",
+        })
+      }
+    } catch {
+      setAccountNotice({
+        kind: "error",
+        message: "Account deletion could not finish. Retry from Account; completed steps will not restore deleted practice data.",
+      })
+    } finally {
+      setAccountAction(null)
+      setAccountConfirmation(null)
     }
   }
 
@@ -300,6 +371,7 @@ function App() {
         view={displayedView}
         syncStatus={syncStatus}
         pinnedToAccount={pinnedToAccount}
+        navigationLockMessage={navigationLockMessage}
         onNavigate={navigate}
         mobileOpen={mobileNav}
         onMobileOpen={setMobileNav}
@@ -336,8 +408,18 @@ function App() {
             accountAvailable={accountAvailable}
             signingIn={accountAction === "sign-in"}
             notice={accountNotice}
+            practiceState={practiceState}
+            dataAction={accountAction === "reset" || accountAction === "delete-account" ? accountAction : null}
+            confirmation={accountConfirmation}
+            accountDeletionStage={accountDeletionStage}
             onSignIn={beginSignIn}
             onSignOut={safelySignOut}
+            onExport={downloadPracticeStateExport}
+            onRequestReset={() => setAccountConfirmation("reset")}
+            onRequestAccountDeletion={() => setAccountConfirmation("delete-account")}
+            onCancelConfirmation={() => setAccountConfirmation(null)}
+            onConfirmReset={() => void resetVisiblePracticeState()}
+            onConfirmAccountDeletion={() => void deleteCurrentAccount()}
           />
         )}
       </main>
@@ -396,11 +478,13 @@ function Waymark() {
 }
 
 export const RECOVERY_NAVIGATION_HINT = "Sign in again from Account to unlock the rest of the practice tool. Your practice state is protected on this device."
+export const ACCOUNT_DELETION_NAVIGATION_HINT = "Finish account deletion from Account to unlock the rest of the practice tool. Deleted practice data will not be restored."
 
 export function TopNav({
   view,
   syncStatus,
   pinnedToAccount = false,
+  navigationLockMessage = RECOVERY_NAVIGATION_HINT,
   onNavigate,
   mobileOpen,
   onMobileOpen,
@@ -408,6 +492,7 @@ export function TopNav({
   view: AppView
   syncStatus: PracticeSyncStatus
   pinnedToAccount?: boolean
+  navigationLockMessage?: string
   onNavigate: (view: AppView) => void
   mobileOpen: boolean
   onMobileOpen: (open: boolean) => void
@@ -427,7 +512,7 @@ export function TopNav({
   } => isLocked(destination)
     ? {
         disabled: true,
-        title: RECOVERY_NAVIGATION_HINT,
+        title: navigationLockMessage,
         "aria-describedby": "recovery-navigation-hint",
       }
     : {}
@@ -483,7 +568,7 @@ export function TopNav({
           </Button>
         </div>
         {pinnedToAccount && (
-          <p id="recovery-navigation-hint" className="sr-only">{RECOVERY_NAVIGATION_HINT}</p>
+          <p id="recovery-navigation-hint" className="sr-only">{navigationLockMessage}</p>
         )}
       </div>
       {mobileOpen && (
@@ -603,19 +688,40 @@ export function AccountView({
   accountAvailable,
   signingIn,
   notice,
+  practiceState,
+  dataAction,
+  confirmation,
+  accountDeletionStage,
   onSignIn,
   onSignOut,
+  onExport,
+  onRequestReset,
+  onRequestAccountDeletion,
+  onCancelConfirmation,
+  onConfirmReset,
+  onConfirmAccountDeletion,
 }: {
   mode: PracticeStateMode
   syncStatus: PracticeSyncStatus
   accountAvailable: boolean
   signingIn: boolean
   notice: { kind: "success" | "error"; message: string } | null
+  practiceState?: PracticeState
+  dataAction?: "reset" | "delete-account" | null
+  confirmation?: "reset" | "delete-account" | null
+  accountDeletionStage?: "identity" | null
   onSignIn: () => void
   onSignOut: () => void
+  onExport?: (practiceState: PracticeState) => void
+  onRequestReset?: () => void
+  onRequestAccountDeletion?: () => void
+  onCancelConfirmation?: () => void
+  onConfirmReset?: () => void
+  onConfirmAccountDeletion?: () => void
 }) {
   const isGuest = mode.kind === "guest"
   const needsReauthentication = mode.kind === "reauthenticating"
+  const dataControlsReady = isGuest || mode.kind === "account"
   const isSigningOut = syncStatus.kind === "signing-out"
 
   return (
@@ -712,7 +818,7 @@ export function AccountView({
               <p className="mb-5 text-sm leading-6 text-muted-foreground">
                 After sign-out, this account’s cache is removed from this device and a new empty guest practice state begins.
               </p>
-              <Button type="button" variant="outline" onClick={onSignOut} disabled={isSigningOut}>
+              <Button type="button" variant="outline" onClick={onSignOut} disabled={isSigningOut || Boolean(dataAction) || accountDeletionStage === "identity"}>
                 {isSigningOut && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
                 {isSigningOut ? "Signing out…" : "Sign out"}
               </Button>
@@ -720,7 +826,200 @@ export function AccountView({
           </Card>
         )}
       </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <Card className="shadow-none">
+          <CardHeader>
+            <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
+              <FileText className="h-5 w-5" />
+            </div>
+            <CardTitle>Export practice state</CardTitle>
+            <CardDescription>
+              Download a client-generated JSON copy of the practice state currently visible here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => practiceState && onExport?.(practiceState)}
+              disabled={!practiceState || !onExport || Boolean(dataAction)}
+            >
+              <Download className="h-4 w-4" />
+              Download JSON
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-none">
+          <CardHeader>
+            <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-warning-soft text-warning">
+              <RotateCcw className="h-5 w-5" />
+            </div>
+            <CardTitle>Reset practice state</CardTitle>
+            <CardDescription>
+              Start fresh without changing your sign-in choice.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-5 text-sm leading-6 text-muted-foreground">
+              Deletes finished attempts, bookmarks, and latest answers. This cannot be undone.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onRequestReset}
+              disabled={!dataControlsReady || Boolean(dataAction) || accountDeletionStage === "identity"}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset practice state
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {mode.kind === "account" && (
+        <Card className="mt-5 border-destructive/30 shadow-none">
+          <CardHeader>
+            <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-destructive/10 text-destructive">
+              <XCircle className="h-5 w-5" />
+            </div>
+            <CardTitle>
+              {accountDeletionStage === "identity" ? "Finish deleting account" : "Delete account"}
+            </CardTitle>
+            <CardDescription>
+              {accountDeletionStage === "identity"
+                ? "Practice data is deleted. The unfinished identity step can be retried safely without restoring it."
+                : "Permanently remove both your practice state and signed-in identity."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {accountDeletionStage !== "identity" && (
+              <p className="mb-5 text-sm leading-6 text-muted-foreground">
+                Practice state is deleted first. Your account for this practice app is deleted only after that succeeds. Your GitHub account itself is not changed.
+              </p>
+            )}
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={onRequestAccountDeletion}
+                disabled={Boolean(dataAction) || signingIn}
+              >
+                {dataAction === "delete-account" && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                {dataAction === "delete-account"
+                  ? "Deleting…"
+                  : accountDeletionStage === "identity"
+                    ? "Retry account deletion"
+                    : "Delete account"}
+              </Button>
+              {accountDeletionStage === "identity" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onSignIn}
+                  disabled={!accountAvailable || signingIn || Boolean(dataAction)}
+                >
+                  {signingIn ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Github className="h-4 w-4" />}
+                  {signingIn ? "Opening GitHub…" : "Sign in again with GitHub"}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {confirmation === "reset" && (
+        <AccountConfirmationDialog
+          title="Delete practice state and start fresh?"
+          description={isGuest
+            ? "This permanently deletes your finished attempts, bookmarks, and latest answers only from this browser."
+            : "This permanently deletes your finished attempts, bookmarks, and latest answers from the server and this device. It keeps your sign-in and your account for this practice app."}
+          confirmLabel="Delete practice data"
+          pending={dataAction === "reset"}
+          onCancel={onCancelConfirmation ?? (() => {})}
+          onConfirm={onConfirmReset ?? (() => {})}
+        />
+      )}
+      {confirmation === "delete-account" && (
+        <AccountConfirmationDialog
+          title={accountDeletionStage === "identity" ? "Finish deleting your account?" : "Permanently delete your account?"}
+          description={accountDeletionStage === "identity"
+            ? "Your finished attempts, bookmarks, and latest answers are already deleted. Retrying now deletes only the unfinished account identity for this practice app. Your GitHub account itself is not changed."
+            : "This permanently deletes your finished attempts, bookmarks, and latest answers. Practice state is deleted first. Your account for this practice app is deleted only after that succeeds. Your GitHub account itself is not changed."}
+          confirmLabel={accountDeletionStage === "identity" ? "Finish deleting account" : "Delete practice data and account"}
+          pending={dataAction === "delete-account"}
+          onCancel={onCancelConfirmation ?? (() => {})}
+          onConfirm={onConfirmAccountDeletion ?? (() => {})}
+        />
+      )}
     </div>
+  )
+}
+
+function AccountConfirmationDialog({
+  title,
+  description,
+  confirmLabel,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  description: string
+  confirmLabel: string
+  pending: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const element = dialog.current
+    if (!element) return
+    if (typeof element.showModal === "function") {
+      element.showModal()
+    } else {
+      element.setAttribute("open", "")
+    }
+    return () => {
+      if (!element.open) return
+      if (typeof element.close === "function") element.close()
+      else element.removeAttribute("open")
+    }
+  }, [])
+
+  return (
+    <dialog
+      ref={dialog}
+      className="fixed inset-0 z-50 m-auto w-[min(32rem,calc(100%-2rem))] rounded-2xl border bg-card p-0 text-card-foreground shadow-2xl backdrop:bg-background/80"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="account-confirmation-title"
+      aria-describedby="account-confirmation-description"
+      onCancel={(event) => {
+        event.preventDefault()
+        if (!pending) onCancel()
+      }}
+    >
+      <div className="p-6">
+        <h2 id="account-confirmation-title" className="font-display text-xl font-bold">
+          {title}
+        </h2>
+        <p id="account-confirmation-description" className="mt-3 text-sm leading-6 text-muted-foreground">
+          {description}
+        </p>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={pending} autoFocus>
+            Cancel
+          </Button>
+          <Button type="button" variant="destructive" onClick={onConfirm} disabled={pending}>
+            {pending && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
+            {pending ? "Deleting…" : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </dialog>
   )
 }
 

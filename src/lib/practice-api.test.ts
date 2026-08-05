@@ -82,4 +82,18 @@ describe("practice state API adapter", () => {
     expect(requests[0].method).toBe("GET")
     expect(requests[0].headers.get("authorization")).toBe("Bearer identity-token")
   })
+
+  it("deletes practice state through the authenticated wire contract", async () => {
+    const requests: Request[] = []
+    const api = createPracticeApi(async (input, init) => {
+      requests.push(new Request(new URL(String(input), "http://localhost:3000"), init))
+      return new Response(null, { status: 204 })
+    })
+
+    await api.deletePracticeState("identity-token")
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].method).toBe("DELETE")
+    expect(requests[0].headers.get("authorization")).toBe("Bearer identity-token")
+  })
 })

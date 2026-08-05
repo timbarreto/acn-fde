@@ -18,7 +18,7 @@ public sealed class SignedInFullStackTests
         ["postgres-server", "migrations", "identity-migrations", "coreex", "app"];
 
     [Test]
-    public async Task Two_users_can_save_and_load_isolated_practice_state_Async()
+    public async Task Two_users_can_save_load_reset_and_delete_isolated_data_Async()
     {
         var workerState = Path.Combine(
             Path.GetTempPath(),
@@ -68,6 +68,20 @@ public sealed class SignedInFullStackTests
             JsonNode.DeepEquals(secondSaved, secondLoaded).Should().BeTrue();
             JsonNode.DeepEquals(firstLoaded["state"], firstEnvelope["state"]).Should().BeTrue();
             JsonNode.DeepEquals(secondLoaded["state"], secondEnvelope["state"]).Should().BeTrue();
+
+            await DeletePracticeStateAsync(client, firstIdentity.Token);
+            var firstAfterReset = await LoadAsync(client, firstIdentity.Token);
+            var secondAfterFirstReset = await LoadAsync(client, secondIdentity.Token);
+            firstAfterReset["state"]!["bookmarks"]!.AsArray().Should().BeEmpty();
+            firstAfterReset["state"]!["latestAnswers"]!.AsObject().Should().BeEmpty();
+            JsonNode.DeepEquals(secondAfterFirstReset, secondSaved).Should().BeTrue();
+
+            await DeletePracticeStateAsync(client, secondIdentity.Token);
+            var secondBeforeIdentityDeletion = await LoadAsync(client, secondIdentity.Token);
+            secondBeforeIdentityDeletion["state"]!["bookmarks"]!.AsArray().Should().BeEmpty();
+            await DeleteIdentityAsync(client, secondIdentity.SessionCookie);
+            var deletedSession = await GetSessionAsync(client, secondIdentity.SessionCookie);
+            deletedSession.Should().Be("null");
         }
         catch
         {
@@ -124,6 +138,35 @@ public sealed class SignedInFullStackTests
         return (await response.Content.ReadFromJsonAsync<JsonNode>())!;
     }
 
+    private static async Task DeletePracticeStateAsync(HttpClient client, string token)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, "/api/practice-state");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    private static async Task DeleteIdentityAsync(HttpClient client, string sessionCookie)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/delete-user")
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Add("Cookie", sessionCookie);
+        request.Headers.Add("Origin", client.BaseAddress!.GetLeftPart(UriPartial.Authority));
+        using var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private static async Task<string> GetSessionAsync(HttpClient client, string sessionCookie)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/auth/get-session");
+        request.Headers.Add("Cookie", sessionCookie);
+        using var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return await response.Content.ReadAsStringAsync();
+    }
+
     private static JsonNode CreateEnvelope(string questionId, string optionId) =>
         new JsonObject
         {
@@ -166,5 +209,5 @@ public sealed class SignedInFullStackTests
         }
     }
 
-    private sealed record TestIdentity(string Subject, string Token);
+    private sealed record TestIdentity(string Subject, string Token, string SessionCookie);
 }
