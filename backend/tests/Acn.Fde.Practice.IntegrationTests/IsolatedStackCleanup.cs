@@ -32,14 +32,15 @@ internal static class IsolatedStackCleanup
             failure = $"Disposing the isolated stack failed: {error.Message}";
         }
 
-        failure ??= await TryRemoveContainerStorageAsync(postgresDataPath);
+        var storageFailure = await TryRemoveContainerStorageAsync(postgresDataPath);
+        failure ??= storageFailure;
 
         try
         {
             if (Directory.Exists(testRoot))
                 Directory.Delete(testRoot, recursive: true);
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        catch (Exception error)
         {
             failure ??= $"Could not remove {testRoot}: {error.Message}";
         }
@@ -99,9 +100,10 @@ internal static class IsolatedStackCleanup
             if (!process.HasExited)
                 process.Kill(entireProcessTree: true);
         }
-        catch (Exception error) when (error is InvalidOperationException or NotSupportedException)
+        catch (Exception)
         {
-            // The process already exited; there is nothing left to terminate.
+            // The process already exited, or the platform refused the signal. Either
+            // way termination is best effort and must never leave this helper.
         }
     }
 }
