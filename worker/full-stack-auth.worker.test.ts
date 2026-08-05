@@ -31,6 +31,22 @@ async function issueIdentity(name: string): Promise<TestIdentity> {
 }
 
 describe("full-stack test authentication", () => {
+  it("returns the real test session cookie for identity-deletion flows", async () => {
+    const response = await fullStackTestWorker.fetch(
+      new Request("http://localhost:5173/api/test-auth/identity", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Deletion candidate" }),
+      }),
+      env,
+    )
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      sessionCookie: expect.stringContaining("better-auth.session_token"),
+    })
+  })
+
   it("issues real short-lived identity tokens for independent subjects", async () => {
     const first = await issueIdentity("First candidate")
     const second = await issueIdentity("Second candidate")

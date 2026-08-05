@@ -73,4 +73,21 @@ public sealed class PracticeStateRepository(
 
         await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    public async Task DeleteAsync(
+        string subject,
+        CancellationToken cancellationToken = default)
+    {
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({subject}, 0))",
+            cancellationToken).ConfigureAwait(false);
+        var entity = await _dbContext.Set<PracticeStateEntity>()
+            .SingleOrDefaultAsync(state => state.UserId == subject, cancellationToken)
+            .ConfigureAwait(false);
+        if (entity is null)
+            return;
+
+        _dbContext.Remove(entity);
+        await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

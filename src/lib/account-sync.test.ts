@@ -87,6 +87,7 @@ const auth: PracticeAuth = {
   getIdentityToken: async () => "identity-token",
   invalidateIdentityToken: () => {},
   signOut: async () => {},
+  deleteAccount: async () => {},
   subscribeSession: () => () => {},
 }
 
@@ -116,6 +117,7 @@ function practiceApi(postPracticeState: PracticeApi["postPracticeState"]): Pract
   return {
     getPracticeState: async () => createEmptyPracticeStateEnvelope(),
     postPracticeState,
+    deletePracticeState: async () => {},
   }
 }
 
@@ -839,6 +841,7 @@ describe("account practice-state synchronization", () => {
       getIdentityToken: async () => "identity-token",
       invalidateIdentityToken: () => {},
       signOut,
+      deleteAccount: async () => {},
       subscribeSession: () => () => {},
     }
     let requestCount = 0

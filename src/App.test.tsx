@@ -2,6 +2,7 @@ import { isValidElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import {
+  ACCOUNT_DELETION_NAVIGATION_HINT,
   AccountView,
   ExamRunner,
   ExamSetup,
@@ -15,7 +16,7 @@ import {
 import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import type { PracticeStateMode, PracticeSyncStatus } from "@/lib/persistence"
-import type { Attempt, AttemptOutcome, Question } from "@/types"
+import type { Attempt, AttemptOutcome, PracticeState, Question } from "@/types"
 
 function markupText(markup: string) {
   return markup.replace(/<[^>]+>/g, "")
@@ -76,6 +77,13 @@ const syncStatusCases: Array<[PracticeSyncStatus, string]> = [
   [{ kind: "attention" }, "Not synced · saved on this device"],
   [{ kind: "signing-out" }, "Signing out…"],
 ]
+
+const dataControlPracticeState: PracticeState = {
+  activeAttempt: null,
+  attempts: [],
+  bookmarks: ["arch-001"],
+  latestAnswers: { "arch-001": ["b"] },
+}
 
 const accountModes: Array<[string, PracticeStateMode]> = [
   ["guest", { kind: "guest" }],
@@ -215,6 +223,23 @@ describe("TopNav", () => {
     expect(markupText(markup)).toContain(RECOVERY_NAVIGATION_HINT)
   })
 
+  it("explains navigation locking while account deletion is unfinished", () => {
+    const markup = renderToStaticMarkup(
+      <TopNav
+        view="account"
+        syncStatus={{ kind: "attention" }}
+        pinnedToAccount
+        navigationLockMessage={ACCOUNT_DELETION_NAVIGATION_HINT}
+        onNavigate={vi.fn()}
+        mobileOpen={false}
+        onMobileOpen={vi.fn()}
+      />,
+    )
+
+    expect(markupText(markup)).toContain("Finish account deletion from Account")
+    expect(markup).toContain('aria-describedby="recovery-navigation-hint"')
+  })
+
   it("locks the brand destination during account recovery and leaves it usable otherwise", () => {
     const brandButton = (markup: string) =>
       markup.match(/<button[^>]*aria-label="Agentic Ready dashboard"[^>]*>/)![0]
@@ -256,6 +281,137 @@ describe("AccountView", () => {
       expect(markup).toContain(modeName === "guest" ? "Optional GitHub sign-in" : "Sign out safely")
     })
   }
+
+  it("lets guests and users export exactly the practice state they can see", () => {
+    for (const [, mode] of accountModes) {
+      const onExport = vi.fn()
+      const tree = AccountView({
+        mode,
+        syncStatus: mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 },
+        accountAvailable: true,
+        signingIn: false,
+        notice: null,
+        practiceState: dataControlPracticeState,
+        dataAction: null,
+        confirmation: null,
+        accountDeletionStage: null,
+        onSignIn: vi.fn(),
+        onSignOut: vi.fn(),
+        onExport,
+        onRequestReset: vi.fn(),
+        onRequestAccountDeletion: vi.fn(),
+        onCancelConfirmation: vi.fn(),
+        onConfirmReset: vi.fn(),
+        onConfirmAccountDeletion: vi.fn(),
+      })
+
+      findInteraction(tree, "Download JSON").onClick?.()
+
+      expect(onExport).toHaveBeenCalledWith(dataControlPracticeState)
+    }
+  })
+
+  it("confirms reset with explicit practice-state language for guests and users", () => {
+    for (const [, mode] of accountModes) {
+      const onRequestReset = vi.fn()
+      const common = {
+        mode,
+        syncStatus: mode.kind === "guest"
+          ? { kind: "guest" } as PracticeSyncStatus
+          : { kind: "synced", syncedAt: 10_000 } as PracticeSyncStatus,
+        accountAvailable: true,
+        signingIn: false,
+        notice: null,
+        practiceState: dataControlPracticeState,
+        dataAction: null,
+        accountDeletionStage: null,
+        onSignIn: vi.fn(),
+        onSignOut: vi.fn(),
+        onExport: vi.fn(),
+        onRequestReset,
+        onRequestAccountDeletion: vi.fn(),
+        onCancelConfirmation: vi.fn(),
+        onConfirmReset: vi.fn(),
+        onConfirmAccountDeletion: vi.fn(),
+      }
+      const tree = AccountView({ ...common, confirmation: null })
+
+      findInteraction(tree, "Reset practice state").onClick?.()
+      const confirmation = renderToStaticMarkup(
+        <AccountView {...common} confirmation="reset" />,
+      )
+
+      expect(onRequestReset).toHaveBeenCalledOnce()
+      expect(confirmation).toContain('role="alertdialog"')
+      expect(markupText(confirmation)).toContain("finished attempts, bookmarks, and latest answers")
+      expect(markupText(confirmation)).toContain(
+        mode.kind === "guest" ? "only from this browser" : "keeps your sign-in",
+      )
+    }
+  })
+
+  it("orders account deletion after practice-state deletion with explicit confirmation", () => {
+    const onRequestAccountDeletion = vi.fn()
+    const common = {
+      mode: { kind: "account", subject: "subject-1" } as PracticeStateMode,
+      syncStatus: { kind: "synced", syncedAt: 10_000 } as PracticeSyncStatus,
+      accountAvailable: true,
+      signingIn: false,
+      notice: null,
+      practiceState: dataControlPracticeState,
+      dataAction: null,
+      accountDeletionStage: null,
+      onSignIn: vi.fn(),
+      onSignOut: vi.fn(),
+      onExport: vi.fn(),
+      onRequestReset: vi.fn(),
+      onRequestAccountDeletion,
+      onCancelConfirmation: vi.fn(),
+      onConfirmReset: vi.fn(),
+      onConfirmAccountDeletion: vi.fn(),
+    }
+    const tree = AccountView({ ...common, confirmation: null })
+
+    findInteraction(tree, "Delete account").onClick?.()
+    const confirmation = renderToStaticMarkup(
+      <AccountView {...common} confirmation="delete-account" />,
+    )
+    const text = markupText(confirmation)
+
+    expect(onRequestAccountDeletion).toHaveBeenCalledOnce()
+    expect(text).toContain("finished attempts, bookmarks, and latest answers")
+    expect(text.indexOf("Practice state is deleted first"))
+      .toBeLessThan(text.indexOf("account for this practice app is deleted"))
+    expect(text).toContain("Your GitHub account itself is not changed")
+  })
+
+  it("offers the unfinished identity step as a retry without restoring practice data", () => {
+    const markup = renderToStaticMarkup(
+      <AccountView
+        mode={{ kind: "account", subject: "subject-1" }}
+        syncStatus={{ kind: "attention" }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        practiceState={{ activeAttempt: null, attempts: [], bookmarks: [], latestAnswers: {} }}
+        dataAction={null}
+        confirmation={null}
+        accountDeletionStage="identity"
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+        onExport={vi.fn()}
+        onRequestReset={vi.fn()}
+        onRequestAccountDeletion={vi.fn()}
+        onCancelConfirmation={vi.fn()}
+        onConfirmReset={vi.fn()}
+        onConfirmAccountDeletion={vi.fn()}
+      />,
+    )
+
+    expect(markupText(markup)).toContain("Practice data is deleted")
+    expect(markupText(markup)).toContain("Retry account deletion")
+    expect(markupText(markup)).toContain("Sign in again with GitHub")
+  })
 
   it("surfaces a failed GitHub authorization returned to Account", () => {
     const markup = renderToStaticMarkup(

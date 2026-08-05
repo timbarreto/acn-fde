@@ -51,7 +51,11 @@ export async function issueTestIdentity(
   }
 
   const { token } = await tokenResponse.json<IdentityTokenResponse>()
-  return Response.json({ subject, token }, { status: 201 })
+  return Response.json({
+    subject,
+    token,
+    sessionCookie: login.headers.get("cookie"),
+  }, { status: 201 })
 }
 
 async function readIdentityRequest(

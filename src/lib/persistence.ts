@@ -32,6 +32,7 @@ export interface PracticeAuth {
   getIdentityToken: (expectedSubject: string) => Promise<string>
   invalidateIdentityToken: (token: string) => void
   signOut: () => Promise<void>
+  deleteAccount: () => Promise<void>
   subscribeSession: (
     listener: (session: PracticeSession | null) => void,
   ) => () => void
@@ -61,6 +62,7 @@ export interface BrowserPracticeStateSnapshot {
   envelope: PracticeStateEnvelope
   mode: PracticeStateMode
   syncStatus: PracticeSyncStatus
+  accountDeletionStage: "identity" | null
   error: Error | null
   firstSyncRejected: boolean
   notification: PracticeSyncNotification | null
@@ -69,6 +71,14 @@ export interface BrowserPracticeStateSnapshot {
 export type SafeSignOutResult =
   | { status: "signed-out"; error: Error | null }
   | { status: "blocked"; error: Error }
+
+export type PracticeDataControlResult =
+  | { status: "completed" }
+  | { status: "blocked"; error: Error }
+
+export type AccountDeletionResult =
+  | { status: "completed" }
+  | { status: "blocked"; step: "practice-state" | "identity"; error: Error }
 
 export class PracticeSessionMismatchError extends Error {
   constructor() {
@@ -86,13 +96,15 @@ export interface BrowserPracticeStateStore {
     options?: { flush?: PracticeStateFlush },
   ) => PracticeStateEnvelope
   flush: () => Promise<void>
+  resetPracticeState: () => Promise<PracticeDataControlResult>
+  deleteAccount: () => Promise<AccountDeletionResult>
   signOutSafely: () => Promise<SafeSignOutResult>
   dismissSyncNotification: () => void
   subscribe: (listener: () => void) => () => void
 }
 
 interface SessionEndIntent {
-  kind: "safe-sign-out" | "first-sync-rejection"
+  kind: "safe-sign-out" | "first-sync-rejection" | "account-deletion"
   subject: string
   resolution: number
   nullObserved: boolean
@@ -120,6 +132,7 @@ interface AccountPracticeStateCache {
   acknowledgedRevision: number
   journal: PracticeStateMutation[]
   lastSyncedAt: number | null
+  accountDeletionStage: "identity" | null
 }
 
 interface AccountSyncCoordinator {
@@ -284,7 +297,12 @@ export function createGuestPracticeStateStore(storage: Storage): PracticeStateSt
       return persist(next)
     },
     reset() {
-      return persist(createEmptyPracticeStateEnvelope())
+      const next = createEmptyPracticeStateEnvelope()
+      storage.removeItem(GUEST_PRACTICE_STATE_KEY)
+      storage.setItem(GUEST_PRACTICE_STATE_KEY, JSON.stringify(next))
+      snapshot = next
+      listeners.forEach((listener) => listener())
+      return snapshot
     },
     subscribe(listener: () => void) {
       listeners.add(listener)
@@ -321,29 +339,39 @@ export function createBrowserPracticeStateStore({
   let completedSignOutSubject: string | null = null
   let sessionEndIntent: SessionEndIntent | null = null
   let safeSignOutPending = false
+  let dataControlPending: "reset" | "delete-account" | null = null
+  let resetFlight: Promise<PracticeDataControlResult> | null = null
+  let deleteAccountFlight: Promise<AccountDeletionResult> | null = null
   let signOutFlight: Promise<SafeSignOutResult> | null = null
   let snapshot: BrowserPracticeStateSnapshot = {
     envelope: createEmptyPracticeStateEnvelope(),
     mode: { kind: "initializing" },
     syncStatus: { kind: "syncing" },
+    accountDeletionStage: null,
     error: null,
     firstSyncRejected: false,
     notification: null,
   }
 
   function publish(
-    next: Omit<BrowserPracticeStateSnapshot, "syncStatus"> & {
+    next: Omit<BrowserPracticeStateSnapshot, "syncStatus" | "accountDeletionStage"> & {
       syncStatus?: PracticeSyncStatus
+      accountDeletionStage?: "identity" | null
     },
   ) {
-    snapshot = { ...next, syncStatus: deriveSyncStatus(next) }
+    snapshot = {
+      ...next,
+      syncStatus: deriveSyncStatus(next),
+      accountDeletionStage: activeAccount?.cache.accountDeletionStage ?? null,
+    }
     listeners.forEach((listener) => listener())
   }
 
   function deriveSyncStatus(
-    next: Omit<BrowserPracticeStateSnapshot, "syncStatus">,
+    next: Pick<BrowserPracticeStateSnapshot, "mode">,
   ): PracticeSyncStatus {
     if (safeSignOutPending) return { kind: "signing-out" }
+    if (dataControlPending) return { kind: "syncing" }
 
     switch (next.mode.kind) {
       case "initializing":
@@ -362,6 +390,9 @@ export function createBrowserPracticeStateStore({
           return { kind: "attention" }
         }
         if (coordinator.inFlight) return { kind: "syncing" }
+        if (coordinator.cache.accountDeletionStage === "identity") {
+          return { kind: "attention" }
+        }
         if (hasCoordinatorWork(coordinator)) {
           return coordinator.syncFailed ? { kind: "attention" } : { kind: "syncing" }
         }
@@ -481,6 +512,7 @@ export function createBrowserPracticeStateStore({
   ) {
     if (
       activeAccount !== coordinator ||
+      dataControlPending !== null ||
       coordinator.inFlight ||
       !hasCoordinatorWork(coordinator)
     ) {
@@ -1067,12 +1099,244 @@ export function createBrowserPracticeStateStore({
     }
   }
 
+  async function performPracticeStateReset(): Promise<PracticeDataControlResult> {
+    if (dataControlPending || safeSignOutPending) {
+      const error = new Error("Another account data action is already in progress.")
+      return { status: "blocked", error }
+    }
+    if (snapshot.mode.kind === "guest") {
+      try {
+        const envelope = getActiveGuestStore().reset()
+        publish({
+          envelope,
+          mode: { kind: "guest" },
+          error: null,
+          firstSyncRejected: false,
+          notification: snapshot.notification,
+        })
+        return { status: "completed" }
+      } catch (error) {
+        const resetError = toError(error)
+        publish({ ...snapshot, error: resetError })
+        return { status: "blocked", error: resetError }
+      }
+    }
+
+    if (
+      snapshot.mode.kind !== "account" ||
+      !activeAccount ||
+      activeAccount.subject !== snapshot.mode.subject
+    ) {
+      const error = new Error("Practice state can only be reset after account state is available.")
+      publish({ ...snapshot, error })
+      return { status: "blocked", error }
+    }
+
+    const coordinator = activeAccount
+    if (coordinator.cache.accountDeletionStage === "identity") {
+      const error = new Error("Finish deleting the account before using another data control.")
+      publish({ ...snapshot, error })
+      return { status: "blocked", error }
+    }
+    const subject = coordinator.subject
+    dataControlPending = "reset"
+    clearSyncTimer(coordinator)
+    publish({ ...snapshot })
+    try {
+      if (coordinator.inFlight) await coordinator.inFlight
+      if (activeAccount !== coordinator || currentMode().kind !== "account") {
+        throw new Error("Practice state reset stopped because the authenticated account changed.")
+      }
+
+      const deleted = await authenticatedPracticeRequest(
+        subject,
+        () => activeAccount === coordinator && dataControlPending === "reset",
+        (identityToken) => practiceApi!.deletePracticeState(identityToken),
+      )
+      if (
+        deleted === null ||
+        activeAccount !== coordinator ||
+        currentMode().kind !== "account"
+      ) {
+        throw new Error("Practice state reset stopped because the authenticated account changed.")
+      }
+
+      const emptyCache = createEmptyAccountCache(Date.now())
+      coordinator.cache = emptyCache
+      coordinator.retryRequested = false
+      coordinator.rollbackPending = false
+      coordinator.rollbackError = null
+      coordinator.syncFailed = false
+      coordinator.lastSyncedAt = emptyCache.lastSyncedAt
+      publish({
+        envelope: emptyCache.envelope,
+        mode: { kind: "account", subject },
+        error: null,
+        firstSyncRejected: false,
+        notification: snapshot.notification,
+      })
+      try {
+        storage.removeItem(coordinator.key)
+      } catch (removalError) {
+        try {
+          writeAccountCache(coordinator.key, emptyCache)
+        } catch {
+          // The in-memory empty state still prevents this process from restoring deleted data.
+        }
+        throw removalError
+      }
+      return { status: "completed" }
+    } catch (error) {
+      const resetError = toError(error)
+      publish({ ...snapshot, error: resetError })
+      return { status: "blocked", error: resetError }
+    } finally {
+      dataControlPending = null
+      if (activeAccount === coordinator && hasCoordinatorWork(coordinator)) {
+        scheduleSync(coordinator, "debounced")
+      }
+      publish({ ...snapshot })
+    }
+  }
+
+  async function performAccountDeletion(): Promise<AccountDeletionResult> {
+    if (dataControlPending || safeSignOutPending) {
+      const error = new Error("Another account data action is already in progress.")
+      return { status: "blocked", step: "practice-state", error }
+    }
+    if (
+      !auth ||
+      snapshot.mode.kind !== "account" ||
+      !activeAccount ||
+      activeAccount.subject !== snapshot.mode.subject
+    ) {
+      const error = new Error("Account deletion can only continue after account state is available.")
+      publish({ ...snapshot, error })
+      return { status: "blocked", step: "practice-state", error }
+    }
+
+    const coordinator = activeAccount
+    const subject = coordinator.subject
+    dataControlPending = "delete-account"
+    clearSyncTimer(coordinator)
+    publish({ ...snapshot })
+    let step: "practice-state" | "identity" =
+      coordinator.cache.accountDeletionStage ?? "practice-state"
+    let identityCache = step === "identity" ? coordinator.cache : null
+    let intent: SessionEndIntent | null = null
+    const deletionResolution = resolution
+    try {
+      if (coordinator.inFlight) await coordinator.inFlight
+      if (activeAccount !== coordinator || currentMode().kind !== "account") {
+        throw new Error("Account deletion stopped because the authenticated account changed.")
+      }
+
+      if (step === "practice-state") {
+        const deleted = await authenticatedPracticeRequest(
+          subject,
+          () => activeAccount === coordinator && dataControlPending === "delete-account",
+          (identityToken) => practiceApi!.deletePracticeState(identityToken),
+        )
+        if (
+          deleted === null ||
+          activeAccount !== coordinator ||
+          currentMode().kind !== "account"
+        ) {
+          throw new Error("Account deletion stopped because the authenticated account changed.")
+        }
+
+        step = "identity"
+        identityCache = createEmptyAccountCache(Date.now(), "identity")
+        storage.removeItem(coordinator.key)
+        storage.setItem(coordinator.key, serializeAccountCache(identityCache))
+        coordinator.cache = identityCache
+        coordinator.retryRequested = false
+        coordinator.rollbackPending = false
+        coordinator.rollbackError = null
+        coordinator.syncFailed = false
+        coordinator.lastSyncedAt = identityCache.lastSyncedAt
+        publish({
+          envelope: identityCache.envelope,
+          mode: { kind: "account", subject },
+          error: null,
+          firstSyncRejected: false,
+          notification: snapshot.notification,
+        })
+      }
+
+      const retainedIdentityCache = serializeAccountCache(identityCache!)
+      storage.removeItem(coordinator.key)
+      intent = {
+        kind: "account-deletion",
+        subject,
+        resolution: deletionResolution,
+        nullObserved: false,
+      }
+      sessionEndIntent = intent
+      try {
+        await auth.deleteAccount()
+      } catch (error) {
+        storage.setItem(coordinator.key, retainedIdentityCache)
+        throw error
+      } finally {
+        if (sessionEndIntent === intent) sessionEndIntent = null
+      }
+
+      if (resolution !== deletionResolution) {
+        return { status: "completed" }
+      }
+      authenticatedSubject = null
+      completedSignOutSubject = intent.nullObserved ? null : subject
+      deactivateCoordinators()
+      activateGuest(null, false, snapshot.notification)
+      return { status: "completed" }
+    } catch (error) {
+      const deletionError = toError(error)
+      if (activeAccount === coordinator && identityCache) {
+        coordinator.cache = identityCache
+        coordinator.retryRequested = false
+        coordinator.rollbackPending = false
+        coordinator.rollbackError = null
+        coordinator.syncFailed = false
+        coordinator.lastSyncedAt = identityCache.lastSyncedAt
+        publish({
+          envelope: identityCache.envelope,
+          mode: { kind: "account", subject },
+          error: deletionError,
+          firstSyncRejected: false,
+          notification: snapshot.notification,
+        })
+      } else {
+        publish({ ...snapshot, error: deletionError })
+      }
+      return { status: "blocked", step, error: deletionError }
+    } finally {
+      dataControlPending = null
+      if (activeAccount === coordinator && hasCoordinatorWork(coordinator)) {
+        scheduleSync(coordinator, "debounced")
+      }
+      publish({ ...snapshot })
+    }
+  }
+
   async function performSafeSignOut(): Promise<SafeSignOutResult> {
+    if (dataControlPending) {
+      const error = new Error("Sign-out is blocked while an account data action is in progress.")
+      return { status: "blocked", error }
+    }
     if (!auth) {
       return { status: "signed-out", error: null }
     }
     if (snapshot.mode.kind === "guest") {
       return { status: "signed-out", error: null }
+    }
+    if (
+      snapshot.mode.kind === "account" &&
+      activeAccount?.cache.accountDeletionStage === "identity"
+    ) {
+      const error = new Error("Sign-out is blocked until account deletion finishes.")
+      publish({ ...snapshot, error })
+      return { status: "blocked", error }
     }
     if (snapshot.mode.kind === "reauthenticating") {
       const recoverySubject = snapshot.mode.subject
@@ -1273,6 +1537,9 @@ export function createBrowserPracticeStateStore({
       if (safeSignOutPending) {
         throw new Error("Practice state cannot change while safe sign-out is in progress.")
       }
+      if (dataControlPending) {
+        throw new Error("Practice state cannot change while an account data action is in progress.")
+      }
 
       if (snapshot.mode.kind === "transitioning" && firstSync) {
         const nextCache = accountCacheAfterUpdate(
@@ -1299,6 +1566,9 @@ export function createBrowserPracticeStateStore({
         const coordinator = activeAccount
         if (!coordinator || coordinator.subject !== snapshot.mode.subject) {
           throw new Error("The active account cache is unavailable.")
+        }
+        if (coordinator.cache.accountDeletionStage === "identity") {
+          throw new Error("Practice state cannot change while account deletion is unfinished.")
         }
 
         const nextCache = accountCacheAfterUpdate(
@@ -1333,6 +1603,22 @@ export function createBrowserPracticeStateStore({
         return Promise.resolve()
       }
       return startAccountSync(activeAccount)
+    },
+    resetPracticeState() {
+      if (resetFlight) return resetFlight
+      const pending = performPracticeStateReset().finally(() => {
+        if (resetFlight === pending) resetFlight = null
+      })
+      resetFlight = pending
+      return pending
+    },
+    deleteAccount() {
+      if (deleteAccountFlight) return deleteAccountFlight
+      const pending = performAccountDeletion().finally(() => {
+        if (deleteAccountFlight === pending) deleteAccountFlight = null
+      })
+      deleteAccountFlight = pending
+      return pending
     },
     signOutSafely() {
       if (signOutFlight) return signOutFlight
@@ -1382,6 +1668,7 @@ function accountCacheAfterUpdate(
     acknowledgedRevision,
     journal: replayed.journal,
     lastSyncedAt: current.lastSyncedAt,
+    accountDeletionStage: current.accountDeletionStage,
   }
 }
 
@@ -1395,6 +1682,23 @@ function createPendingFirstSyncCache(
     acknowledgedRevision: 0,
     journal: [],
     lastSyncedAt: null,
+    accountDeletionStage: null,
+  }
+}
+
+function createEmptyAccountCache(
+  lastSyncedAt: number,
+  accountDeletionStage: "identity" | null = null,
+): AccountPracticeStateCache {
+  const envelope = createEmptyPracticeStateEnvelope()
+  return {
+    envelope,
+    canonicalEnvelope: envelope,
+    revision: 0,
+    acknowledgedRevision: 0,
+    journal: [],
+    lastSyncedAt,
+    accountDeletionStage,
   }
 }
 
@@ -1409,6 +1713,7 @@ function rollbackAccountCache(
     acknowledgedRevision: current.revision,
     journal: [],
     lastSyncedAt: current.lastSyncedAt,
+    accountDeletionStage: current.accountDeletionStage,
   }
 }
 
@@ -1428,6 +1733,7 @@ function rebaseAccountCache(
     acknowledgedRevision: replayed.journal.length ? sentRevision : current.revision,
     journal: replayed.journal,
     lastSyncedAt: acceptedAt,
+    accountDeletionStage: current.accountDeletionStage,
   }
 }
 
@@ -1705,6 +2011,9 @@ function serializeAccountCache(cache: AccountPracticeStateCache) {
       acknowledgedRevision: cache.acknowledgedRevision,
       journal: cache.journal,
       lastSyncedAt: cache.lastSyncedAt,
+      ...(cache.accountDeletionStage
+        ? { accountDeletionStage: cache.accountDeletionStage }
+        : {}),
     },
   })
 }
@@ -1813,6 +2122,12 @@ function readCacheMetadata(
   const lastSyncedAt = metadata.lastSyncedAt === undefined
     ? mostRecentReceiptTime(canonicalEnvelope)
     : storedLastSyncedAt
+  const accountDeletionStage = metadata.accountDeletionStage === undefined
+    ? null
+    : metadata.accountDeletionStage === "identity"
+      ? "identity"
+      : undefined
+  if (accountDeletionStage === undefined) return null
 
   const journal = readMutationJournal(
     metadata.journal,
@@ -1823,6 +2138,16 @@ function readCacheMetadata(
   if (!journal) return null
   const replayed = replayMutations(canonicalEnvelope, journal)
   if (!sameValue(replayed, envelope)) return null
+  if (
+    accountDeletionStage === "identity" &&
+    (
+      journal.length > 0 ||
+      !sameValue(envelope, createEmptyPracticeStateEnvelope()) ||
+      !sameValue(canonicalEnvelope, createEmptyPracticeStateEnvelope())
+    )
+  ) {
+    return null
+  }
 
   return {
     envelope,
@@ -1831,6 +2156,7 @@ function readCacheMetadata(
     acknowledgedRevision,
     journal,
     lastSyncedAt,
+    accountDeletionStage,
   }
 }
 
@@ -1845,6 +2171,7 @@ function migrateLegacyAccountCache(
     acknowledgedRevision: 0,
     journal,
     lastSyncedAt: mostRecentReceiptTime(envelope),
+    accountDeletionStage: null,
   }
 }
 

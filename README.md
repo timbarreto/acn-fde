@@ -15,7 +15,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - A focused study sequence mapped to the published exam domains
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account required; standalone guest practice remains browser-only and offline-first
-- An Account destination alongside the other top-level pages, with a passive sync indicator; optional GitHub sign-in, safe sign-out, and cross-device practice are offered there when the optional full stack is running
+- An Account destination alongside the other top-level pages, with a passive sync indicator, client-generated JSON export, self-service practice-state reset, ordered account deletion, optional GitHub sign-in, safe sign-out, and cross-device practice when the optional full stack is running
 
 ## Stack
 
@@ -81,8 +81,8 @@ npm run auth:migrate:local
 Auth routes use secure, HTTP-only Better Auth session cookies and expose a
 short-lived ES256 identity token for CoreEx. CoreEx authorizes only the opaque
 Better Auth subject; the GitHub account ID in the token is recovery metadata,
-not an authorization identifier. Authenticated `GET` and `POST`
-`/api/practice-state` load and save a validated schema-v2 envelope in
+not an authorization identifier. Authenticated `GET`, `POST`, and `DELETE`
+`/api/practice-state` load, merge, and delete a validated schema-v2 envelope in
 PostgreSQL. When the full-stack browser resolves an established session, it
 syncs guest practice state into a cache keyed only by that authenticated
 subject. Account edits are journaled locally before a debounced or
@@ -98,6 +98,27 @@ signing-out states in the top navigation everywhere except a timed attempt.
 Standalone guest practice remains unchanged: the Account page is still
 reachable, and it explains that sign-in needs the optional full stack.
 
+## Export, reset, and account deletion
+
+Account can download a client-generated JSON export of the practice state
+currently visible in the browser. Export is available to guests and users and
+never sends data to a new endpoint.
+
+Reset explicitly removes finished attempts, bookmarks, and latest answers. A
+guest reset removes and recreates only `agentic-ready-gh600-v2:guest`. A user
+reset waits for `DELETE /api/practice-state` to succeed, clears only that
+subject's browser cache, and keeps the signed-in identity.
+
+Account deletion performs the same practice-state deletion first and calls
+Better Auth only after it succeeds. If identity deletion fails, the browser
+keeps only an empty, subject-scoped continuation marker; Account stays pinned
+until the candidate retries the unfinished identity step. Successful deletion
+clears that subject's cache and starts a new empty guest practice state.
+
+Better Auth stores the opaque subject, GitHub display name, avatar URL, email,
+and GitHub account ID needed for identity and recovery. The GitHub access token
+is cleared after sign-in because the application does not call the GitHub API.
+
 ## Exercise the signed-in full stack
 
 After installing the local prerequisites above, one command launches and tests
@@ -112,7 +133,8 @@ temporary local D1 store, applies both sets of real migrations, and waits for
 Aspire resource health. It then uses same-origin HTTP to verify application and
 API health, reject an unauthenticated practice-state request with `401`, issue
 real short-lived identity tokens for two independent test subjects, and prove
-that each subject can save and load only its own state.
+that each subject can save, load, reset, and delete only its own state while
+practice data is removed before the selected identity.
 
 No GitHub credentials, Cloudflare service, hosted database, or fixed readiness
 delay is involved. Identity issuance lives behind a separate integration-only

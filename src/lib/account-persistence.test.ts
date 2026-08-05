@@ -58,6 +58,7 @@ class FakeAuth implements PracticeAuth {
   readonly signOut = vi.fn(async () => {
     if (this.emitOnSignOut) this.emitSession(null)
   })
+  readonly deleteAccount = vi.fn(async () => {})
   readonly getIdentityToken = vi.fn(async () => "identity-token")
   readonly invalidateIdentityToken = vi.fn()
   readonly listeners = new Set<(session: PracticeSession | null) => void>()
@@ -109,6 +110,7 @@ function practiceApi(
   return {
     getPracticeState: async () => createEmptyPracticeStateEnvelope(),
     postPracticeState: post,
+    deletePracticeState: async () => {},
   }
 }
 
@@ -137,6 +139,7 @@ describe("subject-isolated browser practice-state store", () => {
       getIdentityToken: async () => "identity-token",
       invalidateIdentityToken: () => {},
       signOut: async () => {},
+      deleteAccount: async () => {},
       subscribeSession: () => () => {},
     }
     const api = practiceApi(async () => envelope("canonical", "2026-08-05T00:00:00.000Z"))
@@ -415,6 +418,7 @@ describe("subject-isolated browser practice-state store", () => {
       getIdentityToken: async () => "identity-token",
       invalidateIdentityToken: () => {},
       signOut: async () => {},
+      deleteAccount: async () => {},
       subscribeSession(listener) {
         sessionListener = listener
         return () => {}

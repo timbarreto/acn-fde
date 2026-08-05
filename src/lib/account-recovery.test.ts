@@ -58,6 +58,7 @@ class FakeAuth implements PracticeAuth {
     if (this.token === token) this.token = "fresh-token"
   })
   readonly signOut = vi.fn(async () => {})
+  readonly deleteAccount = vi.fn(async () => {})
   token = "stale-token"
 
   constructor(public session: PracticeSession | null) {}
@@ -111,6 +112,7 @@ function practiceApi(
   return {
     getPracticeState,
     postPracticeState,
+    deletePracticeState: async () => {},
   }
 }
 
