@@ -87,8 +87,10 @@ syncs guest practice state into a cache keyed only by that authenticated
 subject. Account edits are journaled locally before a debounced or
 milestone-triggered single-flight sync, then rebased over each canonical
 server response so edits made during a request and changes from other devices
-both survive. Account UI and authentication recovery are still separate work,
-and standalone guest practice remains unchanged.
+both survive. Token refresh is shared and bounded, lost sessions quarantine
+unsynced account work, permanent rejections restore the last accepted state,
+and safe sign-out never discards pending changes. Account UI is still separate
+work, and standalone guest practice remains unchanged.
 
 ## Exercise the signed-in full stack
 

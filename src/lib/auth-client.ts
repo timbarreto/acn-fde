@@ -1,19 +1,31 @@
 import { createAuthClient } from "better-auth/client"
-import type { PracticeAuth } from "@/lib/persistence"
+import {
+  PracticeSessionMismatchError,
+  type PracticeAuth,
+} from "@/lib/persistence"
 
 const authClient = createAuthClient()
 
-export const browserPracticeAuth: PracticeAuth = {
-  async getSession() {
-    const result = await authClient.getSession()
-    if (result.error) throw authError("resolve the session", result.error)
-    return result.data ? { subject: result.data.user.id } : null
-  },
-  async getIdentityToken() {
-    const response = await fetch("/api/auth/token", {
+export interface IdentityTokenAdapter {
+  getIdentityToken: () => Promise<string>
+  invalidateIdentityToken: (token: string) => void
+  clearIdentityToken: () => void
+}
+
+export function createIdentityTokenAdapter(
+  fetcher: typeof fetch,
+): IdentityTokenAdapter {
+  let token: string | null = null
+  let acquisition: Promise<string> | null = null
+  let generation = 0
+
+  async function acquireIdentityToken() {
+    const acquisitionGeneration = generation
+    const response = await fetcher("/api/auth/token", {
       headers: { accept: "application/json" },
     })
     if (!response.ok) {
+      if (response.status === 401) throw new PracticeSessionMismatchError()
       throw new Error(
         `Could not acquire an identity token: ${response.statusText} (${response.status}).`,
       )
@@ -23,18 +35,113 @@ export const browserPracticeAuth: PracticeAuth = {
     if (typeof body.token !== "string" || body.token.length === 0) {
       throw new Error("Could not acquire an identity token: the response was invalid.")
     }
+    if (generation === acquisitionGeneration) token = body.token
     return body.token
+  }
+
+  return {
+    getIdentityToken() {
+      if (token) return Promise.resolve(token)
+      if (acquisition) return acquisition
+
+      const pending = acquireIdentityToken().finally(() => {
+        if (acquisition === pending) acquisition = null
+      })
+      acquisition = pending
+      return pending
+    },
+    invalidateIdentityToken(rejectedToken) {
+      if (token === rejectedToken) {
+        token = null
+        generation += 1
+      }
+    },
+    clearIdentityToken() {
+      token = null
+      acquisition = null
+      generation += 1
+    },
+  }
+}
+
+const identityTokens = createIdentityTokenAdapter((input, init) => fetch(input, init))
+
+export const browserPracticeAuth: PracticeAuth = {
+  async getSession() {
+    const result = await authClient.getSession()
+    if (result.error) throw authError("resolve the session", result.error)
+    identityTokens.clearIdentityToken()
+    return result.data ? { subject: result.data.user.id } : null
+  },
+  async getIdentityToken(expectedSubject) {
+    const token = await identityTokens.getIdentityToken()
+    const tokenSubject = identityTokenSubject(token)
+    if (tokenSubject !== expectedSubject) {
+      if (!tokenSubject) identityTokens.invalidateIdentityToken(token)
+      throw new PracticeSessionMismatchError()
+    }
+    return token
+  },
+  invalidateIdentityToken(token) {
+    identityTokens.invalidateIdentityToken(token)
   },
   async signOut() {
     const result = await authClient.signOut()
     if (result.error) throw authError("end the session", result.error)
+    identityTokens.clearIdentityToken()
   },
   subscribeSession(listener) {
     return authClient.useSession.subscribe((session) => {
-      if (session.isPending || session.error) return
-      listener(session.data ? { subject: session.data.user.id } : null)
+      const resolved = resolvedPracticeSession(session)
+      if (resolved === undefined) return
+      identityTokens.clearIdentityToken()
+      listener(resolved)
     })
   },
+}
+
+interface BrowserSessionSnapshot {
+  data: { user: { id: string } } | null
+  error: { status?: number } | null
+  isPending: boolean
+  isRefetching: boolean
+}
+
+export function resolvedPracticeSession(
+  session: BrowserSessionSnapshot,
+): { subject: string } | null | undefined {
+  if (session.isPending || session.isRefetching) {
+    return undefined
+  }
+  if (session.error) {
+    return session.data === null && session.error.status === 401
+      ? null
+      : undefined
+  }
+  return session.data ? { subject: session.data.user.id } : null
+}
+
+export function identityTokenSubject(token: string) {
+  const encodedPayload = token.split(".")[1]
+  if (!encodedPayload) return null
+
+  try {
+    const base64 = encodedPayload
+      .replaceAll("-", "+")
+      .replaceAll("_", "/")
+      .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=")
+    const bytes = Uint8Array.from(atob(base64), (character) => (
+      character.charCodeAt(0)
+    ))
+    const payload = JSON.parse(new TextDecoder().decode(bytes)) as {
+      sub?: unknown
+    }
+    return typeof payload.sub === "string" && payload.sub.length > 0
+      ? payload.sub
+      : null
+  } catch {
+    return null
+  }
 }
 
 function authError(

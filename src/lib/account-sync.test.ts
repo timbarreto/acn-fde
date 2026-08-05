@@ -85,6 +85,7 @@ const timestamp = "2026-08-05T15:00:00.000Z"
 const auth: PracticeAuth = {
   getSession: async () => ({ subject }),
   getIdentityToken: async () => "identity-token",
+  invalidateIdentityToken: () => {},
   signOut: async () => {},
   subscribeSession: () => () => {},
 }
@@ -826,11 +827,16 @@ describe("account practice-state synchronization", () => {
   it("does not let stale first-sync rejection override a newer subject", async () => {
     const storage = new MemoryStorage()
     storage.seed(GUEST_PRACTICE_STATE_KEY, envelope(["guest"], []))
+    storage.seed(
+      accountPracticeStateKey("subject-2"),
+      envelope(["second-subject"]),
+    )
     const signOutCompletion = deferred<void>()
     const signOut = vi.fn(async () => await signOutCompletion.promise)
     const switchingAuth: PracticeAuth = {
       getSession: async () => ({ subject }),
       getIdentityToken: async () => "identity-token",
+      invalidateIdentityToken: () => {},
       signOut,
       subscribeSession: () => () => {},
     }
@@ -840,7 +846,7 @@ describe("account practice-state synchronization", () => {
       if (requestCount === 1) {
         throw new PracticeApiError(400, "invalid_practice_state")
       }
-      return envelope(["second-subject"])
+      throw new Error("The existing second-subject cache must not be submitted.")
     })
     const store = createBrowserPracticeStateStore({
       storage,
