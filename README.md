@@ -82,8 +82,10 @@ short-lived ES256 identity token for CoreEx. CoreEx authorizes only the opaque
 Better Auth subject; the GitHub account ID in the token is recovery metadata,
 not an authorization identifier. Authenticated `GET` and `POST`
 `/api/practice-state` load and save a validated schema-v2 envelope in
-PostgreSQL. Account UI and browser sync are still separate work, so standalone
-guest practice remains unchanged.
+PostgreSQL. When the full-stack browser resolves an established session, it
+syncs guest practice state into a cache keyed only by that authenticated
+subject. Account UI is still separate work, and standalone guest practice
+remains unchanged.
 
 ## Exercise the signed-in full stack
 

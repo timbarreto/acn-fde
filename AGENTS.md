@@ -7,8 +7,9 @@ offline-first practice exam for the GitHub Certified: Agentic AI Developer
 (GH-600) credential. Standalone guest practice is a client-only React
 application. The optional full-stack development path adds a same-origin
 Cloudflare Worker, a trimmed CoreEx service, local PostgreSQL, and authenticated
-schema-v2 practice-state load/save APIs; account UI and browser sync are not
-implemented yet.
+schema-v2 practice-state load/save APIs plus first-sign-in sync into a
+subject-isolated browser cache; account UI and ongoing edit synchronization are
+not implemented yet.
 
 ## Vocabulary
 

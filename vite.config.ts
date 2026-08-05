@@ -30,6 +30,9 @@ export default defineConfig(() => {
       }
 
   return {
+    define: {
+      "import.meta.env.ACN_FDE_FULL_STACK": JSON.stringify(fullStack),
+    },
     plugins: [
       ...(fullStack
         ? [
