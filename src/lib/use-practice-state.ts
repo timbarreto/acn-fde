@@ -1,11 +1,27 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react"
 import { browserPracticeAuth } from "@/lib/auth-client"
-import { createBrowserPracticeStateStore } from "@/lib/persistence"
+import {
+  createBrowserPracticeStateStore,
+  syncStatusWithConnectivity,
+} from "@/lib/persistence"
 import { createPracticeApi } from "@/lib/practice-api"
 import type { PracticeStateFlush } from "@/lib/persistence"
 import type { PracticeState } from "@/types"
 
 let practiceStateStore: ReturnType<typeof createBrowserPracticeStateStore> | null = null
+
+function subscribeConnectivity(listener: () => void) {
+  window.addEventListener("online", listener)
+  window.addEventListener("offline", listener)
+  return () => {
+    window.removeEventListener("online", listener)
+    window.removeEventListener("offline", listener)
+  }
+}
+
+function readConnectivity() {
+  return navigator.onLine
+}
 
 function getPracticeStateStore() {
   if (!practiceStateStore) {
@@ -30,6 +46,11 @@ export function usePracticeState() {
     store.getSnapshot,
     store.getSnapshot,
   )
+  const online = useSyncExternalStore(
+    subscribeConnectivity,
+    readConnectivity,
+    () => true,
+  )
   const updatePracticeState = useCallback((
     updater: (current: PracticeState) => PracticeState,
     options?: { flush?: PracticeStateFlush },
@@ -53,13 +74,14 @@ export function usePracticeState() {
 
   return {
     practiceState: snapshot.envelope.state,
+    practiceMode: snapshot.mode,
+    syncStatus: syncStatusWithConnectivity(snapshot.syncStatus, online),
+    accountAvailable: import.meta.env.ACN_FDE_FULL_STACK,
     updatePracticeState,
     flush,
     signOutSafely,
     syncNotification: snapshot.notification,
     dismissSyncNotification,
-    isInitializing:
-      snapshot.mode.kind === "initializing" ||
-      snapshot.mode.kind === "reauthenticating",
+    isInitializing: snapshot.mode.kind === "initializing",
   }
 }

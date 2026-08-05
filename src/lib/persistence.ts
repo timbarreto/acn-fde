@@ -44,6 +44,14 @@ export type PracticeStateMode =
   | { kind: "reauthenticating"; subject: string }
   | { kind: "account"; subject: string }
 
+export type PracticeSyncStatus =
+  | { kind: "guest" }
+  | { kind: "syncing" }
+  | { kind: "synced"; syncedAt: number | null }
+  | { kind: "offline" }
+  | { kind: "attention" }
+  | { kind: "signing-out" }
+
 export interface PracticeSyncNotification {
   kind: "sync-rejected"
   message: string
@@ -52,6 +60,7 @@ export interface PracticeSyncNotification {
 export interface BrowserPracticeStateSnapshot {
   envelope: PracticeStateEnvelope
   mode: PracticeStateMode
+  syncStatus: PracticeSyncStatus
   error: Error | null
   firstSyncRejected: boolean
   notification: PracticeSyncNotification | null
@@ -110,6 +119,7 @@ interface AccountPracticeStateCache {
   revision: number
   acknowledgedRevision: number
   journal: PracticeStateMutation[]
+  lastSyncedAt: number | null
 }
 
 interface AccountSyncCoordinator {
@@ -121,6 +131,8 @@ interface AccountSyncCoordinator {
   retryRequested: boolean
   rollbackPending: boolean
   rollbackError: Error | null
+  syncFailed: boolean
+  lastSyncedAt: number | null
 }
 
 interface FirstSyncCoordinator {
@@ -130,6 +142,7 @@ interface FirstSyncCoordinator {
   timer: ReturnType<typeof setTimeout> | null
   inFlight: Promise<void> | null
   retryRequested: boolean
+  syncFailed: boolean
 }
 
 const ACCOUNT_SYNC_CACHE_VERSION = 1
@@ -312,18 +325,59 @@ export function createBrowserPracticeStateStore({
   let snapshot: BrowserPracticeStateSnapshot = {
     envelope: createEmptyPracticeStateEnvelope(),
     mode: { kind: "initializing" },
+    syncStatus: { kind: "syncing" },
     error: null,
     firstSyncRejected: false,
     notification: null,
   }
 
-  function publish(next: BrowserPracticeStateSnapshot) {
-    snapshot = next
+  function publish(
+    next: Omit<BrowserPracticeStateSnapshot, "syncStatus"> & {
+      syncStatus?: PracticeSyncStatus
+    },
+  ) {
+    snapshot = { ...next, syncStatus: deriveSyncStatus(next) }
     listeners.forEach((listener) => listener())
+  }
+
+  function deriveSyncStatus(
+    next: Omit<BrowserPracticeStateSnapshot, "syncStatus">,
+  ): PracticeSyncStatus {
+    if (safeSignOutPending) return { kind: "signing-out" }
+
+    switch (next.mode.kind) {
+      case "initializing":
+        return { kind: "syncing" }
+      case "guest":
+        return { kind: "guest" }
+      case "transitioning":
+        return firstSync && !firstSync.inFlight && firstSync.syncFailed
+          ? { kind: "attention" }
+          : { kind: "syncing" }
+      case "reauthenticating":
+        return { kind: "attention" }
+      case "account": {
+        const coordinator = activeAccount
+        if (!coordinator || coordinator.subject !== next.mode.subject) {
+          return { kind: "attention" }
+        }
+        if (coordinator.inFlight) return { kind: "syncing" }
+        if (hasCoordinatorWork(coordinator)) {
+          return coordinator.syncFailed ? { kind: "attention" } : { kind: "syncing" }
+        }
+        return { kind: "synced", syncedAt: coordinator.lastSyncedAt }
+      }
+    }
   }
 
   function currentMode() {
     return snapshot.mode
+  }
+
+  function setSafeSignOutPending(pending: boolean) {
+    if (safeSignOutPending === pending) return
+    safeSignOutPending = pending
+    publish({ ...snapshot })
   }
 
   function getGuestStore() {
@@ -399,6 +453,8 @@ export function createBrowserPracticeStateStore({
       retryRequested: false,
       rollbackPending: false,
       rollbackError: null,
+      syncFailed: false,
+      lastSyncedAt: cache.lastSyncedAt,
     }
     activeAccount = coordinator
     if (consumeGuestState) guestPracticeStateConsumed = true
@@ -446,6 +502,7 @@ export function createBrowserPracticeStateStore({
   function startAccountSync(coordinator: AccountSyncCoordinator) {
     if (coordinator.inFlight) return coordinator.inFlight
     clearSyncTimer(coordinator)
+    coordinator.syncFailed = false
     const run = syncAccount(coordinator)
     const tracked = run.finally(() => {
       if (coordinator.inFlight === tracked) coordinator.inFlight = null
@@ -456,9 +513,11 @@ export function createBrowserPracticeStateStore({
         coordinator.retryRequested = false
         scheduleSync(coordinator, "debounced")
       }
+      if (activeAccount === coordinator) publish({ ...snapshot })
     })
     coordinator.inFlight = tracked
     subjectFlights.set(coordinator.subject, tracked)
+    publish({ ...snapshot })
     return tracked
   }
 
@@ -471,6 +530,7 @@ export function createBrowserPracticeStateStore({
         try {
           writeAccountCache(coordinator.key, coordinator.cache)
         } catch (error) {
+          coordinator.syncFailed = true
           publish({
             ...snapshot,
             envelope: coordinator.cache.envelope,
@@ -481,6 +541,7 @@ export function createBrowserPracticeStateStore({
         }
 
         coordinator.rollbackPending = false
+        coordinator.syncFailed = false
         const rollbackError = coordinator.rollbackError
         coordinator.rollbackError = null
         publish({
@@ -505,6 +566,7 @@ export function createBrowserPracticeStateStore({
         canonical = response
       } catch (error) {
         if (activeAccount !== coordinator) return
+        coordinator.syncFailed = true
         if (error instanceof PracticeSessionMismatchError) {
           quarantineAccountState(coordinator.subject)
           publish({ ...snapshot, error })
@@ -550,6 +612,7 @@ export function createBrowserPracticeStateStore({
             return
           }
           coordinator.cache = rollback
+          coordinator.syncFailed = false
           publish({
             ...snapshot,
             envelope: rollback.envelope,
@@ -568,10 +631,12 @@ export function createBrowserPracticeStateStore({
         coordinator.cache,
         canonical,
         sentRevision,
+        Date.now(),
       )
       try {
         writeAccountCache(coordinator.key, rebased)
       } catch (error) {
+        coordinator.syncFailed = true
         publish({ ...snapshot, error: toError(error) })
         coordinator.retryRequested = true
         return
@@ -579,6 +644,8 @@ export function createBrowserPracticeStateStore({
 
       coordinator.cache = rebased
       coordinator.retryRequested = false
+      coordinator.syncFailed = false
+      coordinator.lastSyncedAt = rebased.lastSyncedAt
       publish({ ...snapshot, envelope: rebased.envelope, error: null })
     }
   }
@@ -623,6 +690,7 @@ export function createBrowserPracticeStateStore({
       timer: null,
       inFlight: null,
       retryRequested: false,
+      syncFailed: false,
     }
     firstSync = coordinator
     publish({
@@ -637,6 +705,7 @@ export function createBrowserPracticeStateStore({
       try {
         writeFirstSyncCache(coordinator)
       } catch (error) {
+        coordinator.syncFailed = true
         publish({ ...snapshot, error: toError(error) })
         return
       }
@@ -678,6 +747,7 @@ export function createBrowserPracticeStateStore({
   function startFirstSync(coordinator: FirstSyncCoordinator) {
     if (coordinator.inFlight) return coordinator.inFlight
     clearFirstSyncTimer(coordinator)
+    coordinator.syncFailed = false
 
     const run = syncFirstPracticeState(coordinator)
     const tracked = run.finally(() => {
@@ -689,9 +759,11 @@ export function createBrowserPracticeStateStore({
         coordinator.retryRequested = false
         scheduleFirstSync(coordinator, "debounced")
       }
+      if (firstSync === coordinator) publish({ ...snapshot })
     })
     coordinator.inFlight = tracked
     subjectFlights.set(coordinator.subject, tracked)
+    publish({ ...snapshot })
     return tracked
   }
 
@@ -710,6 +782,7 @@ export function createBrowserPracticeStateStore({
       canonical = response
     } catch (error) {
       if (firstSync !== coordinator) return
+      coordinator.syncFailed = true
       if (error instanceof PracticeSessionMismatchError) {
         quarantineAccountState(coordinator.subject)
         publish({ ...snapshot, error })
@@ -733,10 +806,12 @@ export function createBrowserPracticeStateStore({
       coordinator.cache,
       canonical,
       sentRevision,
+      Date.now(),
     )
     try {
       writeAccountCache(coordinator.accountKey, rebased)
     } catch (error) {
+      coordinator.syncFailed = true
       publish({
         envelope: coordinator.cache.envelope,
         mode: { kind: "transitioning", subject: coordinator.subject },
@@ -1010,7 +1085,7 @@ export function createBrowserPracticeStateStore({
           activateAccount(unrelatedSubject, unrelatedCache, false)
           return await performSafeSignOut()
         }
-        safeSignOutPending = true
+        setSafeSignOutPending(true)
         try {
           const intent: SessionEndIntent = {
             kind: "safe-sign-out",
@@ -1047,7 +1122,7 @@ export function createBrowserPracticeStateStore({
           })
           return { status: "signed-out", error: null }
         } finally {
-          safeSignOutPending = false
+          setSafeSignOutPending(false)
         }
       }
       const error = snapshot.error ?? new Error(
@@ -1063,7 +1138,7 @@ export function createBrowserPracticeStateStore({
       return { status: "blocked", error }
     }
 
-    safeSignOutPending = true
+    setSafeSignOutPending(true)
     try {
       await (firstSync
         ? startFirstSync(firstSync)
@@ -1146,7 +1221,7 @@ export function createBrowserPracticeStateStore({
       activateGuest(null, false, snapshot.notification)
       return { status: "signed-out", error: null }
     } finally {
-      safeSignOutPending = false
+      setSafeSignOutPending(false)
     }
   }
 
@@ -1306,6 +1381,7 @@ function accountCacheAfterUpdate(
     revision,
     acknowledgedRevision,
     journal: replayed.journal,
+    lastSyncedAt: current.lastSyncedAt,
   }
 }
 
@@ -1318,6 +1394,7 @@ function createPendingFirstSyncCache(
     revision: 0,
     acknowledgedRevision: 0,
     journal: [],
+    lastSyncedAt: null,
   }
 }
 
@@ -1331,6 +1408,7 @@ function rollbackAccountCache(
     revision: current.revision,
     acknowledgedRevision: current.revision,
     journal: [],
+    lastSyncedAt: current.lastSyncedAt,
   }
 }
 
@@ -1338,6 +1416,7 @@ function rebaseAccountCache(
   current: AccountPracticeStateCache,
   canonicalEnvelope: PracticeStateEnvelope,
   sentRevision: number,
+  acceptedAt: number,
 ): AccountPracticeStateCache {
   const journal = current.journal
     .filter((mutation) => mutation.revision > sentRevision)
@@ -1348,6 +1427,7 @@ function rebaseAccountCache(
     revision: current.revision,
     acknowledgedRevision: replayed.journal.length ? sentRevision : current.revision,
     journal: replayed.journal,
+    lastSyncedAt: acceptedAt,
   }
 }
 
@@ -1624,6 +1704,7 @@ function serializeAccountCache(cache: AccountPracticeStateCache) {
       revision: cache.revision,
       acknowledgedRevision: cache.acknowledgedRevision,
       journal: cache.journal,
+      lastSyncedAt: cache.lastSyncedAt,
     },
   })
 }
@@ -1641,6 +1722,7 @@ function serializeFirstSyncCache(
       revision: cache.revision,
       acknowledgedRevision: cache.acknowledgedRevision,
       journal: cache.journal,
+      lastSyncedAt: cache.lastSyncedAt,
     },
   })
 }
@@ -1714,14 +1796,23 @@ function readCacheMetadata(
   const canonicalEnvelope = readEnvelopeValue(metadata.canonicalEnvelope)
   const revision = readNonNegativeInteger(metadata.revision)
   const acknowledgedRevision = readNonNegativeInteger(metadata.acknowledgedRevision)
+  const storedLastSyncedAt = metadata.lastSyncedAt === null
+    ? null
+    : readNonNegativeInteger(metadata.lastSyncedAt)
   if (
     !canonicalEnvelope ||
     revision === null ||
     acknowledgedRevision === null ||
-    acknowledgedRevision > revision
+    acknowledgedRevision > revision ||
+    (metadata.lastSyncedAt !== undefined &&
+      metadata.lastSyncedAt !== null &&
+      storedLastSyncedAt === null)
   ) {
     return null
   }
+  const lastSyncedAt = metadata.lastSyncedAt === undefined
+    ? mostRecentReceiptTime(canonicalEnvelope)
+    : storedLastSyncedAt
 
   const journal = readMutationJournal(
     metadata.journal,
@@ -1739,6 +1830,7 @@ function readCacheMetadata(
     revision,
     acknowledgedRevision,
     journal,
+    lastSyncedAt,
   }
 }
 
@@ -1752,6 +1844,7 @@ function migrateLegacyAccountCache(
     revision: journal.length ? 1 : 0,
     acknowledgedRevision: 0,
     journal,
+    lastSyncedAt: mostRecentReceiptTime(envelope),
   }
 }
 
@@ -1922,6 +2015,31 @@ function firstSyncRejectionNotification(): PracticeSyncNotification {
     kind: "sync-rejected",
     message: "Your practice state could not be synced to the account, so sign-in was ended. Your guest practice remains saved on this device.",
   }
+}
+
+export function syncStatusWithConnectivity(
+  status: PracticeSyncStatus,
+  online: boolean,
+): PracticeSyncStatus {
+  if (online || status.kind === "guest" || status.kind === "signing-out") {
+    return status
+  }
+  return { kind: "offline" }
+}
+
+function mostRecentReceiptTime(envelope: PracticeStateEnvelope) {
+  const receipts = [
+    envelope.receipts.activeAttemptReceivedAt,
+    ...Object.values(envelope.receipts.finishedAttempts),
+    ...Object.values(envelope.receipts.latestAnswers),
+    ...Object.values(envelope.receipts.bookmarks)
+      .map((receipt) => receipt.receivedAt),
+  ]
+  const times = receipts
+    .filter((receipt): receipt is string => typeof receipt === "string")
+    .map((receipt) => Date.parse(receipt))
+    .filter(Number.isFinite)
+  return times.length ? Math.max(...times) : null
 }
 
 function sameValue(left: unknown, right: unknown) {

@@ -15,6 +15,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - A focused study sequence mapped to the published exam domains
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account required; standalone guest practice remains browser-only and offline-first
+- An Account destination alongside the other top-level pages, with a passive sync indicator; optional GitHub sign-in, safe sign-out, and cross-device practice are offered there when the optional full stack is running
 
 ## Stack
 
@@ -88,9 +89,14 @@ subject. Account edits are journaled locally before a debounced or
 milestone-triggered single-flight sync, then rebased over each canonical
 server response so edits made during a request and changes from other devices
 both survive. Token refresh is shared and bounded, lost sessions quarantine
-unsynced account work, permanent rejections restore the last accepted state,
-and safe sign-out never discards pending changes. Account UI is still separate
-work, and standalone guest practice remains unchanged.
+unsynced account work and hold navigation on Account until the same GitHub
+account signs in again, permanent rejections restore the last accepted state,
+and safe sign-out never discards pending changes. The Account destination is the
+only place that invites GitHub sign-in and performs safe sign-out; a passive
+sync indicator reports guest, syncing, synced, offline, attention, and
+signing-out states in the top navigation everywhere except a timed attempt.
+Standalone guest practice remains unchanged: the Account page is still
+reachable, and it explains that sign-in needs the optional full stack.
 
 ## Exercise the signed-in full stack
 

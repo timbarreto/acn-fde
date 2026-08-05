@@ -8,6 +8,7 @@ const allRoutes: Array<[AppView, string]> = [
   ["results", "/results"],
   ["review", "/review"],
   ["resources", "/resources"],
+  ["account", "/account"],
 ]
 
 const allRoutesAvailable = {

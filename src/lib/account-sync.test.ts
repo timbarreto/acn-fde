@@ -374,6 +374,7 @@ describe("account practice-state synchronization", () => {
       revision: 2,
       acknowledgedRevision: 2,
       journal: [],
+      lastSyncedAt: expect.any(Number),
     })
   })
 
