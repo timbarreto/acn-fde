@@ -66,15 +66,17 @@ npm run test      # Run Vitest unit tests
 npm run test:worker # Run Worker integration tests
 npm run test:backend # Run .NET tests
 npm run test:full # Exercise the isolated signed-in stack end to end
-npm run test:resilience # Restart project/container stacks and inspect the production image
+npm run test:resilience # Restart project/container stacks and inspect the production image (operator-invoked)
 npm run lint      # Run ESLint
 npm run build     # Type-check and create a production build
 npm run preview   # Serve the production build locally
 ```
 
 Unit tests use Vitest and live next to the code they cover (for example,
-`src/lib/exam.test.ts`). Resilience tests require Podman and retain Aspire logs
-in the CI TRX artifact on failure. The Playwright QA suite in `src/qa-tests` runs with
+`src/lib/exam.test.ts`). Resilience tests require Podman, write Aspire resource
+logs to the test output on failure, and run only through
+`npm run test:resilience`; CI and the other test commands exclude them. The
+Playwright QA suite in `src/qa-tests` runs with
 `npm run test:qa`; do not run the QA suite unless the operator explicitly
 asks. For code changes, run `npm run test`, `npm run lint`, and
 `npm run build`. Manually exercise the affected flow when the change involves

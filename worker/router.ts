@@ -6,6 +6,15 @@ export interface RequestHandlers {
   assets: RequestHandler
 }
 
+export interface RoutingOptions {
+  /**
+   * CoreEx health endpoints are only public where CoreEx runs as a plain origin
+   * beside the Worker. The production Container stays private so anonymous
+   * requests can neither wake it nor observe its database availability.
+   */
+  exposeHealth: boolean
+}
+
 const authRoutes = new Set([
   "POST /api/auth/sign-in/social",
   "GET /api/auth/callback/github",
@@ -27,17 +36,17 @@ export function isEnabledAuthRequest(request: Request): boolean {
 }
 
 export function isCoreExPath(pathname: string): boolean {
-  return (
-    pathname === "/api" ||
-    pathname.startsWith("/api/") ||
-    pathname === "/health" ||
-    pathname.startsWith("/health/")
-  )
+  return pathname === "/api" || pathname.startsWith("/api/")
+}
+
+export function isHealthPath(pathname: string): boolean {
+  return pathname === "/health" || pathname.startsWith("/health/")
 }
 
 export function routeRequest(
   request: Request,
   handlers: RequestHandlers,
+  options: RoutingOptions = { exposeHealth: false },
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname
 
@@ -61,7 +70,9 @@ export function routeRequest(
     )
   }
 
-  return isCoreExPath(pathname)
+  if (isCoreExPath(pathname)) return handlers.coreEx(request)
+
+  return options.exposeHealth && isHealthPath(pathname)
     ? handlers.coreEx(request)
     : handlers.assets(request)
 }

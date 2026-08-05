@@ -25,15 +25,10 @@ function readProductionConfiguration(): ProductionWorkerConfiguration {
 }
 
 describe("production CoreEx Container configuration", () => {
-  it("routes the API and health surface to one basic ENAM instance", () => {
+  it("routes the API, and only the API, to one basic ENAM instance", () => {
     const configuration = readProductionConfiguration()
 
-    expect(configuration.assets.run_worker_first).toEqual([
-      "/api",
-      "/api/*",
-      "/health",
-      "/health/*",
-    ])
+    expect(configuration.assets.run_worker_first).toEqual(["/api", "/api/*"])
     expect(configuration.containers).toEqual([{
       name: "coreex",
       class_name: "CoreExContainer",

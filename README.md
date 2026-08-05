@@ -60,7 +60,8 @@ checked-in CoreEx and local D1 migrations, starts the trimmed CoreEx API, and
 then starts Vite with its Worker in workerd. The Worker serves the application
 and forwards `/api*` and `/health*` on that same origin to CoreEx.
 
-The anonymous health endpoints have separate meanings:
+The health endpoints are reachable in the local and isolated test stacks only.
+They have separate meanings:
 
 - `/health/live` reports only process liveness.
 - `/health/startup` reports whether application initialization completed.
@@ -172,12 +173,12 @@ still create an unused disposable key file and emit the standard container
 warning, but the directory is not mounted and no application state depends on
 it. Better Auth sessions and JWKS remain in D1 across the workerd restart.
 
-CI runs these cases in a dedicated `resilience` job. Its always-uploaded
-`resilience-test-results` artifact contains the console log and TRX output,
-including Aspire resource logs captured when a scenario fails. The local
-Container configuration explicitly enables and wires Aspire OTLP; the
-production image and Cloudflare container environment keep
-`OTEL_SDK_DISABLED=true`, so they never retry a
+These cases stay operator-invoked. `npm run test:resilience` is the only command
+that runs them: CI does not, and neither do `npm run test:backend` or
+`npm run test:full`. On failure they write the PostgreSQL, migration, CoreEx, and
+Worker resource logs to the test output. The local Container configuration
+explicitly enables and wires Aspire OTLP; the production image and Cloudflare
+container environment keep `OTEL_SDK_DISABLED=true`, so they never retry a
 local collector accidentally.
 
 ## Verify a production build
@@ -296,8 +297,11 @@ npm run deploy
 
 Wrangler prints the deployed `workers.dev` URL when the upload completes. The
 deployment uses `wrangler.jsonc` to serve the Vite output in `dist/`, route
-`/api/auth/*` through the Worker before SPA fallback, and return the SPA shell
-for application routes.
+`/api` and `/api/*` through the Worker before SPA fallback — Better Auth handles
+its own routes and everything else reaches the CoreEx Container — and return the
+SPA shell for application routes. CoreEx health endpoints stay private in
+production: `/health*` is not routed to the Worker, so no anonymous request can
+wake or probe the sleeping Container.
 
 To use a custom domain, deploy the Worker first, then add the hostname under
 **Workers & Pages > agentic-ready-gh-600 > Settings > Domains & Routes** in the

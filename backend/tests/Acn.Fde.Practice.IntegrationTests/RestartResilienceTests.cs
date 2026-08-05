@@ -41,6 +41,7 @@ public sealed class RestartResilienceTests
         var queuedCache = Path.Combine(testRoot, "browser-cache.json");
         Directory.CreateDirectory(testRoot);
         DistributedApplication? app = null;
+        var exercised = false;
 
         try
         {
@@ -129,6 +130,7 @@ public sealed class RestartResilienceTests
             JsonNode.DeepEquals(
                 await LoadAsync(client, tokenAfterWorkerRestart),
                 recovered).Should().BeTrue();
+            exercised = true;
         }
         catch
         {
@@ -138,17 +140,12 @@ public sealed class RestartResilienceTests
         }
         finally
         {
-            try
-            {
-                if (app is not null)
-                    await app.DisposeAsync();
-            }
-            finally
-            {
-                await ContainerStorageCleanup.RemoveAsync(postgresData);
-                if (Directory.Exists(testRoot))
-                    Directory.Delete(testRoot, recursive: true);
-            }
+            var cleanupFailure = await IsolatedStackCleanup.TryShutDownAsync(
+                app,
+                testRoot,
+                postgresData);
+            if (exercised && cleanupFailure is not null)
+                throw new InvalidOperationException(cleanupFailure);
         }
     }
 

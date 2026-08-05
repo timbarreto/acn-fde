@@ -11,11 +11,15 @@ export default {
     const guarded = await guardPracticeStateRequest(request)
     if (guarded instanceof Response) return guarded
 
-    return routeRequest(guarded, {
-      auth: (incoming) => handleAuthRequest(incoming, env),
-      coreEx: (incoming) => proxyCoreEx(incoming, env),
-      assets: (incoming) => env.ASSETS.fetch(incoming),
-    })
+    return routeRequest(
+      guarded,
+      {
+        auth: (incoming) => handleAuthRequest(incoming, env),
+        coreEx: (incoming) => proxyCoreEx(incoming, env),
+        assets: (incoming) => env.ASSETS.fetch(incoming),
+      },
+      { exposeHealth: Boolean(env.COREEX_API_ORIGIN) },
+    )
   },
 } satisfies ExportedHandler<Env>
 

@@ -514,7 +514,9 @@ A lost response costs nothing: the client simply sends again, and merging the sa
 
 `/health/live` checks only the ASP.NET process; `/health/startup` confirms configuration/JWKS settings are structurally valid without requiring a live GitHub call; `/health/ready` -> ASP.NET health middleware -> Aspire Npgsql health check -> `NpgsqlDataSource` -> `SELECT 1`. Detailed health output remains authorization-protected and is not used by Cloudflare's anonymous probe.
 
-`/health/ready` is the only endpoint that touches PostgreSQL, and **nothing may poll it on a schedule** — a periodic `SELECT 1` keeps the Neon compute permanently awake and exhausts the Free plan's CU-hour budget mid-month ([#38](https://github.com/timbarreto/acn-fde/issues/38)). Anonymous and automated probes use `/health/live`.
+`/health/ready` is the only endpoint that touches PostgreSQL, and **nothing may poll it on a schedule** — a periodic `SELECT 1` keeps the Neon compute permanently awake and exhausts the Free plan's CU-hour budget mid-month ([#38](https://github.com/timbarreto/acn-fde/issues/38)).
+
+**The health surface is not public in production.** `wrangler.jsonc` routes only `/api` and `/api/*` to the Worker, and the Worker proxies `/health*` to CoreEx solely where `COREEX_API_ORIGIN` is configured — the local and isolated test profiles. A production `/health*` request is answered by the SPA shell, so no anonymous client can keep the sleeping Container awake or observe database availability through it. Cloudflare's own port readiness check is internal to the Container and is unaffected.
 
 ### Complete local setup and Aspire integration
 
@@ -585,7 +587,7 @@ PostgreSQL goes first because it is the external dependency with the more failur
 - If `wrangler deploy` exits unsuccessfully, compare the active Worker version and Container image with the captured values. If either changed, explicitly roll back to the captured Worker version and its retained image, then verify the prior application is active. Never roll back D1 or PostgreSQL automatically.
 - Do not delete an image while it is the current rollback target. Cloudflare Worker rollback does not reverse storage changes, which is why the compatibility rule applies to the captured application version too.
 
-A completed `wrangler deploy` has a deliberately narrow production gate. Retry every five seconds for at most one minute: first require the SPA and `/health/live`, then wake the Container and require `/health/startup` and `/health/ready`. These are deployment-only checks, never a scheduled monitor. The gate does **not** exercise GitHub sign-in, authenticated practice APIs, or a guest's first sync. If any required check still fails at the deadline, leave the new deployment active, print the failed checks and release identifiers, and exit nonzero; a health failure is reported and repaired forward, never rolled back automatically.
+A completed `wrangler deploy` has a deliberately narrow production gate. Retry every five seconds for at most one minute: first require the SPA, then wake the Container and require an anonymous `GET /api/practice-state` to answer `401` — which proves workerd reached CoreEx and CoreEx answered. The gate cannot use `/health*`, because production deliberately does not route it publicly. These are deployment-only checks, never a scheduled monitor. The gate does **not** exercise GitHub sign-in, authenticated practice APIs, or a guest's first sync. If any required check still fails at the deadline, leave the new deployment active, print the failed checks and release identifiers, and exit nonzero; a health failure is reported and repaired forward, never rolled back automatically.
 
 Print a secret-free deployment summary containing the commit SHA, previous and new Worker versions, previous and new Container image digests, expected and observed migration heads, timestamps, and both health-gate results. The Worker deployment metadata and terminal output are the deployment record; do not add a deployment database, issue, or committed log.
 
@@ -662,9 +664,11 @@ case repeats the lifecycle against `backend/Dockerfile` and inspects the running
 Podman container and image for Linux AMD64, UID 1654, the framework-dependent
 `dotnet` entry point, port 8080, a 1 GiB limit, explicit local OTLP configuration,
 and no durable mounts. Production keeps `OTEL_SDK_DISABLED=true`; only the local
-Container configuration overrides it and supplies Aspire's OTLP endpoint. CI
-uploads the console log and TRX containing captured resource logs as
-`resilience-test-results`, even when the job fails.
+Container configuration overrides it and supplies Aspire's OTLP endpoint. These
+cases are operator-invoked only: they are excluded from `npm run test:backend`,
+`npm run test:full`, and GitHub Actions, because they build the production image
+and drive Podman restarts. Failures write the captured Aspire resource logs to
+the test output.
 
 ### Manual local acceptance
 
@@ -676,4 +680,4 @@ Also verify the frontend-only behaviours from [#50](https://github.com/timbarret
 
 Bootstrap the four runtime Worker secrets once, then exercise the production script from a clean checkout matching `origin/main`. Prove its PostgreSQL-first and D1-second migration gates, active-version re-check, immediate Container rollout, and secret-free summary. On a disposable target, force each partial-failure boundary and verify that migration failures stop for repair, a partially changed `wrangler deploy` restores the captured application version without reversing either database, and a completed deployment with failed health checks remains active while the script exits nonzero.
 
-Against production, retry only the agreed anonymous gate for one minute: SPA plus `/health/live`, then `/health/startup` plus `/health/ready`. GitHub auth, authenticated practice APIs, a guest's first sync, five-minute sleep, and billing inspection are deliberately not deployment gates; the runtime and cost assumptions were already measured by [#42](https://github.com/timbarreto/acn-fde/issues/42). Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.
+Against production, retry only the agreed anonymous gate for one minute: the SPA, then an unauthenticated `GET /api/practice-state` answering `401` from CoreEx. Production does not route `/health*`, so the gate never probes it. GitHub auth, authenticated practice APIs, a guest's first sync, five-minute sleep, and billing inspection are deliberately not deployment gates; the runtime and cost assumptions were already measured by [#42](https://github.com/timbarreto/acn-fde/issues/42). Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.

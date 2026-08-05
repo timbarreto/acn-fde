@@ -28,12 +28,13 @@ public sealed class IdentityTokenSettings
         var audience = section[nameof(Audience)];
         var jwksUri = section[nameof(JwksUri)];
         var requireHttpsValue = section[nameof(RequireHttps)];
+        var parsedRequireHttps = false;
 
         if (string.IsNullOrWhiteSpace(issuer)
             || string.IsNullOrWhiteSpace(audience)
             || !Uri.TryCreate(jwksUri, UriKind.Absolute, out var parsedJwksUri)
             || (!string.IsNullOrWhiteSpace(requireHttpsValue)
-                && !bool.TryParse(requireHttpsValue, out _)))
+                && !bool.TryParse(requireHttpsValue, out parsedRequireHttps)))
         {
             throw new InvalidOperationException(
                 $"The {SectionName} configuration is incomplete.");
@@ -46,7 +47,7 @@ public sealed class IdentityTokenSettings
             JwksUri = parsedJwksUri,
             RequireHttps = string.IsNullOrWhiteSpace(requireHttpsValue)
                 ? !parsedJwksUri.IsLoopback
-                : bool.Parse(requireHttpsValue),
+                : parsedRequireHttps,
         };
     }
 }
