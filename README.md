@@ -84,8 +84,11 @@ not an authorization identifier. Authenticated `GET` and `POST`
 `/api/practice-state` load and save a validated schema-v2 envelope in
 PostgreSQL. When the full-stack browser resolves an established session, it
 syncs guest practice state into a cache keyed only by that authenticated
-subject. Account UI is still separate work, and standalone guest practice
-remains unchanged.
+subject. Account edits are journaled locally before a debounced or
+milestone-triggered single-flight sync, then rebased over each canonical
+server response so edits made during a request and changes from other devices
+both survive. Account UI and authentication recovery are still separate work,
+and standalone guest practice remains unchanged.
 
 ## Exercise the signed-in full stack
 

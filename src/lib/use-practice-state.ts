@@ -1,7 +1,8 @@
-import { useCallback, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useSyncExternalStore } from "react"
 import { browserPracticeAuth } from "@/lib/auth-client"
 import { createBrowserPracticeStateStore } from "@/lib/persistence"
 import { createPracticeApi } from "@/lib/practice-api"
+import type { PracticeStateFlush } from "@/lib/persistence"
 import type { PracticeState } from "@/types"
 
 let practiceStateStore: ReturnType<typeof createBrowserPracticeStateStore> | null = null
@@ -29,13 +30,26 @@ export function usePracticeState() {
     store.getSnapshot,
     store.getSnapshot,
   )
-  const updatePracticeState = useCallback((updater: (current: PracticeState) => PracticeState) => {
-    store.update(updater)
+  const updatePracticeState = useCallback((
+    updater: (current: PracticeState) => PracticeState,
+    options?: { flush?: PracticeStateFlush },
+  ) => {
+    store.update(updater, options)
+  }, [store])
+  const flush = useCallback(() => store.flush(), [store])
+
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") void store.flush()
+    }
+    document.addEventListener("visibilitychange", flushWhenHidden)
+    return () => document.removeEventListener("visibilitychange", flushWhenHidden)
   }, [store])
 
   return {
     practiceState: snapshot.envelope.state,
     updatePracticeState,
+    flush,
     isInitializing: snapshot.mode.kind === "initializing",
   }
 }
