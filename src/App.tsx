@@ -437,8 +437,9 @@ export function TopNav({
         <button
           type="button"
           onClick={() => onNavigate("dashboard")}
-          className="my-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Agentic Ready dashboard"
+          {...lockProps("dashboard")}
+          className="my-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Brand />
         </button>

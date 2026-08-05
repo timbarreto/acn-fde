@@ -214,6 +214,26 @@ describe("TopNav", () => {
     expect(markup).toContain('id="recovery-navigation-hint"')
     expect(markupText(markup)).toContain(RECOVERY_NAVIGATION_HINT)
   })
+
+  it("locks the brand destination during account recovery and leaves it usable otherwise", () => {
+    const brandButton = (markup: string) =>
+      markup.match(/<button[^>]*aria-label="Agentic Ready dashboard"[^>]*>/)![0]
+    const props = {
+      view: "account" as const,
+      syncStatus: { kind: "attention" } as PracticeSyncStatus,
+      onNavigate: vi.fn(),
+      mobileOpen: false,
+      onMobileOpen: vi.fn(),
+    }
+
+    const recovering = brandButton(renderToStaticMarkup(<TopNav {...props} pinnedToAccount />))
+    const usual = brandButton(renderToStaticMarkup(<TopNav {...props} />))
+
+    expect(recovering).toContain('disabled=""')
+    expect(recovering).toContain('aria-describedby="recovery-navigation-hint"')
+    expect(usual).not.toContain('disabled=""')
+    expect(usual).not.toContain("aria-describedby")
+  })
 })
 
 describe("AccountView", () => {
