@@ -168,9 +168,11 @@ The governing rule is **discoverable, never interruptive**:
 
 A fifth top-level nav item, `Account`, shown to everyone including guests. It hosts sync state, the client-side JSON export, self-service reset, and account deletion ([#44](https://github.com/timbarreto/acn-fde/issues/44)) — the first two of which a guest genuinely owns, which is why the surface cannot be an avatar menu that only exists when signed in.
 
+The view is delivered in two parts. [#76](https://github.com/timbarreto/acn-fde/issues/76) ships the destination itself: the sync-state panel, the optional GitHub sign-in invitation shown only here, the re-authentication path after a lost session, and strict safe sign-out. The export, reset, and deletion controls are scoped to [#77](https://github.com/timbarreto/acn-fde/issues/77) and are not in the view yet.
+
 The trade was made knowingly: top-level placement is more discoverable than a footer or settings link, and it does mean guests carry a permanent account surface they may never use. Discoverability was chosen over quietness. It must not drift into a nag — the page leads with sign-in only because that is where a signed-out user's options begin, and the subject is raised nowhere else in the app.
 
-`Account` is a provisional label pending the glossary ([#51](https://github.com/timbarreto/acn-fde/issues/51)), which has to settle what *account*, *user*, and *guest* mean in a product whose first-class mode has none of them.
+`Account` was a provisional label pending the glossary ([#51](https://github.com/timbarreto/acn-fde/issues/51)), which had to settle what *account*, *user*, and *guest* mean in a product whose first-class mode has none of them. [`CONTEXT.md`](../CONTEXT.md) is now that glossary and is authoritative for those words; the label stands.
 
 #### Sync status
 
@@ -179,11 +181,13 @@ The trade was made knowingly: top-level placement is more discoverable than a fo
 | Condition | Copy |
 |---|---|
 | Guest | `Saved on this device` |
-| Better Auth session resolution | `Starting…` |
-| Token acquisition or a request in flight | `Syncing…` |
-| Most recent account state accepted | `Synced just now`, then a relative time |
+| Better Auth session resolution, token acquisition, or a request in flight | `Syncing…` |
+| Most recent account state accepted | `Synced just now`, then a relative time (`Synced 5 min ago`, `Synced 2 hr ago`, `Synced 3 days ago`) |
 | Browser offline | `Offline · saved on this device` |
 | Online but a retryable failure is blocking replication | `Not synced · saved on this device` |
+| Safe sign-out flushing before it completes | `Signing out…` |
+
+An earlier draft gave session resolution its own `Starting…` copy. It is folded into `Syncing…`: from the candidate's side both mean *work is in progress and nothing is lost*, and the distinction only exposed an internal phase. The state set is exactly these six.
 
 There is no permanently-failed state, threshold, escalation, or dismissal state, and the indicator is never a modal. It is chrome, not an alert. A permanent rejection restores the last accepted state and uses the one dismissible notification defined by the validation contract instead of adding another indicator state.
 
@@ -614,7 +618,8 @@ Print a secret-free deployment summary containing the commit SHA, previous and n
 - [ ] Implement the PostgreSQL state schema and migrations, CoreEx contracts/validators/service/repository/controllers, the 512 KiB body gate and closed-world recognition manifest, the merge-on-write transaction, authenticated ownership, JWT validation, health checks, and backend tests; publish OpenAPI and verify the handwritten frontend adapter against the running API.
 - [ ] Implement the merge and its scenario tests in .NET (the cases and their expected outcomes are settled in #40, **except the `progress` rule, which #50 reversed** — merge `latestAnswers` per-question rather than deriving it, record `outcome` rather than #40's `abandoned` boolean per #51, and order attempt retention by `min(finishedAt, firstReceivedAt)` per #53), then build the framework-independent persistence module: v1-to-v2 migration, fixed guest/per-subject cache isolation, receipt omission, durable revision journal and canonical rollback point, single-flight scheduling, and send-and-rebase.
 - [ ] Add the Better Auth client, thin React persistence hook, GitHub sign-in/out UI, single-flight in-memory token adapter, and typed state client — including first-sync consume ordering, session-loss quarantine, and strict flush-before-sign-out blocking from #56.
-- [ ] Add the `Account` view as a fifth top-level nav item available to guests and signed-in users, holding sync state, the client-side JSON export, self-service reset, and account deletion; add the always-visible `TopNav` sync indicator, and keep it out of `ExamRunner`'s separate header. No modal, banner, or prompt anywhere invites sign-in (#50).
+- [ ] Add the `Account` view as a fifth top-level nav item available to guests and signed-in users, holding sync state, optional GitHub sign-in, re-authentication, and strict safe sign-out; add the always-visible `TopNav` sync indicator with the six states above, and keep it out of `ExamRunner`'s separate header. No modal, banner, or prompt anywhere invites sign-in (#50, #76).
+- [ ] Add the `Account` data controls — the client-side JSON export, self-service reset, and ordered account deletion — to that same view (#77).
 - [ ] Add the Aspire AppHost and its three profiles: provision PostgreSQL, gate API startup on CoreEx migrations, gate Worker startup on local D1 migrations and API readiness, run Vite behind the Worker proxy, forward user-secrets, publish dashboard links/health, and provide `dev:full` plus narrowly scoped local reset commands.
 - [ ] Add the Aspire full-stack test project and test-only Better Auth entry/config; exercise the same-origin stack with isolated stores and no GitHub/network dependency, then add standard CI for TypeScript/.NET/AppHost/container validation.
 - [ ] Add secret-safe production configuration, the one-time Worker-secret bootstrap helper, and the operator-run deployment script: preflight a clean current `main`; apply and ledger-check PostgreSQL then D1 migrations; re-check the active Worker version; deploy the singleton with an immediate Container rollout; run the one-minute anonymous health gate; and emit the secret-free release summary. Implement the stop/resume, partial-deploy rollback, and failed-health-reporting paths exactly as specified above.
