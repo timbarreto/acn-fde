@@ -1,7 +1,14 @@
 import { PracticeApiError } from "@/lib/practice-api"
 import { migrateStoredPracticeState, retainRecentFinishedAttempts } from "@/lib/practice-state"
 import type { PracticeApi } from "@/lib/practice-api"
-import type { BookmarkReceipt, PracticeState, PracticeStateEnvelope, PracticeStateReceipts } from "@/types"
+import type {
+  Attempt,
+  BookmarkReceipt,
+  FinishedAttempt,
+  PracticeState,
+  PracticeStateEnvelope,
+  PracticeStateReceipts,
+} from "@/types"
 
 export const GUEST_PRACTICE_STATE_KEY = "agentic-ready-gh600-v2:guest"
 export const LEGACY_PRACTICE_STATE_KEY = "agentic-ready-gh600-v1"
@@ -46,7 +53,11 @@ export interface BrowserPracticeStateStore {
   getSnapshot: () => BrowserPracticeStateSnapshot
   initialize: () => Promise<void>
   resolveSession: (session: PracticeSession | null) => Promise<void>
-  update: (updater: (current: PracticeState) => PracticeState) => PracticeStateEnvelope
+  update: (
+    updater: (current: PracticeState) => PracticeState,
+    options?: { flush?: PracticeStateFlush },
+  ) => PracticeStateEnvelope
+  flush: () => Promise<void>
   subscribe: (listener: () => void) => () => void
 }
 
@@ -54,7 +65,48 @@ interface BrowserPracticeStateStoreOptions {
   storage: Storage
   auth?: PracticeAuth
   practiceApi?: PracticeApi
+  syncDebounceMs?: number
 }
+
+export type PracticeStateFlush = "debounced" | "immediate"
+
+type PracticeStateMutation =
+  | { kind: "activeAttempt"; revision: number; value: Attempt | null }
+  | { kind: "finishedAttempt"; revision: number; attemptId: string; value: FinishedAttempt | null }
+  | { kind: "latestAnswer"; revision: number; questionId: string; value: string[] | null }
+  | { kind: "bookmark"; revision: number; questionId: string; value: boolean }
+
+interface AccountPracticeStateCache {
+  envelope: PracticeStateEnvelope
+  canonicalEnvelope: PracticeStateEnvelope
+  revision: number
+  acknowledgedRevision: number
+  journal: PracticeStateMutation[]
+}
+
+interface AccountSyncCoordinator {
+  subject: string
+  key: string
+  cache: AccountPracticeStateCache
+  timer: ReturnType<typeof setTimeout> | null
+  inFlight: Promise<void> | null
+  retryRequested: boolean
+  rollbackPending: boolean
+  rollbackError: Error | null
+}
+
+interface FirstSyncCoordinator {
+  subject: string
+  accountKey: string
+  cache: AccountPracticeStateCache
+  timer: ReturnType<typeof setTimeout> | null
+  inFlight: Promise<void> | null
+  retryRequested: boolean
+}
+
+const ACCOUNT_SYNC_CACHE_VERSION = 1
+const FIRST_SYNC_CACHE_VERSION = 1
+const DEFAULT_SYNC_DEBOUNCE_MS = 3_000
 
 function asRecord(value: unknown): JsonRecord | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonRecord : null
@@ -208,6 +260,7 @@ export function createBrowserPracticeStateStore({
   storage,
   auth,
   practiceApi,
+  syncDebounceMs = DEFAULT_SYNC_DEBOUNCE_MS,
 }: BrowserPracticeStateStoreOptions): BrowserPracticeStateStore {
   if ((auth && !practiceApi) || (!auth && practiceApi)) {
     throw new Error("Account mode requires both authentication and the practice API.")
@@ -219,7 +272,9 @@ export function createBrowserPracticeStateStore({
   let resolution = 0
   let initialization: Promise<void> | null = null
   let pendingSubject: { subject: string; promise: Promise<void> } | null = null
-  let sessionSubscription: (() => void) | null = null
+  let activeAccount: AccountSyncCoordinator | null = null
+  let firstSync: FirstSyncCoordinator | null = null
+  const subjectFlights = new Map<string, Promise<void>>()
   let observedSessionVersion = 0
   let snapshot: BrowserPracticeStateSnapshot = {
     envelope: createEmptyPracticeStateEnvelope(),
@@ -268,88 +323,367 @@ export function createBrowserPracticeStateStore({
     }
   }
 
-  function activateAccount(subject: string, envelope: PracticeStateEnvelope) {
+  function writeAccountCache(key: string, cache: AccountPracticeStateCache) {
+    storage.setItem(key, serializeAccountCache(cache))
+  }
+
+  function activateAccount(subject: string, cache: AccountPracticeStateCache) {
+    const coordinator: AccountSyncCoordinator = {
+      subject,
+      key: accountPracticeStateKey(subject),
+      cache,
+      timer: null,
+      inFlight: null,
+      retryRequested: false,
+      rollbackPending: false,
+      rollbackError: null,
+    }
+    activeAccount = coordinator
     guestPracticeStateConsumed = true
     const cleanupError = cleanupGuestPracticeState()
     publish({
-      envelope,
+      envelope: cache.envelope,
       mode: { kind: "account", subject },
       error: cleanupError,
       firstSyncRejected: false,
     })
+    if (hasPendingMutations(cache)) scheduleSync(coordinator, "immediate")
+  }
+
+  function clearSyncTimer(coordinator: AccountSyncCoordinator) {
+    if (coordinator.timer === null) return
+    clearTimeout(coordinator.timer)
+    coordinator.timer = null
+  }
+
+  function scheduleSync(
+    coordinator: AccountSyncCoordinator,
+    flush: PracticeStateFlush,
+  ) {
+    if (
+      activeAccount !== coordinator ||
+      coordinator.inFlight ||
+      !hasCoordinatorWork(coordinator)
+    ) {
+      return
+    }
+
+    clearSyncTimer(coordinator)
+    if (flush === "immediate") {
+      void startAccountSync(coordinator)
+      return
+    }
+
+    coordinator.timer = setTimeout(() => {
+      coordinator.timer = null
+      void startAccountSync(coordinator)
+    }, syncDebounceMs)
+  }
+
+  function startAccountSync(coordinator: AccountSyncCoordinator) {
+    if (coordinator.inFlight) return coordinator.inFlight
+    clearSyncTimer(coordinator)
+    const run = syncAccount(coordinator)
+    const tracked = run.finally(() => {
+      if (coordinator.inFlight === tracked) coordinator.inFlight = null
+      if (subjectFlights.get(coordinator.subject) === tracked) {
+        subjectFlights.delete(coordinator.subject)
+      }
+      if (coordinator.retryRequested && activeAccount === coordinator) {
+        coordinator.retryRequested = false
+        scheduleSync(coordinator, "debounced")
+      }
+    })
+    coordinator.inFlight = tracked
+    subjectFlights.set(coordinator.subject, tracked)
+    return tracked
+  }
+
+  async function syncAccount(coordinator: AccountSyncCoordinator) {
+    while (
+      activeAccount === coordinator &&
+      hasCoordinatorWork(coordinator)
+    ) {
+      if (coordinator.rollbackPending) {
+        try {
+          writeAccountCache(coordinator.key, coordinator.cache)
+        } catch (error) {
+          publish({
+            ...snapshot,
+            envelope: coordinator.cache.envelope,
+            error: toError(error),
+          })
+          coordinator.retryRequested = true
+          return
+        }
+
+        coordinator.rollbackPending = false
+        const rollbackError = coordinator.rollbackError
+        coordinator.rollbackError = null
+        publish({
+          ...snapshot,
+          envelope: coordinator.cache.envelope,
+          error: rollbackError,
+        })
+        continue
+      }
+
+      const sentEnvelope = coordinator.cache.envelope
+      const sentRevision = coordinator.cache.revision
+
+      let canonical: PracticeStateEnvelope
+      try {
+        const identityToken = await auth!.getIdentityToken()
+        if (activeAccount !== coordinator) return
+        canonical = await practiceApi!.postPracticeState(identityToken, sentEnvelope)
+      } catch (error) {
+        if (activeAccount !== coordinator) return
+        if (isPermanentSyncRejection(error)) {
+          const rollback = rollbackAccountCache(coordinator.cache)
+          try {
+            writeAccountCache(coordinator.key, rollback)
+          } catch (storageError) {
+            coordinator.cache = rollback
+            coordinator.rollbackError = toError(error)
+            try {
+              storage.removeItem(coordinator.key)
+            } catch {
+              coordinator.rollbackPending = true
+              coordinator.retryRequested = true
+            }
+            publish({
+              ...snapshot,
+              envelope: rollback.envelope,
+              error: toError(storageError),
+            })
+            return
+          }
+          coordinator.cache = rollback
+          publish({
+            ...snapshot,
+            envelope: rollback.envelope,
+            error: toError(error),
+          })
+        } else {
+          publish({ ...snapshot, error: toError(error) })
+          coordinator.retryRequested = true
+        }
+        return
+      }
+
+      if (activeAccount !== coordinator) return
+      const rebased = rebaseAccountCache(
+        coordinator.cache,
+        canonical,
+        sentRevision,
+      )
+      try {
+        writeAccountCache(coordinator.key, rebased)
+      } catch (error) {
+        publish({ ...snapshot, error: toError(error) })
+        coordinator.retryRequested = true
+        return
+      }
+
+      coordinator.cache = rebased
+      coordinator.retryRequested = false
+      publish({ ...snapshot, envelope: rebased.envelope, error: null })
+    }
   }
 
   async function transitionGuestToAccount(subject: string, currentResolution: number) {
+    const existingFlight = subjectFlights.get(subject)
+    if (existingFlight) await existingFlight
+    if (currentResolution !== resolution) return
+
     const key = accountPracticeStateKey(subject)
-    const existing = readEnvelope(storage.getItem(key))
+    const existing = readAccountCache(storage.getItem(key))
     if (existing) {
       if (currentResolution === resolution) activateAccount(subject, existing)
       return
     }
 
+    guestStore = null
     const guest = getActiveGuestStore().load()
+    const resumed = readFirstSyncCache(
+      storage.getItem(GUEST_PRACTICE_STATE_KEY),
+      subject,
+    )
+    const coordinator: FirstSyncCoordinator = {
+      subject,
+      accountKey: key,
+      cache: resumed ?? createPendingFirstSyncCache(guest),
+      timer: null,
+      inFlight: null,
+      retryRequested: false,
+    }
+    firstSync = coordinator
     publish({
-      envelope: guest,
+      envelope: coordinator.cache.envelope,
       mode: { kind: "transitioning", subject },
       error: null,
       firstSyncRejected: false,
     })
 
-    while (currentResolution === resolution) {
-      const sentEnvelope = getActiveGuestStore().load()
-      let canonical: PracticeStateEnvelope
-
+    if (!resumed) {
       try {
-        const identityToken = await auth!.getIdentityToken()
-        canonical = await practiceApi!.postPracticeState(identityToken, sentEnvelope)
+        writeFirstSyncCache(coordinator)
       } catch (error) {
-        if (currentResolution !== resolution) return
-        if (isPermanentFirstSyncRejection(error)) {
-          let surfacedError = toError(error)
-          try {
-            await auth!.signOut()
-          } catch (signOutError) {
-            surfacedError = toError(signOutError)
-          }
-          if (currentResolution === resolution) {
-            activateGuest(surfacedError, true)
-          } else if (snapshot.mode.kind === "guest") {
-            publish({
-              ...snapshot,
-              error: surfacedError,
-              firstSyncRejected: true,
-            })
-          }
-          return
-        }
-
-        publish({
-          envelope: getActiveGuestStore().load(),
-          mode: { kind: "transitioning", subject },
-          error: toError(error),
-          firstSyncRejected: false,
-        })
+        publish({ ...snapshot, error: toError(error) })
         return
       }
+    }
 
-      if (currentResolution !== resolution) return
-      if (getActiveGuestStore().load() !== sentEnvelope) continue
+    await startFirstSync(coordinator)
+  }
 
-      try {
-        storage.setItem(key, JSON.stringify(canonical))
-      } catch (error) {
-        publish({
-          envelope: getActiveGuestStore().load(),
-          mode: { kind: "transitioning", subject },
-          error: toError(error),
-          firstSyncRejected: false,
-        })
-        return
-      }
+  function writeFirstSyncCache(coordinator: FirstSyncCoordinator) {
+    storage.setItem(
+      GUEST_PRACTICE_STATE_KEY,
+      serializeFirstSyncCache(coordinator.subject, coordinator.cache),
+    )
+  }
 
-      activateAccount(subject, canonical)
+  function clearFirstSyncTimer(coordinator: FirstSyncCoordinator) {
+    if (coordinator.timer === null) return
+    clearTimeout(coordinator.timer)
+    coordinator.timer = null
+  }
+
+  function scheduleFirstSync(
+    coordinator: FirstSyncCoordinator,
+    flush: PracticeStateFlush,
+  ) {
+    if (firstSync !== coordinator || coordinator.inFlight) return
+    clearFirstSyncTimer(coordinator)
+    if (flush === "immediate") {
+      void startFirstSync(coordinator)
       return
     }
+
+    coordinator.timer = setTimeout(() => {
+      coordinator.timer = null
+      void startFirstSync(coordinator)
+    }, syncDebounceMs)
+  }
+
+  function startFirstSync(coordinator: FirstSyncCoordinator) {
+    if (coordinator.inFlight) return coordinator.inFlight
+    clearFirstSyncTimer(coordinator)
+
+    const run = syncFirstPracticeState(coordinator)
+    const tracked = run.finally(() => {
+      if (coordinator.inFlight === tracked) coordinator.inFlight = null
+      if (subjectFlights.get(coordinator.subject) === tracked) {
+        subjectFlights.delete(coordinator.subject)
+      }
+      if (coordinator.retryRequested && firstSync === coordinator) {
+        coordinator.retryRequested = false
+        scheduleFirstSync(coordinator, "debounced")
+      }
+    })
+    coordinator.inFlight = tracked
+    subjectFlights.set(coordinator.subject, tracked)
+    return tracked
+  }
+
+  async function syncFirstPracticeState(coordinator: FirstSyncCoordinator) {
+    const sentEnvelope = coordinator.cache.envelope
+    const sentRevision = coordinator.cache.revision
+    let canonical: PracticeStateEnvelope
+
+    try {
+      const identityToken = await auth!.getIdentityToken()
+      if (firstSync !== coordinator) return
+      canonical = await practiceApi!.postPracticeState(identityToken, sentEnvelope)
+    } catch (error) {
+      if (firstSync !== coordinator) return
+      if (isPermanentSyncRejection(error)) {
+        await rejectFirstSync(coordinator, error)
+      } else {
+        publish({
+          envelope: coordinator.cache.envelope,
+          mode: { kind: "transitioning", subject: coordinator.subject },
+          error: toError(error),
+          firstSyncRejected: false,
+        })
+        coordinator.retryRequested = true
+      }
+      return
+    }
+
+    if (firstSync !== coordinator) return
+    const rebased = rebaseAccountCache(
+      coordinator.cache,
+      canonical,
+      sentRevision,
+    )
+    try {
+      writeAccountCache(coordinator.accountKey, rebased)
+    } catch (error) {
+      publish({
+        envelope: coordinator.cache.envelope,
+        mode: { kind: "transitioning", subject: coordinator.subject },
+        error: toError(error),
+        firstSyncRejected: false,
+      })
+      coordinator.retryRequested = true
+      return
+    }
+
+    firstSync = null
+    activateAccount(coordinator.subject, rebased)
+  }
+
+  async function rejectFirstSync(
+    coordinator: FirstSyncCoordinator,
+    rejection: unknown,
+  ) {
+    const rejectionResolution = resolution
+    let surfacedError = toError(rejection)
+    const restoreError = restoreGuestPracticeState(coordinator.cache.envelope)
+    if (restoreError) surfacedError = restoreError
+    firstSync = null
+    clearFirstSyncTimer(coordinator)
+
+    try {
+      await auth!.signOut()
+    } catch (signOutError) {
+      surfacedError = toError(signOutError)
+    }
+
+    if (resolution === rejectionResolution) {
+      activateGuest(surfacedError, true)
+    } else if (snapshot.mode.kind === "guest") {
+      publish({
+        ...snapshot,
+        error: surfacedError,
+        firstSyncRejected: true,
+      })
+    }
+  }
+
+  function restoreGuestPracticeState(envelope: PracticeStateEnvelope) {
+    guestStore = null
+    guestPracticeStateConsumed = false
+    try {
+      storage.setItem(GUEST_PRACTICE_STATE_KEY, JSON.stringify(envelope))
+      return null
+    } catch (error) {
+      return toError(error)
+    }
+  }
+
+  function deactivateFirstSync() {
+    if (!firstSync) return
+    clearFirstSyncTimer(firstSync)
+    firstSync = null
+  }
+
+  function deactivateAccount() {
+    if (!activeAccount) return
+    clearSyncTimer(activeAccount)
+    activeAccount = null
   }
 
   async function applySession(session: PracticeSession | null) {
@@ -357,9 +691,11 @@ export function createBrowserPracticeStateStore({
     pendingSubject = null
 
     if (!session) {
+      const transitioningGuest = firstSync?.cache.envelope ?? null
       const firstSyncRejected = snapshot.firstSyncRejected
       const rejectionError = firstSyncRejected ? snapshot.error : null
       hideAccountState()
+      if (transitioningGuest) restoreGuestPracticeState(transitioningGuest)
       try {
         activateGuest(rejectionError, firstSyncRejected)
       } catch (error) {
@@ -391,6 +727,8 @@ export function createBrowserPracticeStateStore({
   }
 
   function hideAccountState() {
+    deactivateFirstSync()
+    deactivateAccount()
     if (snapshot.mode.kind !== "account") return
     publish({
       envelope: createEmptyPracticeStateEnvelope(),
@@ -423,7 +761,7 @@ export function createBrowserPracticeStateStore({
 
         try {
           const startingSessionVersion = observedSessionVersion
-          sessionSubscription ??= auth.subscribeSession((session) => {
+          auth.subscribeSession((session) => {
             observedSessionVersion += 1
             void resolveSession(session)
           })
@@ -438,16 +776,56 @@ export function createBrowserPracticeStateStore({
       return initialization
     },
     resolveSession,
-    update(updater) {
+    update(updater, options) {
       if (snapshot.mode.kind === "initializing") {
         throw new Error("Practice state is not initialized.")
       }
 
+      if (snapshot.mode.kind === "transitioning" && firstSync) {
+        const nextCache = accountCacheAfterUpdate(
+          firstSync.cache,
+          updater(firstSync.cache.envelope.state),
+        )
+        if (nextCache === firstSync.cache) {
+          if (options?.flush === "immediate") {
+            scheduleFirstSync(firstSync, "immediate")
+          }
+          return firstSync.cache.envelope
+        }
+
+        const nextCoordinator = { ...firstSync, cache: nextCache }
+        writeFirstSyncCache(nextCoordinator)
+        guestStore = null
+        firstSync.cache = nextCache
+        publish({ ...snapshot, envelope: nextCache.envelope, error: null })
+        scheduleFirstSync(firstSync, options?.flush ?? "debounced")
+        return nextCache.envelope
+      }
+
       if (snapshot.mode.kind === "account") {
-        const next = envelopeForAccountUpdate(snapshot.envelope, updater(snapshot.envelope.state))
-        storage.setItem(accountPracticeStateKey(snapshot.mode.subject), JSON.stringify(next))
-        publish({ ...snapshot, envelope: next, error: null })
-        return next
+        const coordinator = activeAccount
+        if (!coordinator || coordinator.subject !== snapshot.mode.subject) {
+          throw new Error("The active account cache is unavailable.")
+        }
+
+        const nextCache = accountCacheAfterUpdate(
+          coordinator.cache,
+          updater(coordinator.cache.envelope.state),
+        )
+        if (nextCache === coordinator.cache) {
+          if (options?.flush === "immediate") {
+            scheduleSync(coordinator, "immediate")
+          }
+          return coordinator.cache.envelope
+        }
+
+        writeAccountCache(coordinator.key, nextCache)
+        coordinator.cache = nextCache
+        coordinator.rollbackPending = false
+        coordinator.rollbackError = null
+        publish({ ...snapshot, envelope: nextCache.envelope, error: null })
+        scheduleSync(coordinator, options?.flush ?? "debounced")
+        return nextCache.envelope
       }
 
       const next = getActiveGuestStore().save(
@@ -456,6 +834,13 @@ export function createBrowserPracticeStateStore({
       publish({ ...snapshot, envelope: next, error: null })
       return next
     },
+    flush() {
+      if (firstSync) return startFirstSync(firstSync)
+      if (!activeAccount || !hasCoordinatorWork(activeAccount)) {
+        return Promise.resolve()
+      }
+      return startAccountSync(activeAccount)
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -463,74 +848,561 @@ export function createBrowserPracticeStateStore({
   }
 }
 
-function envelopeForAccountUpdate(
-  current: PracticeStateEnvelope,
+function accountCacheAfterUpdate(
+  current: AccountPracticeStateCache,
   nextPracticeState: PracticeState,
-): PracticeStateEnvelope {
-  const nextState = {
+): AccountPracticeStateCache {
+  const nextState: PracticeState = {
     ...nextPracticeState,
     attempts: retainRecentFinishedAttempts(nextPracticeState.attempts),
   }
-  const activeAttemptReceivedAt = sameValue(
-    current.state.activeAttempt,
-    nextState.activeAttempt,
+  const revision = current.revision + 1
+  const mutations = mutationsBetween(
+    current.envelope.state,
+    nextState,
+    revision,
   )
-    ? current.receipts.activeAttemptReceivedAt
-    : undefined
-  const currentAttempts = new Map(
-    current.state.attempts.map((attempt) => [attempt.id, attempt]),
-  )
-  const finishedAttempts = Object.fromEntries(
-    nextState.attempts.flatMap((attempt) => {
-      const receivedAt = current.receipts.finishedAttempts[attempt.id]
-      return receivedAt && sameValue(currentAttempts.get(attempt.id), attempt)
-        ? [[attempt.id, receivedAt]]
-        : []
-    }),
-  )
-  const latestAnswers = Object.fromEntries(
-    Object.entries(nextState.latestAnswers).flatMap(([questionId, answer]) => {
-      const receivedAt = current.receipts.latestAnswers[questionId]
-      return receivedAt && sameValue(current.state.latestAnswers[questionId], answer)
-        ? [[questionId, receivedAt]]
-        : []
-    }),
-  )
-  const currentBookmarks = new Set(current.state.bookmarks)
-  const nextBookmarks = new Set(nextState.bookmarks)
-  const bookmarkQuestionIds = new Set([
-    ...Object.keys(current.receipts.bookmarks),
-    ...currentBookmarks,
-    ...nextBookmarks,
-  ])
-  const bookmarks = Object.fromEntries(
-    [...bookmarkQuestionIds].map((questionId) => {
-      const isBookmarked = nextBookmarks.has(questionId)
-      const existing = current.receipts.bookmarks[questionId]
-      return [
+  if (!mutations.length) return current
+
+  const journal = coalesceMutations(current.journal, mutations)
+  const replayed = replayRetainedMutations(current.canonicalEnvelope, journal)
+  const acknowledgedRevision = replayed.journal.length
+    ? current.acknowledgedRevision
+    : revision
+
+  return {
+    envelope: replayed.envelope,
+    canonicalEnvelope: current.canonicalEnvelope,
+    revision,
+    acknowledgedRevision,
+    journal: replayed.journal,
+  }
+}
+
+function createPendingFirstSyncCache(
+  envelope: PracticeStateEnvelope,
+): AccountPracticeStateCache {
+  return {
+    envelope,
+    canonicalEnvelope: envelope,
+    revision: 0,
+    acknowledgedRevision: 0,
+    journal: [],
+  }
+}
+
+function rollbackAccountCache(
+  current: AccountPracticeStateCache,
+): AccountPracticeStateCache {
+  return {
+    envelope: current.canonicalEnvelope,
+    canonicalEnvelope: current.canonicalEnvelope,
+    revision: current.revision,
+    acknowledgedRevision: current.revision,
+    journal: [],
+  }
+}
+
+function rebaseAccountCache(
+  current: AccountPracticeStateCache,
+  canonicalEnvelope: PracticeStateEnvelope,
+  sentRevision: number,
+): AccountPracticeStateCache {
+  const journal = current.journal
+    .filter((mutation) => mutation.revision > sentRevision)
+  const replayed = replayRetainedMutations(canonicalEnvelope, journal)
+  return {
+    envelope: replayed.envelope,
+    canonicalEnvelope,
+    revision: current.revision,
+    acknowledgedRevision: replayed.journal.length ? sentRevision : current.revision,
+    journal: replayed.journal,
+  }
+}
+
+function mutationsBetween(
+  current: PracticeState,
+  next: PracticeState,
+  revision: number,
+): PracticeStateMutation[] {
+  const mutations: PracticeStateMutation[] = []
+  if (!sameValue(current.activeAttempt, next.activeAttempt)) {
+    mutations.push({
+      kind: "activeAttempt",
+      revision,
+      value: next.activeAttempt,
+    })
+  }
+
+  const currentAttempts = new Map(current.attempts.map((attempt) => [attempt.id, attempt]))
+  const nextAttempts = new Map(next.attempts.map((attempt) => [attempt.id, attempt]))
+  for (const attemptId of new Set([...currentAttempts.keys(), ...nextAttempts.keys()])) {
+    const currentAttempt = currentAttempts.get(attemptId) ?? null
+    const nextAttempt = nextAttempts.get(attemptId) ?? null
+    if (!sameValue(currentAttempt, nextAttempt)) {
+      mutations.push({
+        kind: "finishedAttempt",
+        revision,
+        attemptId,
+        value: nextAttempt,
+      })
+    }
+  }
+
+  for (const questionId of new Set([
+    ...Object.keys(current.latestAnswers),
+    ...Object.keys(next.latestAnswers),
+  ])) {
+    const currentAnswer = current.latestAnswers[questionId] ?? null
+    const nextAnswer = next.latestAnswers[questionId] ?? null
+    if (!sameValue(currentAnswer, nextAnswer)) {
+      mutations.push({
+        kind: "latestAnswer",
+        revision,
         questionId,
-        existing &&
-        currentBookmarks.has(questionId) === isBookmarked &&
-        existing.isBookmarked === isBookmarked
-          ? existing
-          : { isBookmarked },
-      ]
-    }),
+        value: nextAnswer,
+      })
+    }
+  }
+
+  const currentBookmarks = new Set(current.bookmarks)
+  const nextBookmarks = new Set(next.bookmarks)
+  for (const questionId of new Set([...currentBookmarks, ...nextBookmarks])) {
+    if (currentBookmarks.has(questionId) !== nextBookmarks.has(questionId)) {
+      mutations.push({
+        kind: "bookmark",
+        revision,
+        questionId,
+        value: nextBookmarks.has(questionId),
+      })
+    }
+  }
+
+  return mutations
+}
+
+function coalesceMutations(
+  current: PracticeStateMutation[],
+  next: PracticeStateMutation[],
+) {
+  const replacements = new Map(next.map((mutation) => [mutationPath(mutation), mutation]))
+  return [
+    ...current.filter((mutation) => !replacements.has(mutationPath(mutation))),
+    ...next,
+  ]
+}
+
+function replayMutations(
+  canonical: PracticeStateEnvelope,
+  journal: PracticeStateMutation[],
+): PracticeStateEnvelope {
+  let activeAttempt = canonical.state.activeAttempt
+  let activeAttemptReceivedAt = canonical.receipts.activeAttemptReceivedAt
+  const attempts = new Map(canonical.state.attempts.map((attempt) => [attempt.id, attempt]))
+  const finishedAttempts = { ...canonical.receipts.finishedAttempts }
+  const latestAnswers = { ...canonical.state.latestAnswers }
+  const latestAnswerReceipts = { ...canonical.receipts.latestAnswers }
+  const bookmarkSet = new Set(canonical.state.bookmarks)
+  const bookmarks = { ...canonical.receipts.bookmarks }
+
+  for (const mutation of [...journal].sort((left, right) => left.revision - right.revision)) {
+    switch (mutation.kind) {
+      case "activeAttempt":
+        activeAttempt = mutation.value
+        activeAttemptReceivedAt = undefined
+        break
+      case "finishedAttempt":
+        if (mutation.value) {
+          attempts.set(mutation.attemptId, mutation.value)
+        } else {
+          attempts.delete(mutation.attemptId)
+        }
+        delete finishedAttempts[mutation.attemptId]
+        break
+      case "latestAnswer":
+        if (mutation.value) {
+          latestAnswers[mutation.questionId] = mutation.value
+        } else {
+          delete latestAnswers[mutation.questionId]
+        }
+        delete latestAnswerReceipts[mutation.questionId]
+        break
+      case "bookmark":
+        if (mutation.value) {
+          bookmarkSet.add(mutation.questionId)
+        } else {
+          bookmarkSet.delete(mutation.questionId)
+        }
+        bookmarks[mutation.questionId] = { isBookmarked: mutation.value }
+        break
+    }
+  }
+
+  const retainedAttempts = retainRecentFinishedAttempts([...attempts.values()])
+  const retainedAttemptIds = new Set(retainedAttempts.map((attempt) => attempt.id))
+  const retainedFinishedAttemptReceipts = Object.fromEntries(
+    Object.entries(finishedAttempts)
+      .filter(([attemptId]) => retainedAttemptIds.has(attemptId)),
   )
 
   return {
     schemaVersion: 2,
-    state: nextState,
+    state: {
+      activeAttempt,
+      attempts: retainedAttempts,
+      bookmarks: [...bookmarkSet],
+      latestAnswers,
+    },
     receipts: {
       ...(activeAttemptReceivedAt ? { activeAttemptReceivedAt } : {}),
-      finishedAttempts,
+      finishedAttempts: retainedFinishedAttemptReceipts,
       bookmarks,
-      latestAnswers,
+      latestAnswers: latestAnswerReceipts,
     },
   }
 }
 
-function isPermanentFirstSyncRejection(error: unknown) {
+function replayRetainedMutations(
+  canonical: PracticeStateEnvelope,
+  journal: PracticeStateMutation[],
+) {
+  const canonicalFinishedAttemptIds = new Set(
+    canonical.state.attempts.map((attempt) => attempt.id),
+  )
+  let conflictFreeJournal = journal.filter((mutation) => (
+    mutation.kind !== "activeAttempt" ||
+    !mutation.value ||
+    !canonicalFinishedAttemptIds.has(mutation.value.id)
+  ))
+  const canonicalActiveAttempt = canonical.state.activeAttempt
+  if (canonicalActiveAttempt) {
+    const matchingFinish = conflictFreeJournal.find((mutation) => (
+      mutation.kind === "finishedAttempt" &&
+      mutation.value?.id === canonicalActiveAttempt.id
+    ))
+    const activeMutation = conflictFreeJournal.find((mutation) => (
+      mutation.kind === "activeAttempt"
+    ))
+    if (
+      matchingFinish &&
+      (
+        !activeMutation ||
+        activeMutation.value?.id === canonicalActiveAttempt.id
+      )
+    ) {
+      conflictFreeJournal = [
+        ...conflictFreeJournal.filter((mutation) => mutation.kind !== "activeAttempt"),
+        {
+          kind: "activeAttempt",
+          revision: Math.max(matchingFinish.revision, activeMutation?.revision ?? 0),
+          value: null,
+        },
+      ]
+    }
+  }
+  let envelope = replayMutations(canonical, conflictFreeJournal)
+  const retainedJournal = conflictFreeJournal.filter((mutation) => (
+    mutation.kind !== "finishedAttempt" ||
+    mutationMatchesEnvelope(mutation, envelope)
+  ))
+  if (retainedJournal.length !== conflictFreeJournal.length) {
+    envelope = replayMutations(canonical, retainedJournal)
+  }
+  return { envelope, journal: retainedJournal }
+}
+
+function mutationPath(mutation: PracticeStateMutation) {
+  switch (mutation.kind) {
+    case "activeAttempt":
+      return "activeAttempt"
+    case "finishedAttempt":
+      return `finishedAttempt:${mutation.attemptId}`
+    case "latestAnswer":
+      return `latestAnswer:${mutation.questionId}`
+    case "bookmark":
+      return `bookmark:${mutation.questionId}`
+  }
+}
+
+function mutationMatchesEnvelope(
+  mutation: PracticeStateMutation,
+  envelope: PracticeStateEnvelope,
+) {
+  switch (mutation.kind) {
+    case "activeAttempt":
+      return sameValue(mutation.value, envelope.state.activeAttempt)
+    case "finishedAttempt":
+      return sameValue(
+        mutation.value,
+        envelope.state.attempts.find((attempt) => attempt.id === mutation.attemptId) ?? null,
+      )
+    case "latestAnswer":
+      return sameValue(
+        mutation.value,
+        envelope.state.latestAnswers[mutation.questionId] ?? null,
+      )
+    case "bookmark":
+      return mutation.value === envelope.state.bookmarks.includes(mutation.questionId)
+  }
+}
+
+function hasPendingMutations(cache: AccountPracticeStateCache) {
+  return cache.journal.length > 0
+}
+
+function hasCoordinatorWork(coordinator: AccountSyncCoordinator) {
+  return coordinator.rollbackPending || hasPendingMutations(coordinator.cache)
+}
+
+function serializeAccountCache(cache: AccountPracticeStateCache) {
+  return JSON.stringify({
+    ...cache.envelope,
+    sync: {
+      version: ACCOUNT_SYNC_CACHE_VERSION,
+      canonicalEnvelope: cache.canonicalEnvelope,
+      revision: cache.revision,
+      acknowledgedRevision: cache.acknowledgedRevision,
+      journal: cache.journal,
+    },
+  })
+}
+
+function serializeFirstSyncCache(
+  subject: string,
+  cache: AccountPracticeStateCache,
+) {
+  return JSON.stringify({
+    ...cache.envelope,
+    firstSync: {
+      version: FIRST_SYNC_CACHE_VERSION,
+      subject,
+      canonicalEnvelope: cache.canonicalEnvelope,
+      revision: cache.revision,
+      acknowledgedRevision: cache.acknowledgedRevision,
+      journal: cache.journal,
+    },
+  })
+}
+
+function readAccountCache(raw: string | null): AccountPracticeStateCache | null {
+  const envelope = readEnvelope(raw)
+  if (!envelope || raw === null) return null
+
+  let parsed: JsonRecord | null
+  try {
+    parsed = asRecord(JSON.parse(raw))
+  } catch {
+    return null
+  }
+  const sync = asRecord(parsed?.sync)
+  if (!sync) return migrateLegacyAccountCache(envelope)
+  if (sync.version !== ACCOUNT_SYNC_CACHE_VERSION) return null
+  return readCacheMetadata(sync, envelope)
+}
+
+function readFirstSyncCache(
+  raw: string | null,
+  subject: string,
+): AccountPracticeStateCache | null {
+  const envelope = readEnvelope(raw)
+  if (!envelope || raw === null) return null
+
+  let parsed: JsonRecord | null
+  try {
+    parsed = asRecord(JSON.parse(raw))
+  } catch {
+    return null
+  }
+  const firstSync = asRecord(parsed?.firstSync)
+  if (
+    !firstSync ||
+    firstSync.version !== FIRST_SYNC_CACHE_VERSION ||
+    firstSync.subject !== subject
+  ) {
+    return null
+  }
+  return readCacheMetadata(firstSync, envelope)
+}
+
+function readCacheMetadata(
+  metadata: JsonRecord,
+  envelope: PracticeStateEnvelope,
+): AccountPracticeStateCache | null {
+  const canonicalEnvelope = readEnvelopeValue(metadata.canonicalEnvelope)
+  const revision = readNonNegativeInteger(metadata.revision)
+  const acknowledgedRevision = readNonNegativeInteger(metadata.acknowledgedRevision)
+  if (
+    !canonicalEnvelope ||
+    revision === null ||
+    acknowledgedRevision === null ||
+    acknowledgedRevision > revision
+  ) {
+    return null
+  }
+
+  const journal = readMutationJournal(
+    metadata.journal,
+    envelope,
+    acknowledgedRevision,
+    revision,
+  )
+  if (!journal) return null
+  const replayed = replayMutations(canonicalEnvelope, journal)
+  if (!sameValue(replayed, envelope)) return null
+
+  return {
+    envelope,
+    canonicalEnvelope,
+    revision,
+    acknowledgedRevision,
+    journal,
+  }
+}
+
+function migrateLegacyAccountCache(
+  envelope: PracticeStateEnvelope,
+): AccountPracticeStateCache {
+  const journal = mutationsMissingReceipts(envelope)
+  return {
+    envelope,
+    canonicalEnvelope: envelope,
+    revision: journal.length ? 1 : 0,
+    acknowledgedRevision: 0,
+    journal,
+  }
+}
+
+function mutationsMissingReceipts(
+  envelope: PracticeStateEnvelope,
+): PracticeStateMutation[] {
+  const mutations: PracticeStateMutation[] = []
+  if (envelope.state.activeAttempt && !envelope.receipts.activeAttemptReceivedAt) {
+    mutations.push({
+      kind: "activeAttempt",
+      revision: 1,
+      value: envelope.state.activeAttempt,
+    })
+  }
+  for (const attempt of envelope.state.attempts) {
+    if (!envelope.receipts.finishedAttempts[attempt.id]) {
+      mutations.push({
+        kind: "finishedAttempt",
+        revision: 1,
+        attemptId: attempt.id,
+        value: attempt,
+      })
+    }
+  }
+  for (const [questionId, value] of Object.entries(envelope.state.latestAnswers)) {
+    if (!envelope.receipts.latestAnswers[questionId]) {
+      mutations.push({
+        kind: "latestAnswer",
+        revision: 1,
+        questionId,
+        value,
+      })
+    }
+  }
+  const visibleBookmarks = new Set(envelope.state.bookmarks)
+  for (const questionId of new Set([
+    ...visibleBookmarks,
+    ...Object.keys(envelope.receipts.bookmarks),
+  ])) {
+    if (!envelope.receipts.bookmarks[questionId]?.receivedAt) {
+      mutations.push({
+        kind: "bookmark",
+        revision: 1,
+        questionId,
+        value: visibleBookmarks.has(questionId),
+      })
+    }
+  }
+  return mutations
+}
+
+function readMutationJournal(
+  value: unknown,
+  envelope: PracticeStateEnvelope,
+  acknowledgedRevision: number,
+  revision: number,
+): PracticeStateMutation[] | null {
+  if (!Array.isArray(value)) return null
+
+  const journal: PracticeStateMutation[] = []
+  const paths = new Set<string>()
+  for (const entry of value) {
+    const record = asRecord(entry)
+    const mutationRevision = readNonNegativeInteger(record?.revision)
+    if (
+      !record ||
+      mutationRevision === null ||
+      mutationRevision <= acknowledgedRevision ||
+      mutationRevision > revision
+    ) {
+      return null
+    }
+
+    let mutation: PracticeStateMutation
+    if (record.kind === "activeAttempt") {
+      const expected = envelope.state.activeAttempt
+      if (!sameValue(record.value, expected)) return null
+      mutation = { kind: "activeAttempt", revision: mutationRevision, value: expected }
+    } else if (record.kind === "finishedAttempt" && typeof record.attemptId === "string") {
+      const expected = envelope.state.attempts
+        .find((attempt) => attempt.id === record.attemptId) ?? null
+      if (!sameValue(record.value, expected)) return null
+      mutation = {
+        kind: "finishedAttempt",
+        revision: mutationRevision,
+        attemptId: record.attemptId,
+        value: expected,
+      }
+    } else if (record.kind === "latestAnswer" && typeof record.questionId === "string") {
+      const expected = envelope.state.latestAnswers[record.questionId] ?? null
+      if (!sameValue(record.value, expected)) return null
+      mutation = {
+        kind: "latestAnswer",
+        revision: mutationRevision,
+        questionId: record.questionId,
+        value: expected,
+      }
+    } else if (record.kind === "bookmark" && typeof record.questionId === "string") {
+      const expected = envelope.state.bookmarks.includes(record.questionId)
+      if (record.value !== expected) return null
+      mutation = {
+        kind: "bookmark",
+        revision: mutationRevision,
+        questionId: record.questionId,
+        value: expected,
+      }
+    } else {
+      return null
+    }
+
+    const path = mutationPath(mutation)
+    if (paths.has(path)) return null
+    paths.add(path)
+    journal.push(mutation)
+  }
+
+  if (!journal.length && acknowledgedRevision !== revision) return null
+  return journal
+}
+
+function readEnvelopeValue(value: unknown) {
+  const serialized = JSON.stringify(value)
+  return serialized === undefined ? null : readEnvelope(serialized)
+}
+
+function readNonNegativeInteger(value: unknown) {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0
+    ? value
+    : null
+}
+
+function isPermanentSyncRejection(error: unknown) {
   return error instanceof PracticeApiError && [400, 413, 415].includes(error.status)
 }
 

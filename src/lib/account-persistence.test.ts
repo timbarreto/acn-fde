@@ -174,7 +174,7 @@ describe("subject-isolated browser practice-state store", () => {
 
     const key = "agentic-ready-gh600-v2:user:subject%2Fa%20b"
     expect(accountPracticeStateKey(subject)).toBe(key)
-    expect(JSON.parse(storage.getItem(key)!)).toEqual(canonical)
+    expect(JSON.parse(storage.getItem(key)!)).toMatchObject(canonical)
     expect(storage.getItem(GUEST_PRACTICE_STATE_KEY)).toBeNull()
     expect(store.getSnapshot()).toMatchObject({
       mode: { kind: "account", subject },

@@ -145,7 +145,7 @@ function App() {
       ...current,
       activeAttempt: null,
       attempts: [finishedAttempt, ...current.attempts],
-    }))
+    }), { flush: "immediate" })
     navigate("results")
   }, [navigate, setPracticeState])
 
@@ -159,7 +159,10 @@ function App() {
   }
 
   const exitAttempt = (attempt: Attempt) => {
-    setPracticeState((current) => ({ ...current, activeAttempt: attempt }))
+    setPracticeState(
+      (current) => ({ ...current, activeAttempt: attempt }),
+      { flush: "immediate" },
+    )
     navigate("dashboard")
   }
 
@@ -169,7 +172,7 @@ function App() {
       bookmarks: current.bookmarks.includes(id)
         ? current.bookmarks.filter((questionId) => questionId !== id)
         : [...current.bookmarks, id],
-    }))
+    }), { flush: "immediate" })
   }
 
   if (isInitializing) {
