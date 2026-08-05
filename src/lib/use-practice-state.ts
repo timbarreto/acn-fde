@@ -1,20 +1,41 @@
 import { useCallback, useSyncExternalStore } from "react"
-import { createGuestPracticeStateStore } from "@/lib/persistence"
+import { browserPracticeAuth } from "@/lib/auth-client"
+import { createBrowserPracticeStateStore } from "@/lib/persistence"
+import { createPracticeApi } from "@/lib/practice-api"
 import type { PracticeState } from "@/types"
 
-let guestPracticeStateStore: ReturnType<typeof createGuestPracticeStateStore> | null = null
+let practiceStateStore: ReturnType<typeof createBrowserPracticeStateStore> | null = null
 
-function getGuestPracticeStateStore() {
-  guestPracticeStateStore ??= createGuestPracticeStateStore(window.localStorage)
-  return guestPracticeStateStore
+function getPracticeStateStore() {
+  if (!practiceStateStore) {
+    practiceStateStore = createBrowserPracticeStateStore(
+      import.meta.env.ACN_FDE_FULL_STACK
+        ? {
+            storage: window.localStorage,
+            auth: browserPracticeAuth,
+            practiceApi: createPracticeApi(),
+          }
+        : { storage: window.localStorage },
+    )
+    void practiceStateStore.initialize()
+  }
+  return practiceStateStore
 }
 
 export function usePracticeState() {
-  const store = getGuestPracticeStateStore()
-  const envelope = useSyncExternalStore(store.subscribe, store.load, store.load)
+  const store = getPracticeStateStore()
+  const snapshot = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  )
   const updatePracticeState = useCallback((updater: (current: PracticeState) => PracticeState) => {
-    store.save(updater(store.load().state))
+    store.update(updater)
   }, [store])
 
-  return { practiceState: envelope.state, updatePracticeState }
+  return {
+    practiceState: snapshot.envelope.state,
+    updatePracticeState,
+    isInitializing: snapshot.mode.kind === "initializing",
+  }
 }

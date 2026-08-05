@@ -47,15 +47,19 @@ const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 
 function App() {
-  const { practiceState, updatePracticeState: setPracticeState } = usePracticeState()
+  const {
+    practiceState,
+    updatePracticeState: setPracticeState,
+    isInitializing,
+  } = usePracticeState()
   const [view, setView] = useState<AppView>(() => resolveNavigation(window.location.pathname, {
     hasActiveAttempt: Boolean(practiceState.activeAttempt),
     hasFinishedAttempt: practiceState.attempts.length > 0,
   }).view)
-  const [latestFinishedAttempt, setLatestFinishedAttempt] = useState<FinishedAttempt | null>(practiceState.attempts[0] ?? null)
   const [mobileNav, setMobileNav] = useState(false)
   const hasActiveAttempt = Boolean(practiceState.activeAttempt)
   const hasFinishedAttempt = practiceState.attempts.length > 0
+  const latestFinishedAttempt = practiceState.attempts[0] ?? null
 
   const navigate = useCallback((next: AppView) => {
     const pathname = getPathForView(next)
@@ -68,6 +72,8 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (isInitializing) return
+
     const syncLocation = () => {
       const resolved = resolveNavigation(window.location.pathname, {
         hasActiveAttempt,
@@ -84,7 +90,7 @@ function App() {
     syncLocation()
     window.addEventListener("popstate", syncLocation)
     return () => window.removeEventListener("popstate", syncLocation)
-  }, [hasActiveAttempt, hasFinishedAttempt])
+  }, [hasActiveAttempt, hasFinishedAttempt, isInitializing])
 
   const startAttempt = (mode: AttemptMode, domains?: DomainId[]) => {
     const selected = selectQuestions(questions, mode, domains, practiceState.latestAnswers, practiceState.attempts)
@@ -140,7 +146,6 @@ function App() {
       activeAttempt: null,
       attempts: [finishedAttempt, ...current.attempts],
     }))
-    setLatestFinishedAttempt(finishedAttempt)
     navigate("results")
   }, [navigate, setPracticeState])
 
@@ -165,6 +170,17 @@ function App() {
         ? current.bookmarks.filter((questionId) => questionId !== id)
         : [...current.bookmarks, id],
     }))
+  }
+
+  if (isInitializing) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-background px-6 text-foreground">
+        <div className="text-center" role="status">
+          <Sparkles className="mx-auto h-6 w-6 text-primary" />
+          <p className="mt-3 font-display text-lg font-bold">Starting practice…</p>
+        </div>
+      </main>
+    )
   }
 
   if (view === "exam" && practiceState.activeAttempt) {
