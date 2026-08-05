@@ -25,7 +25,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - shadcn/ui components built on Radix primitives
 - Lucide icons
 - Browser `localStorage`
-- Cloudflare Workers runtime for the optional same-origin development stack
+- Cloudflare Workers runtime for the optional same-origin stack, with a singleton production CoreEx Container
 - .NET 10, CoreEx, Aspire, and PostgreSQL 18 for backend development
 
 ## Run locally
@@ -146,6 +146,40 @@ PostgreSQL, migration, CoreEx, and Worker resource logs to the test output.
 The same harness runs with the backend tests in the ordinary pull-request CI
 workflow.
 
+## Exercise restart and production-container resilience
+
+Podman-backed resilience tests run the same same-origin HTTP lifecycle twice:
+once with the CoreEx project and once with the production `backend/Dockerfile`.
+They restart CoreEx, restart Vite/workerd so its persisted local D1 identity
+store is closed and reopened, and restart PostgreSQL; preserve a queued
+browser-cache edit across a simulated browser restart; verify
+live, startup, and readiness transitions; and prove idempotent recovery of the
+accepted state.
+
+```bash
+npm run test:resilience
+```
+
+The production-shaped run inspects the live image and process rather than only
+the Dockerfile. It verifies Linux AMD64, the non-root UID, framework-dependent
+`dotnet` entry point, port 8080, the 1 GiB limit, explicit Aspire OTLP settings,
+and the absence of container mounts for durable state. PostgreSQL owns practice
+state and D1 owns identity state; neither depends on the CoreEx filesystem.
+
+CoreEx deliberately registers an ephemeral data-protection provider because it
+owns no cookie or protected browser-session boundary. A framework component may
+still create an unused disposable key file and emit the standard container
+warning, but the directory is not mounted and no application state depends on
+it. Better Auth sessions and JWKS remain in D1 across the workerd restart.
+
+CI runs these cases in a dedicated `resilience` job. Its always-uploaded
+`resilience-test-results` artifact contains the console log and TRX output,
+including Aspire resource logs captured when a scenario fails. The local
+Container configuration explicitly enables and wires Aspire OTLP; the
+production image and Cloudflare container environment keep
+`OTEL_SDK_DISABLED=true`, so they never retry a
+local collector accidentally.
+
 ## Verify a production build
 
 ```bash
@@ -153,6 +187,7 @@ npm run test
 npm run test:worker
 npm run test:backend
 npm run test:full
+npm run test:resilience
 npm run lint
 npm run build
 npm run preview
@@ -239,8 +274,9 @@ run instead of reusing the pinned approval.
 
 ## Deploy to Cloudflare
 
-The production build deploys as a Cloudflare Worker with Static Assets and the
-`AUTH_DB` D1 binding. Before the first auth-capable deployment, configure the
+The production build deploys as a Cloudflare Worker with Static Assets, the
+`AUTH_DB` D1 binding, and a singleton sleeping CoreEx Container. Before the first
+auth-capable deployment, configure the
 GitHub OAuth Worker secrets, set a random Better Auth secret once, and apply the
 checked-in D1 migration:
 

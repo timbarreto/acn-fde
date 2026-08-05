@@ -50,7 +50,7 @@ terms do not yet appear in `src/`.
 - `src/index.css`: global styles and Tailwind layers.
 - `public/`: static assets (favicon, Open Graph cover, touch icon).
 - `worker/`: same-origin routing between application assets and CoreEx.
-- `backend/`: CoreEx API, migrations, tests, and Aspire AppHost.
+- `backend/`: CoreEx API, production Dockerfile, migrations, tests, and Aspire AppHost.
 - `contracts/`: append-only recognition data shared across browser and backend contracts.
 - `GH-600/`: source material and study documentation.
 
@@ -66,13 +66,15 @@ npm run test      # Run Vitest unit tests
 npm run test:worker # Run Worker integration tests
 npm run test:backend # Run .NET tests
 npm run test:full # Exercise the isolated signed-in stack end to end
+npm run test:resilience # Restart project/container stacks and inspect the production image
 npm run lint      # Run ESLint
 npm run build     # Type-check and create a production build
 npm run preview   # Serve the production build locally
 ```
 
 Unit tests use Vitest and live next to the code they cover (for example,
-`src/lib/exam.test.ts`). The Playwright QA suite in `src/qa-tests` runs with
+`src/lib/exam.test.ts`). Resilience tests require Podman and retain Aspire logs
+in the CI TRX artifact on failure. The Playwright QA suite in `src/qa-tests` runs with
 `npm run test:qa`; do not run the QA suite unless the operator explicitly
 asks. For code changes, run `npm run test`, `npm run lint`, and
 `npm run build`. Manually exercise the affected flow when the change involves

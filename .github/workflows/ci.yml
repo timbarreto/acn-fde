@@ -48,5 +48,58 @@ jobs:
       - name: Build production assets
         run: npm run build
 
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          podman info
+
       - name: Run backend and signed-in full-stack tests
-        run: npm run test:backend
+        run: dotnet test backend/Acn.Fde.Practice.slnx --filter "TestCategory!=Resilience"
+
+  resilience:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          podman info
+
+      - name: Exercise restart and production-container resilience
+        run: |
+          mkdir -p TestResults/resilience
+          dotnet test backend/tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj \
+            --filter TestCategory=Resilience \
+            --logger "console;verbosity=normal" \
+            --logger "trx;LogFileName=resilience.trx" \
+            --results-directory TestResults/resilience \
+            2>&1 | tee TestResults/resilience/console.log
+
+      - name: Upload resilience diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: resilience-test-results
+          path: TestResults/resilience
+          if-no-files-found: error
+          retention-days: 14

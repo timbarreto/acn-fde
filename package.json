@@ -14,11 +14,13 @@
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "test:backend": "dotnet test backend/Acn.Fde.Practice.slnx",
     "test:full": "dotnet test backend/tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj",
+    "test:resilience": "dotnet test backend/tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj --filter TestCategory=Resilience",
     "test:qa": "playwright test",
-    "typegen:worker": "wrangler types --config=wrangler.local.jsonc --env-file=.dev.vars.example --strict-vars=false",
+    "typegen:worker": "wrangler types --config=wrangler.jsonc --env-file=.dev.vars.example --strict-vars=false",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "better-auth": "1.6.25",

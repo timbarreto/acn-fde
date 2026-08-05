@@ -1,7 +1,10 @@
 using Acn.Fde.Practice.Api.Health;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.DependencyInjection;
+using System.Security.Cryptography;
 
 namespace Acn.Fde.Practice.Test.Api;
 
@@ -18,6 +21,30 @@ public sealed class HealthTests
 
         before.Status.Should().Be(HealthStatus.Unhealthy);
         after.Status.Should().Be(HealthStatus.Healthy);
+    }
+
+    [Test]
+    public void Data_protection_is_deliberately_ephemeral_between_host_instances()
+    {
+        string protectedValue;
+        using (var firstFactory = new ApiFactory())
+        {
+            var firstProvider = firstFactory.Services
+                .GetRequiredService<IDataProtectionProvider>();
+            firstProvider.Should().BeOfType<EphemeralDataProtectionProvider>();
+            var firstProtector = firstProvider
+                .CreateProtector("container-resilience-test");
+            protectedValue = firstProtector.Protect("process-local-only");
+            firstProtector.Unprotect(protectedValue).Should().Be("process-local-only");
+        }
+
+        using var restartedFactory = new ApiFactory();
+        var restartedProtector = restartedFactory.Services
+            .GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("container-resilience-test");
+
+        var unprotect = () => restartedProtector.Unprotect(protectedValue);
+        unprotect.Should().Throw<CryptographicException>();
     }
 
     [Test]

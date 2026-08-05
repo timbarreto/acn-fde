@@ -20,7 +20,7 @@ public static class IdentityAuthentication
         var settings = IdentityTokenSettings.FromConfiguration(configuration);
         var documentRetriever = new HttpDocumentRetriever
         {
-            RequireHttps = !settings.JwksUri.IsLoopback,
+            RequireHttps = settings.RequireHttps,
         };
         var configurationManager =
             new ConfigurationManager<OpenIdConnectConfiguration>(

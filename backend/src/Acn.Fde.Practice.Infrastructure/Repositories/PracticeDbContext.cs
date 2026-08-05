@@ -12,7 +12,14 @@ public partial class PracticeDbContext(DbContextOptions<PracticeDbContext> optio
         base.OnConfiguring(optionsBuilder);
 
         if (!optionsBuilder.IsConfigured)
-            optionsBuilder.UseNpgsql(BaseDatabase.Connection, contextOwnsConnection: false).EnableDetailedErrors(true);
+        {
+            optionsBuilder
+                .UseNpgsql(
+                    BaseDatabase.Connection,
+                    contextOwnsConnection: false,
+                    npgsql => npgsql.EnableRetryOnFailure())
+                .EnableDetailedErrors(true);
+        }
     }
 
     /// <inheritdoc/>

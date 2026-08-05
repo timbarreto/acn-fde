@@ -1,6 +1,10 @@
+import { getContainer } from "@cloudflare/containers"
 import { handleAuthRequest } from "./auth"
+import { CoreExContainer } from "./coreex-container"
 import { guardPracticeStateRequest } from "./practice-state"
 import { routeRequest, toCoreExRequest } from "./router"
+
+export { CoreExContainer }
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -9,7 +13,7 @@ export default {
 
     return routeRequest(guarded, {
       auth: (incoming) => handleAuthRequest(incoming, env),
-      coreEx: (incoming) => proxyCoreEx(incoming, env.COREEX_API_ORIGIN),
+      coreEx: (incoming) => proxyCoreEx(incoming, env),
       assets: (incoming) => env.ASSETS.fetch(incoming),
     })
   },
@@ -17,10 +21,16 @@ export default {
 
 async function proxyCoreEx(
   request: Request,
-  coreExOrigin: string,
+  env: Env,
 ): Promise<Response> {
   try {
-    return await fetch(toCoreExRequest(request, coreExOrigin))
+    if (env.COREEX) {
+      return await getContainer(env.COREEX, "api").fetch(request)
+    }
+    if (env.COREEX_API_ORIGIN) {
+      return await fetch(toCoreExRequest(request, env.COREEX_API_ORIGIN))
+    }
+    throw new Error("No CoreEx backend is configured.")
   } catch (error) {
     console.error(
       JSON.stringify({

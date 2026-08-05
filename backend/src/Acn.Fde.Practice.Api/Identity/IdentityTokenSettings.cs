@@ -10,11 +10,14 @@ public sealed class IdentityTokenSettings
 
     public required Uri JwksUri { get; init; }
 
+    public required bool RequireHttps { get; init; }
+
     public static IdentityTokenSettings LocalDevelopment { get; } = new()
     {
         Issuer = "http://localhost:5173",
         Audience = "acn-fde-practice-api",
         JwksUri = new("http://localhost:5173/api/auth/jwks"),
+        RequireHttps = false,
     };
 
     public static IdentityTokenSettings FromConfiguration(
@@ -24,10 +27,13 @@ public sealed class IdentityTokenSettings
         var issuer = section[nameof(Issuer)];
         var audience = section[nameof(Audience)];
         var jwksUri = section[nameof(JwksUri)];
+        var requireHttpsValue = section[nameof(RequireHttps)];
 
         if (string.IsNullOrWhiteSpace(issuer)
             || string.IsNullOrWhiteSpace(audience)
-            || !Uri.TryCreate(jwksUri, UriKind.Absolute, out var parsedJwksUri))
+            || !Uri.TryCreate(jwksUri, UriKind.Absolute, out var parsedJwksUri)
+            || (!string.IsNullOrWhiteSpace(requireHttpsValue)
+                && !bool.TryParse(requireHttpsValue, out _)))
         {
             throw new InvalidOperationException(
                 $"The {SectionName} configuration is incomplete.");
@@ -38,6 +44,9 @@ public sealed class IdentityTokenSettings
             Issuer = issuer,
             Audience = audience,
             JwksUri = parsedJwksUri,
+            RequireHttps = string.IsNullOrWhiteSpace(requireHttpsValue)
+                ? !parsedJwksUri.IsLoopback
+                : bool.Parse(requireHttpsValue),
         };
     }
 }

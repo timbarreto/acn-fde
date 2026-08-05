@@ -20,16 +20,23 @@ public sealed class SignedInFullStackTests
     [Test]
     public async Task Two_users_can_save_load_reset_and_delete_isolated_data_Async()
     {
-        var workerState = Path.Combine(
+        var testRoot = Path.Combine(
             Path.GetTempPath(),
             "acn-fde-full-stack",
             Guid.NewGuid().ToString("N"));
+        var workerState = Path.Combine(testRoot, "worker-state");
+        var postgresData = Path.Combine(testRoot, "postgres-data");
+        Directory.CreateDirectory(testRoot);
         DistributedApplication? app = null;
 
         try
         {
             var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Acn_Fde_Practice_AppHost>(
-                ["--environment=Integration", $"--Integration:WorkerStatePath={workerState}"]);
+                [
+                    "--environment=Integration",
+                    $"--Integration:WorkerStatePath={workerState}",
+                    $"--Integration:PostgresDataPath={postgresData}",
+                ]);
             app = await appHost.BuildAsync().WaitAsync(DefaultTimeout);
             await app.StartAsync().WaitAsync(DefaultTimeout);
             await app.ResourceNotifications
@@ -99,8 +106,9 @@ public sealed class SignedInFullStackTests
             }
             finally
             {
-                if (Directory.Exists(workerState))
-                    Directory.Delete(workerState, recursive: true);
+                await ContainerStorageCleanup.RemoveAsync(postgresData);
+                if (Directory.Exists(testRoot))
+                    Directory.Delete(testRoot, recursive: true);
             }
         }
     }

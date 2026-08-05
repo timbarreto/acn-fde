@@ -1,5 +1,6 @@
 using Acn.Fde.Practice.Api.Identity;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Tokens;
@@ -57,6 +58,29 @@ public sealed class IdentityAuthenticationTests
         var result = await handler.ValidateTokenAsync(token, parameters);
 
         result.IsValid.Should().Be(expectedValid);
+    }
+
+    [TestCase("https://identity.example/api/auth/jwks", null, true)]
+    [TestCase("http://aspire.dev.internal/api/auth/jwks", null, true)]
+    [TestCase("http://aspire.dev.internal/api/auth/jwks", "false", false)]
+    public void Jwks_transport_requires_https_unless_an_internal_profile_explicitly_disables_it(
+        string jwksUri,
+        string? requireHttps,
+        bool expected)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["IdentityToken:Issuer"] = "https://issuer.example",
+            ["IdentityToken:Audience"] = "practice-api",
+            ["IdentityToken:JwksUri"] = jwksUri,
+            ["IdentityToken:RequireHttps"] = requireHttps,
+        };
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
+
+        IdentityTokenSettings.FromConfiguration(configuration)
+            .RequireHttps.Should().Be(expected);
     }
 
     [Test]
