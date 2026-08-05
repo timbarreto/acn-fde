@@ -1,4 +1,4 @@
-export type AppView = "dashboard" | "setup" | "exam" | "results" | "review" | "resources"
+export type AppView = "dashboard" | "setup" | "exam" | "results" | "review" | "resources" | "account"
 
 export interface RouteAvailability {
   hasActiveAttempt: boolean
@@ -17,6 +17,7 @@ const paths: Record<AppView, string> = {
   results: "/results",
   review: "/review",
   resources: "/resources",
+  account: "/account",
 }
 
 const viewsByPath = new Map(Object.entries(paths).map(([view, pathname]) => [pathname, view as AppView]))

@@ -11,13 +11,18 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
+  Cloud,
+  CloudOff,
   ExternalLink,
   FileText,
   Flag,
   Github,
+  HardDrive,
   History,
   Home,
   Layers3,
+  LoaderCircle,
+  LogOut,
   Menu,
   Pause,
   Play,
@@ -26,6 +31,8 @@ import {
   Sparkles,
   Target,
   Trophy,
+  UserRound,
+  WifiOff,
   X,
   XCircle,
   Zap,
@@ -37,9 +44,14 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
+import { signInWithGitHub } from "@/lib/auth-client"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
-import type { PracticeSyncNotification } from "@/lib/persistence"
+import type {
+  PracticeStateMode,
+  PracticeSyncNotification,
+  PracticeSyncStatus,
+} from "@/lib/persistence"
 import { usePracticeState } from "@/lib/use-practice-state"
 import { cn } from "@/lib/utils"
 import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState, Question } from "@/types"
@@ -50,7 +62,11 @@ const questionMap = new Map(questions.map((question) => [question.id, question])
 function App() {
   const {
     practiceState,
+    practiceMode,
+    syncStatus,
+    accountAvailable,
     updatePracticeState: setPracticeState,
+    signOutSafely,
     isInitializing,
     syncNotification,
     dismissSyncNotification,
@@ -60,9 +76,13 @@ function App() {
     hasFinishedAttempt: practiceState.attempts.length > 0,
   }).view)
   const [mobileNav, setMobileNav] = useState(false)
+  const [accountAction, setAccountAction] = useState<"sign-in" | "sign-out" | null>(null)
+  const [accountNotice, setAccountNotice] = useState<{ kind: "success" | "error"; message: string } | null>(null)
   const hasActiveAttempt = Boolean(practiceState.activeAttempt)
   const hasFinishedAttempt = practiceState.attempts.length > 0
   const latestFinishedAttempt = practiceState.attempts[0] ?? null
+  const displayedView = practiceMode.kind === "reauthenticating" ? "account" : view
+  const hasAccount = practiceMode.kind === "account" || practiceMode.kind === "transitioning"
 
   const navigate = useCallback((next: AppView) => {
     const pathname = getPathForView(next)
@@ -94,6 +114,55 @@ function App() {
     window.addEventListener("popstate", syncLocation)
     return () => window.removeEventListener("popstate", syncLocation)
   }, [hasActiveAttempt, hasFinishedAttempt, isInitializing])
+
+  useEffect(() => {
+    if (practiceMode.kind !== "reauthenticating" || view === "account") return
+    window.history.replaceState(null, "", getPathForView("account"))
+    setView("account")
+    setMobileNav(false)
+    window.scrollTo({ top: 0 })
+  }, [practiceMode.kind, view])
+
+  const beginSignIn = async () => {
+    if (!accountAvailable || accountAction) return
+    setAccountAction("sign-in")
+    setAccountNotice(null)
+    try {
+      await signInWithGitHub(new URL(getPathForView("account"), window.location.origin).toString())
+    } catch {
+      setAccountNotice({
+        kind: "error",
+        message: "GitHub sign-in could not start. Your guest practice is unchanged. Try again when the service is available.",
+      })
+    } finally {
+      setAccountAction(null)
+    }
+  }
+
+  const safelySignOut = async () => {
+    if (accountAction) return
+    setAccountAction("sign-out")
+    setAccountNotice(null)
+    try {
+      const result = await signOutSafely()
+      setAccountNotice(result.status === "signed-out"
+        ? {
+            kind: "success",
+            message: "You are signed out. This device now has a new empty guest practice state.",
+          }
+        : {
+            kind: "error",
+            message: "Sign-out is blocked until your practice state can be secured. You remain signed in and no work was discarded.",
+          })
+    } catch {
+      setAccountNotice({
+        kind: "error",
+        message: "Sign-out could not finish safely. You remain signed in and no work was discarded.",
+      })
+    } finally {
+      setAccountAction(null)
+    }
+  }
 
   const startAttempt = (mode: AttemptMode, domains?: DomainId[]) => {
     const selected = selectQuestions(questions, mode, domains, practiceState.latestAnswers, practiceState.attempts)
@@ -189,7 +258,7 @@ function App() {
     )
   }
 
-  if (view === "exam" && practiceState.activeAttempt) {
+  if (displayedView === "exam" && practiceState.activeAttempt) {
     return (
       <>
         <SyncNotificationBanner
@@ -214,11 +283,18 @@ function App() {
         notification={syncNotification}
         onDismiss={dismissSyncNotification}
       />
-      <TopNav view={view} onNavigate={navigate} mobileOpen={mobileNav} onMobileOpen={setMobileNav} />
+      <TopNav
+        view={displayedView}
+        syncStatus={syncStatus}
+        onNavigate={navigate}
+        mobileOpen={mobileNav}
+        onMobileOpen={setMobileNav}
+      />
       <main>
-        {view === "dashboard" && (
+        {displayedView === "dashboard" && (
           <Dashboard
             practiceState={practiceState}
+            hasAccount={hasAccount}
             onStart={() => navigate("setup")}
             onResume={resumeActiveAttempt}
             onDomain={(domain) => startAttempt("domain", [domain])}
@@ -226,8 +302,8 @@ function App() {
             onResources={() => navigate("resources")}
           />
         )}
-        {view === "setup" && <ExamSetup onStart={startAttempt} />}
-        {view === "results" && latestFinishedAttempt && (
+        {displayedView === "setup" && <ExamSetup onStart={startAttempt} />}
+        {displayedView === "results" && latestFinishedAttempt && (
           <Results
             attempt={latestFinishedAttempt}
             bookmarks={practiceState.bookmarks}
@@ -237,8 +313,19 @@ function App() {
             onReview={() => navigate("review")}
           />
         )}
-        {view === "review" && <Review practiceState={practiceState} onBookmark={toggleBookmark} onPractice={() => navigate("setup")} />}
-        {view === "resources" && <Resources onPractice={() => navigate("setup")} />}
+        {displayedView === "review" && <Review practiceState={practiceState} onBookmark={toggleBookmark} onPractice={() => navigate("setup")} />}
+        {displayedView === "resources" && <Resources onPractice={() => navigate("setup")} />}
+        {displayedView === "account" && (
+          <AccountView
+            mode={practiceMode}
+            syncStatus={syncStatus}
+            accountAvailable={accountAvailable}
+            signingIn={accountAction === "sign-in"}
+            notice={accountNotice}
+            onSignIn={beginSignIn}
+            onSignOut={safelySignOut}
+          />
+        )}
       </main>
       <Footer />
     </div>
@@ -294,13 +381,15 @@ function Waymark() {
   )
 }
 
-function TopNav({
+export function TopNav({
   view,
+  syncStatus,
   onNavigate,
   mobileOpen,
   onMobileOpen,
 }: {
   view: AppView
+  syncStatus: PracticeSyncStatus
   onNavigate: (view: AppView) => void
   mobileOpen: boolean
   onMobileOpen: (open: boolean) => void
@@ -310,20 +399,28 @@ function TopNav({
     { view: "setup", label: "Practice", icon: CircleHelp },
     { view: "review", label: "Review", icon: History },
     { view: "resources", label: "Study path", icon: BookOpen },
+    { view: "account", label: "Account", icon: UserRound },
   ]
   return (
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur">
-      <div className="container flex h-[72px] items-center justify-between">
-        <button onClick={() => onNavigate("dashboard")} className="rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <div className="container flex min-h-[72px] flex-wrap items-center">
+        <button
+          type="button"
+          onClick={() => onNavigate("dashboard")}
+          className="my-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Agentic Ready dashboard"
+        >
           <Brand />
         </button>
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
+        <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Primary navigation">
           {items.map((item) => (
             <button
+              type="button"
               key={item.view}
               onClick={() => onNavigate(item.view)}
+              aria-current={view === item.view ? "page" : undefined}
               className={cn(
-                "rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
+                "rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 view === item.view ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
               )}
             >
@@ -331,18 +428,38 @@ function TopNav({
             </button>
           ))}
         </nav>
-        <div className="hidden md:block">
-          <Button size="sm" onClick={() => onNavigate("setup")}><Play className="h-4 w-4 fill-current" /> Start practice</Button>
-        </div>
-        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => onMobileOpen(!mobileOpen)} aria-label="Toggle navigation">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto lg:hidden"
+          onClick={() => onMobileOpen(!mobileOpen)}
+          aria-label="Toggle navigation"
+          aria-expanded={mobileOpen}
+          aria-controls="mobile-primary-navigation"
+        >
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
+        <div className="order-last flex w-full items-center justify-between gap-3 border-t border-border/70 py-2.5 lg:order-none lg:ml-4 lg:w-auto lg:border-0 lg:py-0">
+          <SyncStatusIndicator status={syncStatus} />
+          <Button size="sm" className="hidden xl:flex" onClick={() => onNavigate("setup")}>
+            <Play className="h-4 w-4 fill-current" /> Start practice
+          </Button>
+        </div>
       </div>
       {mobileOpen && (
-        <nav className="container grid gap-1 border-t py-3 md:hidden" aria-label="Mobile navigation">
+        <nav id="mobile-primary-navigation" className="container grid gap-1 border-t py-3 lg:hidden" aria-label="Mobile navigation">
           {items.map((item) => (
-            <button key={item.view} onClick={() => onNavigate(item.view)} className={cn("flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold", view === item.view ? "bg-muted" : "text-muted-foreground")}>
-              <item.icon className="h-4 w-4" /> {item.label}
+            <button
+              type="button"
+              key={item.view}
+              onClick={() => onNavigate(item.view)}
+              aria-current={view === item.view ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                view === item.view ? "bg-muted" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+              )}
+            >
+              <item.icon className="h-4 w-4" aria-hidden="true" /> {item.label}
             </button>
           ))}
         </nav>
@@ -351,8 +468,214 @@ function TopNav({
   )
 }
 
+export function SyncStatusIndicator({
+  status,
+  now,
+  className,
+}: {
+  status: PracticeSyncStatus
+  now?: number
+  className?: string
+}) {
+  const [clock, setClock] = useState(() => now ?? Date.now())
+
+  useEffect(() => {
+    if (now !== undefined || status.kind !== "synced" || status.syncedAt === null) return
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [now, status])
+
+  const currentTime = now ?? clock
+  const label = syncStatusLabel(status, currentTime)
+  const iconAndColor: Record<PracticeSyncStatus["kind"], { icon: typeof Cloud; color: string }> = {
+    guest: { icon: HardDrive, color: "text-muted-foreground" },
+    syncing: { icon: LoaderCircle, color: "text-brand-bright" },
+    synced: { icon: Cloud, color: "text-success" },
+    offline: { icon: WifiOff, color: "text-warning" },
+    attention: { icon: CloudOff, color: "text-warning" },
+    "signing-out": { icon: LoaderCircle, color: "text-brand-bright" },
+  }
+  const { icon: Icon, color } = iconAndColor[status.kind]
+  const title = status.kind === "synced" && status.syncedAt !== null
+    ? `Practice state synced ${new Date(status.syncedAt).toLocaleString()}`
+    : undefined
+
+  return (
+    <div
+      className={cn("inline-flex min-w-0 items-center gap-2 text-xs font-semibold", color, className)}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      title={title}
+    >
+      <Icon
+        className={cn(
+          "h-4 w-4 shrink-0",
+          (status.kind === "syncing" || status.kind === "signing-out") && "animate-spin motion-reduce:animate-none",
+        )}
+        aria-hidden="true"
+      />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function syncStatusLabel(status: PracticeSyncStatus, now = Date.now()) {
+  switch (status.kind) {
+    case "guest":
+      return "Saved on this device"
+    case "syncing":
+      return "Syncing…"
+    case "offline":
+      return "Offline · saved on this device"
+    case "attention":
+      return "Not synced · saved on this device"
+    case "signing-out":
+      return "Signing out…"
+    case "synced": {
+      if (status.syncedAt === null) return "Synced"
+      const elapsed = Math.max(0, now - status.syncedAt)
+      if (elapsed < 60_000) return "Synced just now"
+      const minutes = Math.floor(elapsed / 60_000)
+      if (minutes < 60) return `Synced ${minutes} min ago`
+      const hours = Math.floor(minutes / 60)
+      if (hours < 24) return `Synced ${hours} hr ago`
+      const days = Math.floor(hours / 24)
+      return `Synced ${days} ${days === 1 ? "day" : "days"} ago`
+    }
+  }
+}
+
+export function AccountView({
+  mode,
+  syncStatus,
+  accountAvailable,
+  signingIn,
+  notice,
+  onSignIn,
+  onSignOut,
+}: {
+  mode: PracticeStateMode
+  syncStatus: PracticeSyncStatus
+  accountAvailable: boolean
+  signingIn: boolean
+  notice: { kind: "success" | "error"; message: string } | null
+  onSignIn: () => void
+  onSignOut: () => void
+}) {
+  const isGuest = mode.kind === "guest"
+  const needsReauthentication = mode.kind === "reauthenticating"
+  const isSigningOut = syncStatus.kind === "signing-out"
+
+  return (
+    <div className="container max-w-5xl py-12 lg:py-16">
+      <Eyebrow>Account</Eyebrow>
+      <h1 className="section-title text-4xl">
+        {isGuest ? "Practice your way." : needsReauthentication ? "Reconnect safely." : "Practice across devices."}
+      </h1>
+      <p className="mt-4 max-w-2xl text-lg leading-8 text-muted-foreground">
+        {isGuest
+          ? "Guest practice is permanent and complete. A GitHub account is optional and adds only cross-device sync and recovery after browser data is cleared."
+          : needsReauthentication
+            ? "Your account practice state is protected on this device. Sign in to the same GitHub account to make it available again."
+            : "Your account keeps the practice state on this device and synchronizes it when the service is available."}
+      </p>
+
+      {notice && (
+        <div
+          className={cn(
+            "mt-7 rounded-xl border p-4 text-sm leading-6",
+            notice.kind === "error"
+              ? "border-warning-border bg-warning-soft text-warning"
+              : "border-success-border bg-success-soft text-success",
+          )}
+          role={notice.kind === "error" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {notice.message}
+        </div>
+      )}
+
+      <div className="mt-8 grid gap-5 lg:grid-cols-2">
+        <Card className="shadow-none">
+          <CardHeader>
+            <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
+              {isGuest ? <HardDrive className="h-5 w-5" /> : <Cloud className="h-5 w-5" />}
+            </div>
+            <CardTitle>{isGuest ? "Guest practice" : "Sync status"}</CardTitle>
+            <CardDescription>
+              {isGuest
+                ? "Your practice state is saved only in this browser and remains fully usable offline."
+                : "Edits are saved locally first, then synchronized without blocking practice."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-xl border bg-muted/40 p-4">
+              <SyncStatusIndicator status={syncStatus} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {(isGuest || needsReauthentication) ? (
+          <Card className="shadow-none">
+            <CardHeader>
+              <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-brand-bright">
+                <Github className="h-5 w-5" />
+              </div>
+              <CardTitle>{needsReauthentication ? "Sign in again with GitHub" : "Optional GitHub sign-in"}</CardTitle>
+              <CardDescription>
+                {needsReauthentication
+                  ? "Use the same GitHub account so no other subject can see the protected cache."
+                  : "Use GitHub to continue on another device and recover practice after clearing this browser."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                type="button"
+                className="w-full sm:w-auto"
+                onClick={onSignIn}
+                disabled={!accountAvailable || signingIn}
+              >
+                {signingIn ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Github className="h-4 w-4" />}
+                {signingIn ? "Opening GitHub…" : needsReauthentication ? "Sign in again with GitHub" : "Sign in with GitHub"}
+              </Button>
+              {!accountAvailable && (
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  GitHub sign-in is available when the optional full-stack application is running. Guest practice remains available here.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="shadow-none">
+            <CardHeader>
+              <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
+                <LogOut className="h-5 w-5" />
+              </div>
+              <CardTitle>Sign out safely</CardTitle>
+              <CardDescription>
+                Pending practice state must be accepted before sign-out can finish. If syncing is unavailable, sign-out stays blocked and never offers a discard shortcut.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-5 text-sm leading-6 text-muted-foreground">
+                After sign-out, this account’s cache is removed from this device and a new empty guest practice state begins.
+              </p>
+              <Button type="button" variant="outline" onClick={onSignOut} disabled={isSigningOut}>
+                {isSigningOut && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                {isSigningOut ? "Signing out…" : "Sign out"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({
   practiceState,
+  hasAccount,
   onStart,
   onResume,
   onDomain,
@@ -360,6 +683,7 @@ function Dashboard({
   onResources,
 }: {
   practiceState: PracticeState
+  hasAccount: boolean
   onStart: () => void
   onResume: () => void
   onDomain: (domain: DomainId) => void
@@ -396,7 +720,7 @@ function Dashboard({
               <Button size="lg" variant="outline" onClick={onResources}>View study path <ArrowRight className="h-4 w-4" /></Button>
             </div>
             <p className="mt-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <ShieldCheck className="h-4 w-4 text-success" /> Unofficial practice tool · your practice state stays in this browser
+              <ShieldCheck className="h-4 w-4 text-success" /> Unofficial practice tool · {hasAccount ? "saved locally first and synced when connected" : "your practice state stays in this browser"}
             </p>
           </div>
           <ReadinessCard score={readiness} answered={answered} best={best} />

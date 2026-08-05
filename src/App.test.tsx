@@ -1,13 +1,18 @@
+import { isValidElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import {
+  AccountView,
   ExamRunner,
   ExamSetup,
   FinishedAttemptOutcome,
   SyncNotificationBanner,
+  SyncStatusIndicator,
+  TopNav,
 } from "@/App"
 import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
+import type { PracticeStateMode, PracticeSyncStatus } from "@/lib/persistence"
 import type { Attempt, AttemptOutcome, Question } from "@/types"
 
 function serializeAttributeValue(value: string) {
@@ -16,6 +21,206 @@ function serializeAttributeValue(value: string) {
   expect(match).not.toBeNull()
   return match![1]
 }
+
+interface InteractiveProps {
+  children?: ReactNode
+  disabled?: boolean
+  onClick?: () => void
+}
+
+function nodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join("")
+  if (!isValidElement(node)) return ""
+  return nodeText((node.props as InteractiveProps).children)
+}
+
+function findInteraction(node: ReactNode, label: string): InteractiveProps {
+  if (!isValidElement(node)) {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        try {
+          return findInteraction(child, label)
+        } catch {
+          // Continue through sibling elements.
+        }
+      }
+    }
+    throw new Error(`Could not find interaction: ${label}`)
+  }
+
+  const props = node.props as InteractiveProps
+  if (props.onClick && nodeText(props.children).includes(label)) return props
+  const children = Array.isArray(props.children) ? props.children : [props.children]
+  for (const child of children) {
+    try {
+      return findInteraction(child, label)
+    } catch {
+      // Continue through sibling elements.
+    }
+  }
+  throw new Error(`Could not find interaction: ${label}`)
+}
+
+const syncStatusCases: Array<[PracticeSyncStatus, string]> = [
+  [{ kind: "guest" }, "Saved on this device"],
+  [{ kind: "syncing" }, "Syncing…"],
+  [{ kind: "synced", syncedAt: 10_000 }, "Synced just now"],
+  [{ kind: "offline" }, "Offline · saved on this device"],
+  [{ kind: "attention" }, "Not synced · saved on this device"],
+  [{ kind: "signing-out" }, "Signing out…"],
+]
+
+const accountModes: Array<[string, PracticeStateMode]> = [
+  ["guest", { kind: "guest" }],
+  ["user", { kind: "account", subject: "subject-1" }],
+]
+
+describe("SyncStatusIndicator", () => {
+  it.each(syncStatusCases)("renders the exact %s state copy", (status, label) => {
+    const markup = renderToStaticMarkup(
+      <SyncStatusIndicator status={status} now={10_000} />,
+    )
+
+    expect(markup).toContain('role="status"')
+    expect(markup).toContain(label)
+  })
+
+  it("turns a synced acceptance time into human-readable relative copy", () => {
+    const markup = renderToStaticMarkup(
+      <SyncStatusIndicator
+        status={{ kind: "synced", syncedAt: 10_000 }}
+        now={130_000}
+      />,
+    )
+
+    expect(markup).toContain("Synced 2 min ago")
+  })
+})
+
+describe("TopNav", () => {
+  it("exposes Account as the fifth primary destination without inviting sign-in", () => {
+    const markup = renderToStaticMarkup(
+      <TopNav
+        view="account"
+        syncStatus={{ kind: "guest" }}
+        onNavigate={vi.fn()}
+        mobileOpen={false}
+        onMobileOpen={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain("Account")
+    expect(markup).toContain('aria-current="page"')
+    expect(markup).toContain("Saved on this device")
+    expect(markup).not.toContain("Sign in")
+  })
+
+  it("navigates to Account from its primary action", () => {
+    const onNavigate = vi.fn()
+    const tree = TopNav({
+      view: "dashboard",
+      syncStatus: { kind: "guest" },
+      onNavigate,
+      mobileOpen: false,
+      onMobileOpen: vi.fn(),
+    })
+
+    findInteraction(tree, "Account").onClick?.()
+
+    expect(onNavigate).toHaveBeenCalledWith("account")
+  })
+})
+
+describe("AccountView", () => {
+  for (const [modeName, mode] of accountModes) {
+    it.each(syncStatusCases)(`renders every sync state for ${modeName} mode`, (status) => {
+      const markup = renderToStaticMarkup(
+        <AccountView
+          mode={mode}
+          syncStatus={status}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />,
+      )
+
+      expect(markup).toContain('role="status"')
+      expect(markup).toContain(modeName === "guest" ? "Optional GitHub sign-in" : "Sign out safely")
+    })
+  }
+
+  it("starts GitHub sign-in only from the guest Account action", () => {
+    const onSignIn = vi.fn()
+    const tree = AccountView({
+      mode: { kind: "guest" },
+      syncStatus: { kind: "guest" },
+      accountAvailable: true,
+      signingIn: false,
+      notice: null,
+      onSignIn,
+      onSignOut: vi.fn(),
+    })
+
+    findInteraction(tree, "Sign in with GitHub").onClick?.()
+
+    expect(onSignIn).toHaveBeenCalledOnce()
+  })
+
+  it("starts safe sign-out and explains why it can remain blocked", () => {
+    const onSignOut = vi.fn()
+    const tree = AccountView({
+      mode: { kind: "account", subject: "subject-1" },
+      syncStatus: { kind: "synced", syncedAt: 10_000 },
+      accountAvailable: true,
+      signingIn: false,
+      notice: null,
+      onSignIn: vi.fn(),
+      onSignOut,
+    })
+
+    findInteraction(tree, "Sign out").onClick?.()
+    const markup = renderToStaticMarkup(tree)
+
+    expect(onSignOut).toHaveBeenCalledOnce()
+    expect(markup).toContain("sign-out stays blocked")
+    expect(markup).toContain("never offers a discard shortcut")
+  })
+
+  it("disables sign-out while safe completion is in progress", () => {
+    const tree = AccountView({
+      mode: { kind: "account", subject: "subject-1" },
+      syncStatus: { kind: "signing-out" },
+      accountAvailable: true,
+      signingIn: false,
+      notice: null,
+      onSignIn: vi.fn(),
+      onSignOut: vi.fn(),
+    })
+
+    expect(findInteraction(tree, "Signing out…").disabled).toBe(true)
+  })
+
+  it("offers same-subject recovery from Account", () => {
+    const markup = renderToStaticMarkup(
+      <AccountView
+        mode={{ kind: "reauthenticating", subject: "subject-1" }}
+        syncStatus={{ kind: "attention" }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain("Reconnect safely.")
+    expect(markup).toContain("Sign in again with GitHub")
+    expect(markup).toContain("same GitHub account")
+  })
+})
 
 describe("ExamSetup", () => {
   it("renders every focused-practice domain with its published number and name", () => {
@@ -63,6 +268,9 @@ describe("ExamRunner", () => {
     expect(markup).toContain(`aria-label="Question 1: ${firstPrompt}"`)
     expect(markup).toContain(`title="${secondPrompt}"`)
     expect(markup).toContain(`aria-label="Question 2: ${secondPrompt}"`)
+    for (const [, syncCopy] of syncStatusCases) {
+      expect(markup).not.toContain(syncCopy)
+    }
   })
 })
 

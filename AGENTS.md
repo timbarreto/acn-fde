@@ -8,8 +8,8 @@ offline-first practice exam for the GitHub Certified: Agentic AI Developer
 application. The optional full-stack development path adds a same-origin
 Cloudflare Worker, a trimmed CoreEx service, local PostgreSQL, and authenticated
 schema-v2 practice-state load/save APIs plus first-sign-in sync into a
-subject-isolated browser cache with durable send-and-rebase synchronization and
-safe authentication recovery; account UI is not implemented yet.
+subject-isolated browser cache with durable send-and-rebase synchronization,
+safe authentication recovery, optional account UI, and passive sync status.
 
 ## Vocabulary
 

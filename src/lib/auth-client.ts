@@ -6,6 +6,15 @@ import {
 
 const authClient = createAuthClient()
 
+export async function signInWithGitHub(callbackURL: string) {
+  const result = await authClient.signIn.social({
+    provider: "github",
+    callbackURL,
+    errorCallbackURL: callbackURL,
+  })
+  if (result.error) throw authError("start GitHub sign-in", result.error)
+}
+
 export interface IdentityTokenAdapter {
   getIdentityToken: () => Promise<string>
   invalidateIdentityToken: (token: string) => void
