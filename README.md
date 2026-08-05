@@ -36,12 +36,12 @@ npm run dev
 
 Open the URL printed by Vite (normally `http://localhost:5173`).
 
-This standalone command starts the complete guest application without Docker,
+This standalone command starts the complete guest application without Podman,
 .NET, PostgreSQL, or any backend service.
 
 ## Run the full stack locally
 
-The full-stack path requires the .NET 10 SDK and Docker. Install dependencies
+The full-stack path requires the .NET 10 SDK and Podman. Install dependencies
 once, then start the complete development graph:
 
 ```bash
@@ -49,6 +49,10 @@ npm ci
 dotnet restore backend/Acn.Fde.Practice.slnx
 npm run dev:full
 ```
+
+Start a Podman machine first on Windows or macOS. The AppHost selects Podman
+explicitly on every platform; its published container ports must be reachable
+from the host for Aspire health checks.
 
 Open `http://localhost:5173`. Aspire starts PostgreSQL 18.4, applies the
 checked-in CoreEx and local D1 migrations, starts the trimmed CoreEx API, and
