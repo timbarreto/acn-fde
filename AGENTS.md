@@ -140,6 +140,11 @@ Track requests and PRDs as GitHub Issues in `timbarreto/acn-fde`, and prefer the
 repository-provided `gh-axi` wrapper over `gh` for GitHub operations. Run the
 wrapper from the repository so the remote resolves.
 
+The tracker's labels are the authoritative vocabulary: read them with
+`gh-axi label list` and apply only labels that already exist. Do not assume a
+label set from memory or another repository, and do not create, edit, or delete
+labels without an explicit request.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
