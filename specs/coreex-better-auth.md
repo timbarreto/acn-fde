@@ -1,12 +1,12 @@
 # ACN FDE CoreEx backend and Better Auth plan
 
-> **Status: approved specification, not yet implemented.** This document
-> records the approved design for a CoreEx-based backend and Better Auth
-> authentication layer. It describes target architecture and an ordered
-> implementation checklist; none of the described code, infrastructure, or
-> configuration exists in this repository yet. See [`AGENTS.md`](../AGENTS.md)
-> for the current (client-only) architecture, which remains authoritative
-> until this plan is implemented.
+> **Status: implementation specification and delivery record.** The optional
+> CoreEx/Better Auth stack, account mode, data controls, production-shaped
+> container, and restart-resilience coverage through issue #78 are implemented.
+> The checklist below records the original implementation order rather than
+> current progress; its deployment and operations items remain future work under
+> the parent issue. See [`AGENTS.md`](../AGENTS.md) for the current repository
+> map and commands.
 
 ## Context
 
@@ -94,7 +94,7 @@ Nothing prohibits a long-running Kestrel process, but five operational facts mus
 - **Port readiness defaults to 20 s** (`portReadyTimeoutMS`), and this was expected to be the binding risk. **It is not.** The image reaches a passing `/health/live` in **~1.4 s** under exactly `basic`'s limits, leaving 14× headroom ([#41](https://github.com/timbarreto/acn-fde/issues/41)). Raising the timeout and moving to `standard-1` — which would burn the memory allowance 4× faster — are both unnecessary.
 - **1 GiB with no swap** — OOM restarts the instance silently, but the measured process holds **~121 MB resident** at idle and after load, about 12% of the instance ([#41](https://github.com/timbarreto/acn-fde/issues/41)). `DOTNET_gcServer=0` and `DOTNET_GCHeapHardLimit` were tested and are **not** worth setting: workstation GC saved 3 MB and cost 0.4 s of startup.
 - **Do not publish ReadyToRun.** Tested head-to-head: it added 39 MB to the image and made startup marginally *slower* (1.48 s vs 1.39 s, against a 1.39–1.50 s run-to-run spread). The startup budget is not tight enough to justify it.
-- **The disk resets on every sleep.** ASP.NET Core Data Protection persists its key ring to the filesystem by default and would regenerate it on essentially every wake. This is harmless only because all cookie/session state lives in the Better Auth Worker and CoreEx merely validates JWTs against remote JWKS — but Data Protection must be configured deliberately, not left to default.
+- **The disk resets on every sleep.** CoreEx explicitly registers `EphemeralDataProtectionProvider`: all cookie/session state lives in the Better Auth Worker, and CoreEx only validates JWTs against remote JWKS. A framework component can still create an unused disposable key file and emit the standard container warning, but the directory is not mounted and no application contract depends on it. Unit coverage proves protected values do not survive a provider restart, while the restart suite proves accepted practice state does survive because it lives in PostgreSQL.
 
 #### Provisioned resources
 
@@ -515,7 +515,9 @@ A lost response costs nothing: the client simply sends again, and merging the sa
 
 `/health/live` checks only the ASP.NET process; `/health/startup` confirms configuration/JWKS settings are structurally valid without requiring a live GitHub call; `/health/ready` -> ASP.NET health middleware -> Aspire Npgsql health check -> `NpgsqlDataSource` -> `SELECT 1`. Detailed health output remains authorization-protected and is not used by Cloudflare's anonymous probe.
 
-`/health/ready` is the only endpoint that touches PostgreSQL, and **nothing may poll it on a schedule** — a periodic `SELECT 1` keeps the Neon compute permanently awake and exhausts the Free plan's CU-hour budget mid-month ([#38](https://github.com/timbarreto/acn-fde/issues/38)). Anonymous and automated probes use `/health/live`.
+`/health/ready` is the only endpoint that touches PostgreSQL, and **nothing may poll it on a schedule** — a periodic `SELECT 1` keeps the Neon compute permanently awake and exhausts the Free plan's CU-hour budget mid-month ([#38](https://github.com/timbarreto/acn-fde/issues/38)).
+
+**The health surface is not public in production.** `wrangler.jsonc` routes only `/api` and `/api/*` to the Worker, and the Worker proxies `/health*` to CoreEx solely where `COREEX_API_ORIGIN` is configured — the local and isolated test profiles. A production `/health*` request is answered by the SPA shell, so no anonymous client can keep the sleeping Container awake or observe database availability through it. Cloudflare's own port readiness check is internal to the Container and is unaffected.
 
 ### Complete local setup and Aspire integration
 
@@ -533,7 +535,7 @@ CoreEx API --------------------------------------------------> Vite + Worker (on
 
 Four resources, not six: the Worker no longer has its own process, port, health check, or proxy ([#45](https://github.com/timbarreto/acn-fde/issues/45)).
 
-- **Prerequisites:** .NET 10 SDK (a deliberate pin — Aspire 13 supports .NET 8/9/10), the Aspire CLI (`npm install -g @microsoft/aspire-cli`, or commit to `dotnet run --project` and say so), Docker, Node/npm, and the repo-pinned Wrangler package. Run `npm ci` and `dotnet restore backend/Acn.Fde.Practice.slnx` once after checkout; AppHost starts services but never installs dependencies.
+- **Prerequisites:** .NET 10 SDK (a deliberate pin — Aspire 13 supports .NET 8/9/10), Podman, Node/npm, and the repo-pinned Wrangler package. The repository uses `dotnet run --project`, and AppHost explicitly selects Podman. Run `npm ci` and `dotnet restore backend/Acn.Fde.Practice.slnx` once after checkout; AppHost starts services but never installs dependencies.
 - **`npm run dev` must keep working standalone.** Most frontend work touches `src/` and needs neither PostgreSQL nor D1. The plain Vite dev server against the guest/offline path stays a first-class inner loop, so a UI change never requires the .NET toolchain or Docker. `dev:full` is for full-stack work only.
 - **PostgreSQL:** AppHost provisions PostgreSQL with an Aspire-managed development volume and an `acn_fde_practice` database. `WithReference` injects the `Postgres` connection string expected by CoreEx's existing `AddNpgsqlDataSource("Postgres")` wiring. A one-shot CoreEx Database-tool resource applies checked-in migrations; the API uses `WaitForCompletion` and starts only after PostgreSQL is healthy and migration succeeds.
 - **There is no `wrangler dev` resource.** `@cloudflare/vite-plugin` runs the Worker in workerd *inside* the Vite dev server, so Vite and the Worker are one process on one port. Verified end to end against plugin 1.47.0 / Vite 8.1.5 ([#45](https://github.com/timbarreto/acn-fde/issues/45)): the **D1 binding is present and functional** in `env`, `assets.run_worker_first: ["/api/*"]` **beats the SPA fallback on a navigation request** — the [#37](https://github.com/timbarreto/acn-fde/issues/37) blocker — assets are served with HMR intact, and unmatched `/api` paths reach the Worker rather than `index.html`. This deletes the wrangler executable resource, its health check, its fixed port 8787, the Vite `/api` proxy configuration, and `wrangler.local.jsonc`'s reason for existing as a *separate dev server*. The AppHost graph drops from six resources to four.
@@ -586,7 +588,7 @@ PostgreSQL goes first because it is the external dependency with the more failur
 - If `wrangler deploy` exits unsuccessfully, compare the active Worker version and Container image with the captured values. If either changed, explicitly roll back to the captured Worker version and its retained image, then verify the prior application is active. Never roll back D1 or PostgreSQL automatically.
 - Do not delete an image while it is the current rollback target. Cloudflare Worker rollback does not reverse storage changes, which is why the compatibility rule applies to the captured application version too.
 
-A completed `wrangler deploy` has a deliberately narrow production gate. Retry every five seconds for at most one minute: first require the SPA and `/health/live`, then wake the Container and require `/health/startup` and `/health/ready`. These are deployment-only checks, never a scheduled monitor. The gate does **not** exercise GitHub sign-in, authenticated practice APIs, or a guest's first sync. If any required check still fails at the deadline, leave the new deployment active, print the failed checks and release identifiers, and exit nonzero; a health failure is reported and repaired forward, never rolled back automatically.
+A completed `wrangler deploy` has a deliberately narrow production gate. Retry every five seconds for at most one minute: first require the SPA, then wake the Container and require an anonymous `GET /api/practice-state` to answer `401` — which proves workerd reached CoreEx and CoreEx answered. The gate cannot use `/health*`, because production deliberately does not route it publicly. These are deployment-only checks, never a scheduled monitor. The gate does **not** exercise GitHub sign-in, authenticated practice APIs, or a guest's first sync. If any required check still fails at the deadline, leave the new deployment active, print the failed checks and release identifiers, and exit nonzero; a health failure is reported and repaired forward, never rolled back automatically.
 
 Print a secret-free deployment summary containing the commit SHA, previous and new Worker versions, previous and new Container image digests, expected and observed migration heads, timestamps, and both health-gate results. The Worker deployment metadata and terminal output are the deployment record; do not add a deployment database, issue, or committed log.
 
@@ -653,7 +655,21 @@ Run `npm run test:full` to start `Acn.Fde.Practice.Test.AppHost` with disposable
 8. Stop/restart the API resource, then PostgreSQL, and verify health transitions, queued client retry, and durable state recovery; repeat for the Worker/D1 process.
 9. Run the AppHost `container` profile against the same cases, build from `backend/Dockerfile`, enforce a 1 GiB memory ceiling, and verify restart/sleep-equivalent process loss does not lose PostgreSQL state.
 
-The integration profile deletes its temporary stores after the run and emits Aspire resource logs/traces on failure. It does not contact GitHub, Cloudflare, or Neon.
+The integration profile deletes its temporary stores after the run and emits Aspire resource logs on failure. It does not contact GitHub, Cloudflare, or Neon.
+
+`npm run test:resilience` selects the two #78 cases. Both exercise the public
+same-origin HTTP lifecycle, restart CoreEx, restart Vite/workerd so the persisted
+local D1 identity store is closed and reopened, interrupt PostgreSQL, restore a
+queued browser-cache edit, and verify the three health signals. The Container
+case repeats the lifecycle against `backend/Dockerfile` and inspects the running
+Podman container and image for Linux AMD64, UID 1654, the framework-dependent
+`dotnet` entry point, port 8080, a 1 GiB limit, explicit local OTLP configuration,
+and no durable mounts. Production keeps `OTEL_SDK_DISABLED=true`; only the local
+Container configuration overrides it and supplies Aspire's OTLP endpoint. These
+cases are operator-invoked only: they are excluded from `npm run test:backend`,
+`npm run test:full`, and GitHub Actions, because they build the production image
+and drive Podman restarts. Failures write the captured Aspire resource logs to
+the test output.
 
 ### Manual local acceptance
 
@@ -665,4 +681,4 @@ Also verify the frontend-only behaviours from [#50](https://github.com/timbarret
 
 Bootstrap the four runtime Worker secrets once, then exercise the production script from a clean checkout matching `origin/main`. Prove its PostgreSQL-first and D1-second migration gates, active-version re-check, immediate Container rollout, and secret-free summary. On a disposable target, force each partial-failure boundary and verify that migration failures stop for repair, a partially changed `wrangler deploy` restores the captured application version without reversing either database, and a completed deployment with failed health checks remains active while the script exits nonzero.
 
-Against production, retry only the agreed anonymous gate for one minute: SPA plus `/health/live`, then `/health/startup` plus `/health/ready`. GitHub auth, authenticated practice APIs, a guest's first sync, five-minute sleep, and billing inspection are deliberately not deployment gates; the runtime and cost assumptions were already measured by [#42](https://github.com/timbarreto/acn-fde/issues/42). Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.
+Against production, retry only the agreed anonymous gate for one minute: the SPA, then an unauthenticated `GET /api/practice-state` answering `401` from CoreEx. Production does not route `/health*`, so the gate never probes it. GitHub auth, authenticated practice APIs, a guest's first sync, five-minute sleep, and billing inspection are deliberately not deployment gates; the runtime and cost assumptions were already measured by [#42](https://github.com/timbarreto/acn-fde/issues/42). Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.

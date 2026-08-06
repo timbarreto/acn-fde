@@ -1,18 +1,29 @@
+using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.JavaScript;
 using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 var integration = builder.Environment.IsEnvironment("Integration");
+var containerProfile = builder.Environment.IsEnvironment("Container");
+var isolated = integration || containerProfile;
+const string isolatedTokenIssuer = "https://acn-fde-full-stack.invalid";
 var repositoryRoot = Path.GetFullPath(
     Path.Combine(builder.AppHostDirectory, "../../.."));
 var viteExecutable = Path.Combine(repositoryRoot, "node_modules/.bin/vite");
 var wranglerExecutable = Path.Combine(repositoryRoot, "node_modules/.bin/wrangler");
+var isolatedPostgresDataPath = isolated
+    ? builder.Configuration["Integration:PostgresDataPath"]
+        ?? throw new InvalidOperationException(
+            "Integration:PostgresDataPath is required for an isolated stack.")
+    : null;
 
 var postgres = builder
     .AddPostgres("postgres-server")
     .WithImageTag("18.4");
 
-if (!integration)
+if (isolatedPostgresDataPath is not null)
+    postgres.WithBindMount(isolatedPostgresDataPath, "/var/lib/postgresql");
+else
     postgres.WithDataVolume("acn-fde-postgres-data");
 
 var practiceDatabase = postgres.AddDatabase("Postgres", "acn_fde_practice");
@@ -23,17 +34,47 @@ var migrations = builder
     .WaitFor(practiceDatabase)
     .WithArgs("Migrate");
 
-var coreEx = builder
-    .AddProject<Projects.Acn_Fde_Practice_Api>("coreex")
-    .WithReference(practiceDatabase)
-    .WaitForCompletion(migrations);
-
-if (integration)
-    coreEx.WithHttpEndpoint(name: "http");
+IResourceBuilder<IResourceWithEndpoints> coreEx;
+IResourceBuilder<ContainerResource>? coreExContainer = null;
+IResourceBuilder<ProjectResource>? coreExProject = null;
+if (containerProfile)
+{
+    coreExContainer = builder
+        .AddDockerfile(
+            "coreex",
+            repositoryRoot,
+            "backend/Dockerfile",
+            stage: "runtime")
+        .WithReference(practiceDatabase)
+        .WithEnvironment(
+            "ConnectionStrings__Postgres",
+            LocalPostgresConnectionString(practiceDatabase.Resource))
+        .WaitForCompletion(migrations)
+        .WithHttpEndpoint(targetPort: 8080, name: "http")
+        .WithHttpHealthCheck("/health/ready")
+        .WithOtlpExporter()
+        .WithEnvironment("OTEL_SDK_DISABLED", "false")
+        .WithContainerRuntimeArgs("--memory", "1g");
+    coreEx = coreExContainer;
+}
 else
-    coreEx.WithHttpEndpoint(port: 5080, name: "http");
+{
+    coreExProject = builder
+        .AddProject<Projects.Acn_Fde_Practice_Api>("coreex")
+        .WithReference(practiceDatabase)
+        .WithEnvironment(
+            "ConnectionStrings__Postgres",
+            LocalPostgresConnectionString(practiceDatabase.Resource))
+        .WaitForCompletion(migrations);
 
-coreEx.WithHttpHealthCheck("/health/ready");
+    if (integration)
+        coreExProject.WithHttpEndpoint(name: "http");
+    else
+        coreExProject.WithHttpEndpoint(port: 5080, name: "http");
+
+    coreExProject.WithHttpHealthCheck("/health/ready");
+    coreEx = coreExProject;
+}
 
 if (!File.Exists(viteExecutable) || !File.Exists(wranglerExecutable))
 {
@@ -43,8 +84,8 @@ if (!File.Exists(viteExecutable) || !File.Exists(wranglerExecutable))
 
 var workerConfigPath = Path.Combine(
     repositoryRoot,
-    integration ? "wrangler.integration.jsonc" : "wrangler.local.jsonc");
-var workerStatePath = integration
+    isolated ? "wrangler.integration.jsonc" : "wrangler.local.jsonc");
+var workerStatePath = isolated
     ? builder.Configuration["Integration:WorkerStatePath"]
         ?? throw new InvalidOperationException(
             "Integration:WorkerStatePath is required for the integration stack.")
@@ -75,13 +116,14 @@ var app = builder
     .WaitFor(coreEx)
     .WaitForCompletion(identityMigrations);
 
-if (integration)
+if (isolated)
 {
     app.WithHttpEndpoint(name: "http")
+        .WithArgs("--host", "0.0.0.0")
         .WithEnvironment("ACN_FDE_INTEGRATION", "true")
         .WithEnvironment("COREEX_API_ORIGIN", coreEx.GetEndpoint("http"))
         .WithEnvironment("BETTER_AUTH_URL", app.GetEndpoint("http"))
-        .WithEnvironment("AUTH_TOKEN_ISSUER", app.GetEndpoint("http"))
+        .WithEnvironment("AUTH_TOKEN_ISSUER", isolatedTokenIssuer)
         .WithEnvironment("AUTH_TOKEN_AUDIENCE", "acn-fde-practice-api")
         .WithEnvironment("GITHUB_CLIENT_ID", "full-stack-test-github-client")
         .WithEnvironment("GITHUB_CLIENT_SECRET", "full-stack-test-github-secret")
@@ -89,12 +131,18 @@ if (integration)
             "BETTER_AUTH_SECRET",
             "full-stack-test-secret-is-not-a-credential");
 
-    coreEx
-        .WithEnvironment("IdentityToken__Issuer", app.GetEndpoint("http"))
-        .WithEnvironment("IdentityToken__Audience", "acn-fde-practice-api")
-        .WithEnvironment(
-            "IdentityToken__JwksUri",
-            ReferenceExpression.Create($"{app.GetEndpoint("http")}/api/auth/jwks"));
+    if (coreExContainer is not null)
+        ConfigureCoreExIdentity(
+            coreExContainer,
+            app.GetEndpoint(
+                "http",
+                KnownNetworkIdentifiers.DefaultAspireContainerNetwork),
+            isolatedTokenIssuer);
+    else
+        ConfigureCoreExIdentity(
+            coreExProject!,
+            app.GetEndpoint("http"),
+            isolatedTokenIssuer);
 }
 else
 {
@@ -127,3 +175,23 @@ builder.OnBeforeStart((_, _) =>
 });
 
 builder.Build().Run();
+
+static ReferenceExpression LocalPostgresConnectionString(
+    IResourceWithConnectionString database) =>
+    ReferenceExpression.Create(
+        $"{database.ConnectionStringExpression};Maximum Pool Size=10;Minimum Pool Size=0;Connection Idle Lifetime=240;Timeout=15;Keepalive=0;GSS Encryption Mode=Disable");
+
+static void ConfigureCoreExIdentity<T>(
+    IResourceBuilder<T> coreEx,
+    EndpointReference appEndpoint,
+    string tokenIssuer)
+    where T : IResourceWithEnvironment
+{
+    var jwksUri = ReferenceExpression.Create($"{appEndpoint}/api/auth/jwks");
+
+    coreEx
+        .WithEnvironment("IdentityToken__Issuer", tokenIssuer)
+        .WithEnvironment("IdentityToken__Audience", "acn-fde-practice-api")
+        .WithEnvironment("IdentityToken__JwksUri", jwksUri)
+        .WithEnvironment("IdentityToken__RequireHttps", "false");
+}

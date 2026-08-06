@@ -25,7 +25,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - shadcn/ui components built on Radix primitives
 - Lucide icons
 - Browser `localStorage`
-- Cloudflare Workers runtime for the optional same-origin development stack
+- Cloudflare Workers runtime for the optional same-origin stack, with a singleton production CoreEx Container
 - .NET 10, CoreEx, Aspire, and PostgreSQL 18 for backend development
 
 ## Run locally
@@ -60,7 +60,8 @@ checked-in CoreEx and local D1 migrations, starts the trimmed CoreEx API, and
 then starts Vite with its Worker in workerd. The Worker serves the application
 and forwards `/api*` and `/health*` on that same origin to CoreEx.
 
-The anonymous health endpoints have separate meanings:
+The health endpoints are reachable in the local and isolated test stacks only.
+They have separate meanings:
 
 - `/health/live` reports only process liveness.
 - `/health/startup` reports whether application initialization completed.
@@ -128,23 +129,57 @@ the complete signed-in path:
 npm run test:full
 ```
 
-The harness creates a fresh, unpersisted PostgreSQL container and a unique
-temporary local D1 store, applies both sets of real migrations, and waits for
-Aspire resource health. It then uses same-origin HTTP to verify application and
-API health, reject an unauthenticated practice-state request with `401`, issue
-real short-lived identity tokens for two independent test subjects, and prove
-that each subject can save, load, reset, and delete only its own state while
-practice data is removed before the selected identity.
+The harness creates a PostgreSQL container over a unique temporary data
+directory and a unique temporary local D1 store, applies both sets of real
+migrations, and waits for Aspire resource health. It then uses same-origin HTTP
+to verify application and API health, reject an unauthenticated practice-state
+request with `401`, issue real short-lived identity tokens for two independent
+test subjects, and prove that each subject can save, load, reset, and delete
+only its own state while practice data is removed before the selected identity.
 
 No GitHub credentials, Cloudflare service, hosted database, or fixed readiness
 delay is involved. Identity issuance lives behind a separate integration-only
 Worker entry point; the production Worker explicitly returns `404` for every
-test-auth path. The harness stops all Aspire resources and deletes its temporary
-D1 store after either success or failure. On failure, it also writes the
+test-auth path. The harness stops all Aspire resources and deletes both
+temporary stores after either success or failure. On failure, it also writes the
 PostgreSQL, migration, CoreEx, and Worker resource logs to the test output.
 
 The same harness runs with the backend tests in the ordinary pull-request CI
 workflow.
+
+## Exercise restart and production-container resilience
+
+Podman-backed resilience tests run the same same-origin HTTP lifecycle twice:
+once with the CoreEx project and once with the production `backend/Dockerfile`.
+They restart CoreEx, restart Vite/workerd so its persisted local D1 identity
+store is closed and reopened, and restart PostgreSQL; preserve a queued
+browser-cache edit across a simulated browser restart; verify
+live, startup, and readiness transitions; and prove idempotent recovery of the
+accepted state.
+
+```bash
+npm run test:resilience
+```
+
+The production-shaped run inspects the live image and process rather than only
+the Dockerfile. It verifies Linux AMD64, the non-root UID, framework-dependent
+`dotnet` entry point, port 8080, the 1 GiB limit, explicit Aspire OTLP settings,
+and the absence of container mounts for durable state. PostgreSQL owns practice
+state and D1 owns identity state; neither depends on the CoreEx filesystem.
+
+CoreEx deliberately registers an ephemeral data-protection provider because it
+owns no cookie or protected browser-session boundary. A framework component may
+still create an unused disposable key file and emit the standard container
+warning, but the directory is not mounted and no application state depends on
+it. Better Auth sessions and JWKS remain in D1 across the workerd restart.
+
+These cases stay operator-invoked. `npm run test:resilience` is the only command
+that runs them: CI does not, and neither do `npm run test:backend` or
+`npm run test:full`. On failure they write the PostgreSQL, migration, CoreEx, and
+Worker resource logs to the test output. The local Container configuration
+explicitly enables and wires Aspire OTLP; the production image and Cloudflare
+container environment keep `OTEL_SDK_DISABLED=true`, so they never retry a
+local collector accidentally.
 
 ## Verify a production build
 
@@ -153,6 +188,7 @@ npm run test
 npm run test:worker
 npm run test:backend
 npm run test:full
+npm run test:resilience
 npm run lint
 npm run build
 npm run preview
@@ -239,14 +275,17 @@ run instead of reusing the pinned approval.
 
 ## Deploy to Cloudflare
 
-The production build deploys as a Cloudflare Worker with Static Assets and the
-`AUTH_DB` D1 binding. Before the first auth-capable deployment, configure the
-GitHub OAuth Worker secrets, set a random Better Auth secret once, and apply the
-checked-in D1 migration:
+The production build deploys as a Cloudflare Worker with Static Assets, the
+`AUTH_DB` D1 binding, and a singleton sleeping CoreEx Container. Before the first
+auth-capable deployment, configure the
+GitHub OAuth Worker secrets, set a random Better Auth secret once, store the
+pooled PostgreSQL connection string the Container reads as
+`ConnectionStrings__Postgres`, and apply the checked-in D1 migration:
 
 ```bash
 ./setup-github-secrets.sh --prod
 npx wrangler secret put BETTER_AUTH_SECRET --name agentic-ready-gh-600
+npx wrangler secret put POSTGRES_CONNECTION_STRING --name agentic-ready-gh-600
 npx wrangler d1 migrations apply acn-fde-auth --remote --config wrangler.jsonc
 ```
 
@@ -258,10 +297,17 @@ npx wrangler login
 npm run deploy
 ```
 
+`npm run deploy` builds the Container image from `backend/Dockerfile`, so a
+container runtime must be running; set `WRANGLER_DOCKER_BIN` to the Podman
+executable when Docker is not installed.
+
 Wrangler prints the deployed `workers.dev` URL when the upload completes. The
 deployment uses `wrangler.jsonc` to serve the Vite output in `dist/`, route
-`/api/auth/*` through the Worker before SPA fallback, and return the SPA shell
-for application routes.
+`/api` and `/api/*` through the Worker before SPA fallback — Better Auth handles
+its own routes and everything else reaches the CoreEx Container — and return the
+SPA shell for application routes. CoreEx health endpoints stay private in
+production: `/health*` is not routed to the Worker, so no anonymous request can
+wake or probe the sleeping Container.
 
 To use a custom domain, deploy the Worker first, then add the hostname under
 **Workers & Pages > agentic-ready-gh-600 > Settings > Domains & Routes** in the

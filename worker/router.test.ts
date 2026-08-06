@@ -52,7 +52,7 @@ describe("routeRequest", () => {
     expect(assets).not.toHaveBeenCalled()
   })
 
-  it.each(["/api", "/api/practice-state", "/health/live", "/health/ready"])(
+  it.each(["/api", "/api/practice-state"])(
     "routes %s to CoreEx",
     async (path) => {
       const coreEx = vi.fn(async () => response("coreex"))
@@ -68,6 +68,43 @@ describe("routeRequest", () => {
       expect(assets).not.toHaveBeenCalled()
     },
   )
+
+  it.each(["/health", "/health/live", "/health/ready"])(
+    "routes %s to CoreEx only where health is exposed",
+    async (path) => {
+      const coreEx = vi.fn(async () => response("coreex"))
+      const assets = vi.fn(async () => response("asset"))
+
+      const exposed = await routeRequest(
+        new Request(`http://localhost${path}`),
+        { auth: vi.fn(async () => response("auth")), coreEx, assets },
+        { exposeHealth: true },
+      )
+      const withheld = await routeRequest(
+        new Request(`http://localhost${path}`),
+        { auth: vi.fn(async () => response("auth")), coreEx, assets },
+        { exposeHealth: false },
+      )
+
+      expect(await exposed.text()).toBe("coreex")
+      expect(await withheld.text()).toBe("asset")
+      expect(coreEx).toHaveBeenCalledOnce()
+      expect(assets).toHaveBeenCalledOnce()
+    },
+  )
+
+  it("withholds health from CoreEx by default", async () => {
+    const coreEx = vi.fn(async () => response("coreex"))
+    const assets = vi.fn(async () => response("asset"))
+
+    const result = await routeRequest(
+      new Request("http://localhost/health/live"),
+      { auth: vi.fn(async () => response("auth")), coreEx, assets },
+    )
+
+    expect(await result.text()).toBe("asset")
+    expect(coreEx).not.toHaveBeenCalled()
+  })
 
   it.each(["/", "/history", "/assets/app.js", "/apiary"])(
     "leaves %s with the client application",

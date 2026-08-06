@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+.aspire
+.wrangler
+node_modules
+dist
+**/bin
+**/obj
+**/TestResults
+playwright-report
+test-results
+.dev.vars*
+.env*
+*.local

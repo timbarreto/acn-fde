@@ -6,12 +6,12 @@ namespace Acn.Fde.Practice.Application.PracticeState;
 [ScopedService<IPracticeStateService>]
 public sealed class PracticeStateService(
     CoreEx.ExecutionContext executionContext,
-    IUnitOfWork unitOfWork,
+    IPracticeStateTransaction transaction,
     IPracticeStateRepository repository,
     IPracticeStateMerger merger) : IPracticeStateService
 {
     private readonly CoreEx.ExecutionContext _executionContext = executionContext.ThrowIfNull();
-    private readonly IUnitOfWork _unitOfWork = unitOfWork.ThrowIfNull();
+    private readonly IPracticeStateTransaction _transaction = transaction.ThrowIfNull();
     private readonly IPracticeStateRepository _repository = repository.ThrowIfNull();
     private readonly IPracticeStateMerger _merger = merger.ThrowIfNull();
 
@@ -33,7 +33,7 @@ public sealed class PracticeStateService(
 
         var user = GetUser();
 
-        return _unitOfWork.TransactionAsync(async ct =>
+        return _transaction.ExecuteAsync(async ct =>
         {
             var stored = await _repository.GetForUpdateAsync(user.Id!, ct).ConfigureAwait(false);
             var canonical = _merger.Merge(
@@ -57,7 +57,7 @@ public sealed class PracticeStateService(
     public Task<Result> DeleteAsync(CancellationToken cancellationToken = default)
     {
         var subject = GetUser().Id!;
-        return _unitOfWork.TransactionAsync(async ct =>
+        return _transaction.ExecuteAsync(async ct =>
         {
             await _repository.DeleteAsync(subject, ct).ConfigureAwait(false);
             return Result.Success;

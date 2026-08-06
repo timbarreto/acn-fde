@@ -3,3 +3,5 @@
 GITHUB_CLIENT_ID=replace-with-local-github-client-id
 GITHUB_CLIENT_SECRET=replace-with-local-github-client-secret
 BETTER_AUTH_SECRET=replace-with-a-random-secret-of-at-least-32-characters
+POSTGRES_CONNECTION_STRING=Host=replace-with-pooled-host;Database=replace;Username=replace;Password=replace
+COREEX_API_ORIGIN=http://127.0.0.1:5080

@@ -50,6 +50,9 @@ export default defineConfig(() => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    server: integration
+      ? { allowedHosts: ["aspire.dev.internal"] }
+      : undefined,
   }
 })
 
