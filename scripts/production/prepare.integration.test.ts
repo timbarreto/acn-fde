@@ -288,6 +288,73 @@ server.listen(0, "127.0.0.1", () => {
   return `http://127.0.0.1:${readFileSync(portPath, "utf8")}`
 }
 
+function startDatabaseRequiredProxy(directory: string): {
+  port: string
+  rejectionPath: string
+} {
+  const serverPath = path.join(directory, "database-required-proxy.mjs")
+  const portPath = path.join(directory, "database-required-proxy-port")
+  const rejectionPath = path.join(directory, "database-required-proxy-rejection")
+  writeFileSync(
+    serverPath,
+    `import { createConnection, createServer } from "node:net"
+import { writeFileSync } from "node:fs"
+const upstreamPort = Number(process.argv[2])
+const portPath = process.argv[3]
+const rejectionPath = process.argv[4]
+const server = createServer((client) => {
+  let startup = Buffer.alloc(0)
+  let connected = false
+  client.on("data", (chunk) => {
+    if (connected) return
+    startup = Buffer.concat([startup, chunk])
+    if (startup.length < 4) return
+    const startupLength = startup.readInt32BE(0)
+    if (startup.length < startupLength) return
+    const parameters = startup.subarray(8, startupLength - 1).toString().split("\\0")
+    let database
+    for (let index = 0; index < parameters.length - 1; index += 2)
+      if (parameters[index] === "database") database = parameters[index + 1]
+    if (!database) {
+      writeFileSync(rejectionPath, "missing database startup parameter")
+      const payload = Buffer.from("SERROR\\0C28000\\0MParameter 'database' is missing in startup packet.\\0\\0")
+      const error = Buffer.alloc(payload.length + 5)
+      error[0] = 0x45
+      error.writeInt32BE(payload.length + 4, 1)
+      payload.copy(error, 5)
+      client.end(error)
+      return
+    }
+    connected = true
+    client.pause()
+    const upstream = createConnection({ host: "127.0.0.1", port: upstreamPort })
+    upstream.once("connect", () => {
+      upstream.write(startup)
+      upstream.pipe(client)
+      client.pipe(upstream)
+      client.resume()
+    })
+    upstream.on("error", () => client.destroy())
+    client.on("error", () => upstream.destroy())
+  })
+})
+server.listen(0, "127.0.0.1", () => {
+  writeFileSync(portPath, String(server.address().port))
+})
+`,
+  )
+  const server = spawn(
+    process.execPath,
+    [serverPath, postgresPort, portPath, rejectionPath],
+    { stdio: "ignore" },
+  )
+  childProcesses.push(server)
+  for (let attempt = 0; attempt < 100 && !existsSync(portPath); attempt += 1)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+  if (!existsSync(portPath)) throw new Error("database-required proxy did not start")
+  return { port: readFileSync(portPath, "utf8"), rejectionPath }
+}
+
 function createDatabase(): { name: string; connection: string } {
   const name = `deployment_${randomUUID().replaceAll("-", "")}`
   command("podman", ["exec", postgresContainer, "createdb", "-U", "postgres", name])
@@ -389,6 +456,33 @@ describe.sequential("production:prepare disposable databases", () => {
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
     ])
+  })
+
+  it("migrates through an endpoint that requires the database startup parameter", () => {
+    const { checkout, target } = createCheckout()
+    const database = createDatabase()
+    const proxy = startDatabaseRequiredProxy(path.dirname(target))
+    const connection = database.connection.replace(
+      `Port=${postgresPort}`,
+      `Port=${proxy.port}`,
+    )
+
+    const result = runPreparation(checkout, target, connection)
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(existsSync(proxy.rejectionPath)).toBe(false)
+    const appliedCount = command("podman", [
+      "exec",
+      postgresContainer,
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      database.name,
+      "-Atc",
+      "SELECT count(*) FROM public.schemaversions",
+    ])
+    expect(appliedCount).toBe("2")
   })
 
   it("reports pending migrations in dry-run mode without creating either native ledger", () => {
