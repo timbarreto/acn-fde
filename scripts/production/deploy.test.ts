@@ -275,11 +275,13 @@ function configureFailedRollout(
   fixture: ReturnType<typeof createReleaseFixture>,
   failure: "worker" | "coreex",
   previousImage = "registry.cloudflare.com/test-account/coreex@sha256:old",
+  transientRecoveryLookup = false,
 ): void {
   const directory = path.dirname(fixture.target)
   const bin = path.join(directory, "bin")
   const workerState = path.join(directory, "worker-state")
   const imageState = path.join(directory, "image-state")
+  const lookupState = path.join(directory, "lookup-state")
   const previousTag = previousImage ? "" : `prime-${fixture.release}`
   const previousBindings = previousImage
     ? "[]"
@@ -297,6 +299,14 @@ if [[ "$*" == *"wrangler --version"* ]]; then
 elif [[ "$*" == *"wrangler whoami"* ]]; then
   printf 'Account ID: test-account\\n'
 elif [[ "$*" == *"deployments list"* ]]; then
+  lookups=0
+  [ -f "${lookupState}" ] && lookups="$(cat "${lookupState}")"
+  lookups=$((lookups + 1))
+  printf '%s' "$lookups" > "${lookupState}"
+  if [ "${transientRecoveryLookup}" = "true" ] && [ "$lookups" -eq 5 ]; then
+    printf 'transient lookup failure\\n' >&2
+    exit 72
+  fi
   version="$(cat "${workerState}")"
   printf '[{"created_on":"2026-08-06T00:00:00Z","versions":[{"version_id":"%s","percentage":100}]}]\\n' "$version"
 elif [[ "$*" == *"versions view worker-version-old"* ]]; then
@@ -807,6 +817,37 @@ fi
       expect(`${result.stdout}\n${result.stderr}\n${commands}`).not.toContain(connection)
     },
   )
+
+  it("reports recovery success when final verification heals a transient state lookup failure", () => {
+    const fixture = createReleaseFixture()
+    configureFailedRollout(fixture, "worker", undefined, true)
+    const connection =
+      "Host=ep-example.us-east-1.aws.neon.tech;Database=neondb;Username=owner;Password=must-never-appear;SSL Mode=VerifyFull;Channel Binding=Require;GSS Encryption Mode=Disable"
+
+    const result = spawnSync(
+      "npm",
+      [
+        "run",
+        "production:deploy",
+        "--",
+        "--repository",
+        fixture.checkout,
+        "--target",
+        fixture.target,
+      ],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: fixture.environment,
+        input: `${connection}\n`,
+      },
+    )
+
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toContain("Status: rollout failed; recovery succeeded")
+    expect(result.stdout).not.toContain("Recovery failure:")
+    expect(result.stderr).toContain("recovery succeeded")
+  })
 
   it("removes a partially created Container when recovering the first rollout to its primed Worker", () => {
     const fixture = createReleaseFixture()
