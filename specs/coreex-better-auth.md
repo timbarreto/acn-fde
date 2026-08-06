@@ -108,6 +108,11 @@ Everything below exists ([#35](https://github.com/timbarreto/acn-fde/issues/35))
 | PostgreSQL | Neon project in `aws-us-east-1`, database `neondb`, role `neondb_owner` | autoscaling pinned to 0.25 CU min *and* max; schema `practice` is created by migration |
 | GitHub OAuth apps | two, owned by the personal account `timbarreto` | dev callback `http://localhost:5173/api/auth/callback/github`; production callback on the Worker origin above |
 
+The table above records what was provisioned and why. The identities the
+production tooling actually enforces live in
+[`scripts/production/production-target.json`](../scripts/production/production-target.json);
+change them there.
+
 Three facts about this set that are easy to get wrong:
 
 - **`wrangler d1 create` places the database near whoever ran the command**, not near the Worker or the application's other regions. The first attempt landed in WNAM and had to be recreated with `--location enam`. D1 region is fixed at creation.

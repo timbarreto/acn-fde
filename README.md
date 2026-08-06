@@ -278,10 +278,14 @@ run instead of reusing the pinned approval.
 
 ## Prepare production
 
-Production uses Cloudflare account `263caf3ee0ff6b4a0b0945a344fd13b1`, Worker
-`agentic-ready-gh-600`, D1 database `acn-fde-auth` in ENAM, and the singleton
-sleeping `coreex` Container. The committed target pins Node, .NET, Wrangler, and
-those resource identities. Use `.nvmrc` and `global.json`; run a Docker-compatible
+[`scripts/production/production-target.json`](scripts/production/production-target.json)
+is the single source of truth for the production target. It pins the release
+branch, the Cloudflare account, the Worker, the singleton sleeping CoreEx
+Container application, the D1 database identity and region, the migration
+manifest and PostgreSQL migration project, and the exact Node, .NET SDK, and
+Wrangler versions. `npm run production:prepare` reads that file and refuses to
+run against anything else, so change the file rather than a command line. Match
+the pinned toolchain with `.nvmrc` and `global.json`, and run a Docker-compatible
 container engine, or set `WRANGLER_DOCKER_BIN` to Podman.
 
 Authenticate Wrangler, then install the four runtime secrets once:

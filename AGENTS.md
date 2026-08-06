@@ -55,7 +55,8 @@ terms do not yet appear in `src/`.
 - `contracts/`: append-only recognition data shared across browser and backend contracts.
 - `scripts/production/`: pinned production target, additive migration manifest,
   secret bootstrap, migration preparation, and disposable-target tests.
-- `GH-600/`: source material and study documentation.
+- `specs/`: implementation specification and delivery record for the backend,
+  authentication, and production work.
 
 ## Development commands
 
@@ -133,22 +134,11 @@ finished attempts.
 - Update `README.md` when setup commands, user-visible capabilities, or the
   content model change.
 
-## Agent skills
+## Issue tracker
 
-### Issue tracker
-
-Track requests and PRDs in GitHub Issues for `timbarreto/acn-fde`. See
-`docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the five canonical Matt Pocock triage labels. See
-`docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Use the single-context domain documentation layout. See
-`docs/agents/domain.md`.
+Track requests and PRDs as GitHub Issues in `timbarreto/acn-fde`, and prefer the
+repository-provided `gh-axi` wrapper over `gh` for GitHub operations. Run the
+wrapper from the repository so the remote resolves.
 
 ## Maintaining this file
 
