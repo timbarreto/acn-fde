@@ -116,7 +116,6 @@ export function createAuthOptions(
         githubAccountId: {
           type: "string",
           required: true,
-          input: false,
         },
       },
       deleteUser: { enabled: true },
