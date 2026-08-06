@@ -96,8 +96,12 @@ function run(command: string, args: string[], cwd: string): string {
   })
   if (result.error)
     throw new Error(`${command} could not start: ${result.error.message}`)
-  if (result.status !== 0)
-    throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr.trim()}`)
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || "no output"
+    throw new Error(
+      `${command} ${args.join(" ")} exited ${result.status ?? "without a status"}: ${detail}`,
+    )
+  }
   return result.stdout.trim()
 }
 
@@ -470,14 +474,15 @@ function recoverApplication(
   previousVersion: string,
   previousImage: string,
 ): RecoveryResult {
-  let failure: string | undefined
+  const failures: string[] = []
   let observedVersion = "<unknown>"
   let observedImage = "<unknown>"
   try {
     observedVersion = activeWorkerVersion(target, repository, config)
     observedImage = activeContainerImage(target, repository, config)
-  } catch (error) {
-    failure = error instanceof Error ? error.message : "application state lookup failed"
+  } catch {
+    // A transient initial lookup is not a recovery failure when the final
+    // verification proves that both captured application states were restored.
   }
 
   if (observedImage !== previousImage) {
@@ -498,9 +503,11 @@ function recoverApplication(
           application.id,
         )
       } catch (error) {
-        failure ??= error instanceof Error
-          ? error.message
-          : "CoreEx Container removal failed"
+        failures.push(
+          error instanceof Error
+            ? error.message
+            : "CoreEx Container removal failed",
+        )
       }
     } else {
       try {
@@ -522,9 +529,9 @@ function recoverApplication(
           `Restore CoreEx image after failed release ${release}`,
         )
       } catch (error) {
-        failure ??= error instanceof Error
-          ? error.message
-          : "CoreEx image recovery failed"
+        failures.push(
+          error instanceof Error ? error.message : "CoreEx image recovery failed",
+        )
       }
     }
   }
@@ -544,22 +551,26 @@ function recoverApplication(
         "--yes",
       )
   } catch (error) {
-    failure ??= error instanceof Error ? error.message : "Worker recovery failed"
+    failures.push(
+      error instanceof Error ? error.message : "Worker recovery failed",
+    )
   }
 
   try {
     observedVersion = activeWorkerVersion(target, repository, config)
     observedImage = activeContainerImage(target, repository, config)
   } catch (error) {
-    failure ??= error instanceof Error ? error.message : "recovery verification failed"
+    failures.push(
+      error instanceof Error ? error.message : "recovery verification failed",
+    )
   }
   const succeeded =
-    !failure &&
+    failures.length === 0 &&
     observedVersion === previousVersion &&
     observedImage === previousImage
-  if (!succeeded && !failure)
-    failure =
-      `recovery verification found Worker ${observedVersion} and CoreEx image ${observedImage}`
+  const failure = failures[0] ?? (!succeeded
+    ? `recovery verification found Worker ${observedVersion} and CoreEx image ${observedImage}`
+    : undefined)
   return {
     workerVersion: observedVersion,
     containerImage: observedImage,

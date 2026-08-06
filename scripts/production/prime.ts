@@ -56,8 +56,12 @@ function run(command: string, args: string[], cwd: string): string {
   })
   if (result.error)
     throw new Error(`${command} could not start: ${result.error.message}`)
-  if (result.status !== 0)
-    throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr.trim()}`)
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || "no output"
+    throw new Error(
+      `${command} ${args.join(" ")} exited ${result.status ?? "without a status"}: ${detail}`,
+    )
+  }
   return result.stdout.trim()
 }
 
@@ -189,8 +193,14 @@ function extractLegacyRelease(
     ],
     { cwd: repository, encoding: "utf8", env: process.env },
   )
-  if (result.error || result.status !== 0)
-    throw new Error("legacy release could not be extracted")
+  if (result.error)
+    throw new Error(`legacy release extraction could not start: ${result.error.message}`)
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || "no output"
+    throw new Error(
+      `legacy release extraction exited ${result.status ?? "without a status"}: ${detail}`,
+    )
+  }
 }
 
 function writeBridgeConfiguration(
