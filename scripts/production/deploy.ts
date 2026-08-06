@@ -179,9 +179,34 @@ function activeContainerApplication(
   const application = applications.find(
     ({ name }) => name === target.containerApplicationName,
   )
-  if (application && !containerApplicationImage(application))
+  if (!application) return undefined
+  if (!application.id)
+    throw new Error("active CoreEx Container ID could not be captured")
+
+  const detail = parseJson<ContainerApplication>(
+    wrangler(
+      repository,
+      config,
+      "containers",
+      "info",
+      application.id,
+      "--json",
+    ),
+    "Container application detail lookup",
+  )
+  if (detail.id !== application.id || detail.name !== application.name)
+    throw new Error("Container application detail lookup returned the wrong application")
+  const currentImage =
+    containerApplicationImage(detail) ?? containerApplicationImage(application)
+  const current = {
+    ...application,
+    ...detail,
+    image: currentImage,
+    configuration: detail.configuration ?? application.configuration,
+  }
+  if (!containerApplicationImage(current))
     throw new Error("active CoreEx Container image could not be captured")
-  return application
+  return current
 }
 
 function activeContainerImage(
@@ -434,6 +459,39 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
+async function waitForContainerImage(
+  target: ProductionTarget,
+  repository: string,
+  config: string,
+  expectedImage: string,
+): Promise<string> {
+  let observedImage = "<unknown>"
+  let lastError: unknown
+  for (
+    let observation = 1;
+    observation <= target.healthGate.attempts;
+    observation += 1
+  ) {
+    try {
+      observedImage = activeContainerImage(target, repository, config)
+      lastError = undefined
+      process.stdout.write(
+        `Container image observation ${observation}/${target.healthGate.attempts}: ${observedImage}\n`,
+      )
+      if (observedImage === expectedImage) return observedImage
+    } catch (error) {
+      lastError = error
+      process.stdout.write(
+        `Container image observation ${observation}/${target.healthGate.attempts}: unavailable\n`,
+      )
+    }
+    if (observation < target.healthGate.attempts)
+      await delay(target.healthGate.intervalMilliseconds)
+  }
+  if (lastError) throw lastError
+  return observedImage
+}
+
 async function responseFinding(
   url: URL,
   timeoutMilliseconds: number,
@@ -508,7 +566,7 @@ async function observeHealth(target: ProductionTarget): Promise<HealthGateResult
   }
 }
 
-function recoverApplication(
+async function recoverApplication(
   target: ProductionTarget,
   configuration: WorkerConfiguration,
   repository: string,
@@ -517,7 +575,7 @@ function recoverApplication(
   release: string,
   previousVersion: string,
   previousImage: string,
-): RecoveryResult {
+): Promise<RecoveryResult> {
   const failures: string[] = []
   let observedVersion = "<unknown>"
   let observedImage = "<unknown>"
@@ -602,7 +660,12 @@ function recoverApplication(
 
   try {
     observedVersion = activeWorkerVersion(target, repository, config)
-    observedImage = activeContainerImage(target, repository, config)
+    observedImage = await waitForContainerImage(
+      target,
+      repository,
+      config,
+      previousImage,
+    )
   } catch (error) {
     failures.push(
       error instanceof Error ? error.message : "recovery verification failed",
@@ -753,14 +816,19 @@ async function main(): Promise<void> {
       )
 
       newVersion = activeWorkerVersion(target, repository, config)
-      newImage = activeContainerImage(target, repository, config)
       verifyReleaseVersion(target, repository, config, newVersion, release)
+      newImage = await waitForContainerImage(
+        target,
+        repository,
+        config,
+        immutableImage,
+      )
       if (newImage !== immutableImage)
         throw new Error(
           `active CoreEx image does not match the immutable release image (${immutableImage} -> ${newImage})`,
         )
     } catch (error) {
-      const recovery = recoverApplication(
+      const recovery = await recoverApplication(
         target,
         configuration,
         repository,

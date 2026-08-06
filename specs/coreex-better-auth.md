@@ -587,7 +587,10 @@ browser assets rather than trusting a prior guest build, and adds the release,
 image, binding, secret-name, and intended-rollout report. `npm run
 production:deploy` runs the resumable preparation, performs the same production
 asset build, and then completes the application rollout, recovery, and health
-observation. The checked-in `scripts/production/migrations.json` records
+observation. Rollout and recovery verification use the named application's
+`containers info` result and wait for its immutable digest to converge; the
+more eventually consistent `containers list` image is not accepted as final
+state. The checked-in `scripts/production/migrations.json` records
 each migration's native ledger ID, SHA-256 digest, and explicit `expand`
 compatibility. Preparation rejects files absent from that manifest, digest
 drift, non-expand changes, unknown or reordered ledger entries, and a concurrent

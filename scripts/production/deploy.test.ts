@@ -201,6 +201,8 @@ elif [[ "$*" == *"containers list"* ]]; then
   else
     printf '[{"id":"container-old","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:old"}]\n'
   fi
+elif [[ "$*" == *"containers info container-old"* ]]; then
+  printf '{"id":"container-old","name":"coreex","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:old"}}\n'
 elif [[ "$*" == *"deploy --dry-run"* ]]; then
   printf '%s\n' '--dry-run: exiting now.'
 elif [[ "$*" == *"d1 migrations list"* ]]; then
@@ -322,6 +324,9 @@ elif [[ "$*" == *"containers list"* ]]; then
   else
     printf '[]\\n'
   fi
+elif [[ "$*" == *"containers info container-app"* ]]; then
+  image="$(cat "${imageState}")"
+  printf '{"id":"container-app","name":"coreex","configuration":{"image":"%s"}}\\n' "$image"
 elif [[ "$*" == *"containers delete container-app"* ]]; then
   : > "${imageState}"
   printf 'Deleted container-app\\n'
@@ -376,10 +381,12 @@ fi
 function configureSuccessfulRollout(
   fixture: ReturnType<typeof createReleaseFixture>,
   coreExStatus = 401,
+  containerConvergenceDelay = 0,
 ): void {
   const directory = path.dirname(fixture.target)
   const bin = path.join(directory, "bin")
   const deployed = path.join(directory, "deployed")
+  const containerInfoLookups = path.join(directory, "container-info-lookups")
   const origin = startHealthServer(directory, coreExStatus)
   const target = JSON.parse(readFileSync(fixture.target, "utf8")) as Record<string, unknown>
   target.healthOrigin = origin
@@ -410,11 +417,23 @@ elif [[ "$*" == *"d1 info"* ]]; then
 elif [[ "$*" == *"secret list"* ]]; then
   printf '[{"name":"GITHUB_CLIENT_ID"},{"name":"GITHUB_CLIENT_SECRET"},{"name":"BETTER_AUTH_SECRET"},{"name":"POSTGRES_CONNECTION_STRING"}]\\n'
 elif [[ "$*" == *"containers list"* ]]; then
-  if [ -f "${deployed}" ]; then
-    printf '[{"id":"container-new","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}]\\n'
+  if [ -f "${deployed}" ] && [ "${containerConvergenceDelay}" -eq 0 ]; then
+    printf '[{"id":"container-app","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}]\\n'
   else
-    printf '[{"id":"container-old","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:old"}]\\n'
+    printf '[{"id":"container-app","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:old"}]\\n'
   fi
+elif [[ "$*" == *"containers info container-app"* ]]; then
+  image='registry.cloudflare.com/test-account/coreex@sha256:old'
+  if [ -f "${deployed}" ]; then
+    lookups=0
+    [ -f "${containerInfoLookups}" ] && lookups="$(cat "${containerInfoLookups}")"
+    lookups=$((lookups + 1))
+    printf '%s' "$lookups" > "${containerInfoLookups}"
+    if [ "$lookups" -gt "${containerConvergenceDelay}" ]; then
+      image='registry.cloudflare.com/test-account/coreex@sha256:newdigest'
+    fi
+  fi
+  printf '{"id":"container-app","name":"coreex","configuration":{"image":"%s"}}\\n' "$image"
 elif [[ "$*" == *"deploy --dry-run"* ]]; then
   printf '%s\\n' '--dry-run: exiting now.'
 elif [[ "$*" == *"d1 migrations list"* ]]; then
@@ -926,6 +945,38 @@ fi
     const commands = readFileSync(fixture.commandLog, "utf8")
     expect(commands).not.toContain("rollback")
     expect(commands).not.toContain(`--tag ${fixture.release}-recovery`)
+  })
+
+  it("waits for authoritative Container info when the list response is stale", () => {
+    const fixture = createReleaseFixture()
+    configureSuccessfulRollout(fixture, 401, 1)
+    const connection =
+      "Host=ep-example.us-east-1.aws.neon.tech;Database=neondb;Username=owner;Password=must-never-appear;SSL Mode=VerifyFull;Channel Binding=Require;GSS Encryption Mode=Disable"
+
+    const result = spawnSync(
+      "npm",
+      [
+        "run",
+        "production:deploy",
+        "--",
+        "--repository",
+        fixture.checkout,
+        "--target",
+        fixture.target,
+      ],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        env: fixture.environment,
+        input: `${connection}\n`,
+      },
+    )
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain("Status: succeeded")
+    const commands = readFileSync(fixture.commandLog, "utf8")
+    expect(commands.match(/containers info container-app/g)?.length).toBeGreaterThanOrEqual(3)
+    expect(commands).not.toContain("rollback")
   })
 
   it("deploys a commit-addressed immutable image and observes health for the full gate", () => {
