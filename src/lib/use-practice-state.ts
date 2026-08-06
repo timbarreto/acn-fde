@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react"
-import { browserPracticeAuth } from "@/lib/auth-client"
+import {
+  browserPracticeAuth,
+  useBrowserAccountIdentity,
+} from "@/lib/auth-client"
 import {
   createBrowserPracticeStateStore,
   syncStatusWithConnectivity,
@@ -51,6 +54,7 @@ export function usePracticeState() {
     readConnectivity,
     () => true,
   )
+  const accountIdentity = useBrowserAccountIdentity()
   const updatePracticeState = useCallback((
     updater: (current: PracticeState) => PracticeState,
     options?: { flush?: PracticeStateFlush },
@@ -80,6 +84,7 @@ export function usePracticeState() {
     syncStatus: syncStatusWithConnectivity(snapshot.syncStatus, online),
     accountDeletionStage: snapshot.accountDeletionStage,
     accountAvailable: import.meta.env.ACN_FDE_FULL_STACK,
+    accountIdentity,
     updatePracticeState,
     flush,
     resetPracticeState,

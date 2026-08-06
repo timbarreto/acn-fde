@@ -20,6 +20,11 @@ export interface Question {
   source: { label: string; url: string }
 }
 
+export interface AccountIdentity {
+  githubUsername: string
+  avatarUrl: string
+}
+
 export type AttemptMode = "full" | "quick" | "domain"
 export type AttemptOutcome = "submitted" | "expired" | "abandoned"
 

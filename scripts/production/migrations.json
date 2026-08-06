@@ -19,6 +19,12 @@
       "path": "worker/migrations/0001_identity.sql",
       "sha256": "89f8cfd83b2d7eeae05c554f50cd01439f424e6571bc12f6cf836f6388bdb16e",
       "compatibility": "expand"
+    },
+    {
+      "id": "0002_github_profile.sql",
+      "path": "worker/migrations/0002_github_profile.sql",
+      "sha256": "38879a0345f85f3b0b3d0661c7179793e7bd49efa2c5307e4a26cc2b96a4eb29",
+      "compatibility": "expand"
     }
   ]
 }

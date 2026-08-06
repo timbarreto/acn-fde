@@ -1,10 +1,58 @@
+import { useSyncExternalStore } from "react"
 import { createAuthClient } from "better-auth/client"
 import {
   PracticeSessionMismatchError,
   type PracticeAuth,
 } from "@/lib/persistence"
+import type { AccountIdentity } from "@/types"
 
 const authClient = createAuthClient()
+
+let accountIdentity: AccountIdentity | null = null
+const accountIdentityListeners = new Set<() => void>()
+
+const browserAccountIdentityStore = {
+  getSnapshot: () => accountIdentity,
+  subscribe(listener: () => void) {
+    accountIdentityListeners.add(listener)
+    return () => accountIdentityListeners.delete(listener)
+  },
+}
+
+export function useBrowserAccountIdentity() {
+  return useSyncExternalStore(
+    browserAccountIdentityStore.subscribe,
+    browserAccountIdentityStore.getSnapshot,
+    browserAccountIdentityStore.getSnapshot,
+  )
+}
+
+function publishAccountIdentity(nextIdentity: AccountIdentity | null) {
+  if (
+    accountIdentity?.githubUsername === nextIdentity?.githubUsername &&
+    accountIdentity?.avatarUrl === nextIdentity?.avatarUrl
+  ) return
+
+  accountIdentity = nextIdentity
+  for (const listener of accountIdentityListeners) listener()
+}
+
+function accountIdentityFromUser(user: {
+  githubUsername?: unknown
+  image?: unknown
+}): AccountIdentity | null {
+  if (
+    typeof user.githubUsername !== "string" ||
+    user.githubUsername.length === 0 ||
+    typeof user.image !== "string" ||
+    user.image.length === 0
+  ) return null
+
+  return {
+    githubUsername: user.githubUsername,
+    avatarUrl: user.image,
+  }
+}
 
 export async function signInWithGitHub(callbackURL: string) {
   const result = await authClient.signIn.social({
@@ -95,6 +143,9 @@ export const browserPracticeAuth: PracticeAuth = {
     const result = await authClient.getSession()
     if (result.error) throw authError("resolve the session", result.error)
     identityTokens.clearIdentityToken()
+    publishAccountIdentity(result.data
+      ? accountIdentityFromUser(result.data.user)
+      : null)
     return result.data ? { subject: result.data.user.id } : null
   },
   async getIdentityToken(expectedSubject) {
@@ -113,23 +164,34 @@ export const browserPracticeAuth: PracticeAuth = {
     const result = await authClient.signOut()
     if (result.error) throw authError("end the session", result.error)
     identityTokens.clearIdentityToken()
+    publishAccountIdentity(null)
   },
   async deleteAccount() {
     await deleteBetterAuthAccount()
     identityTokens.clearIdentityToken()
+    publishAccountIdentity(null)
   },
   subscribeSession(listener) {
     return authClient.useSession.subscribe((session) => {
       const resolved = resolvedPracticeSession(session)
       if (resolved === undefined) return
       identityTokens.clearIdentityToken()
+      publishAccountIdentity(session.data
+        ? accountIdentityFromUser(session.data.user)
+        : null)
       listener(resolved)
     })
   },
 }
 
 interface BrowserSessionSnapshot {
-  data: { user: { id: string } } | null
+  data: {
+    user: {
+      id: string
+      githubUsername?: unknown
+      image?: unknown
+    }
+  } | null
   error: { status?: number } | null
   isPending: boolean
   isRefetching: boolean
