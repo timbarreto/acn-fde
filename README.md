@@ -343,7 +343,10 @@ PostgreSQL-first and D1-second, and verifies both native ledgers. It builds the
 CoreEx image as `coreex:<commit>`, pushes it, resolves and pins its immutable
 registry digest in a temporary configuration, rechecks the active Worker, then
 runs a strict `wrangler deploy` tagged with the commit and using an immediate
-Container rollout. `npm run production:prepare` remains available when an
+Container rollout. Because Cloudflare's Container list can lag a completed
+rollout, verification polls the named application's authoritative `containers
+info` response for the immutable digest before it succeeds or begins recovery.
+`npm run production:prepare` remains available when an
 operator deliberately needs only the resumable database-preparation phase.
 
 If application deployment fails after changing the Worker or Container, the

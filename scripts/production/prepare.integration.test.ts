@@ -1020,10 +1020,16 @@ case "$*" in
   *"secret list"*) printf '[{"name":"GITHUB_CLIENT_ID"},{"name":"GITHUB_CLIENT_SECRET"},{"name":"BETTER_AUTH_SECRET"},{"name":"POSTGRES_CONNECTION_STRING"}]\\n' ;;
   *"containers list"*)
     if [ -f "${deployed}" ]; then
-      printf '[{"id":"container-new","name":"test-worker-CoreExContainer","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}}]\\n'
+      printf '[{"id":"container-new","name":"test-worker-CoreExContainer","image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}]\\n'
     else
-      printf '[{"id":"container-old","name":"test-worker-CoreExContainer","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:old"}}]\\n'
+      printf '[{"id":"container-old","name":"test-worker-CoreExContainer","image":"registry.cloudflare.com/test-account/coreex@sha256:old"}]\\n'
     fi
+    ;;
+  *"containers info container-new"*)
+    printf '{"id":"container-new","name":"test-worker-CoreExContainer","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}}\\n'
+    ;;
+  *"containers info container-old"*)
+    printf '{"id":"container-old","name":"test-worker-CoreExContainer","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:old"}}\\n'
     ;;
   *"deploy --dry-run"*) printf '%s\\n' '--dry-run: exiting now.' ;;
   *"containers push coreex:${release}"*) printf 'Pushed image\\n' ;;
