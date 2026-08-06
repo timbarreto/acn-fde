@@ -380,7 +380,11 @@ esac
     expect(result.stdout).toContain(
       "Active CoreEx image: registry.example/coreex@sha256:old-image",
     )
-    expect(readFileSync(commandLog, "utf8")).toContain(
+    const commands = readFileSync(commandLog, "utf8")
+    expect(commands).toContain(
+      "wrangler secret list --name test-worker --format json --config",
+    )
+    expect(commands).toContain(
       "wrangler deploy --dry-run --containers-rollout immediate",
     )
   })

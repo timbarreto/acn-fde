@@ -428,6 +428,8 @@ function main(): void {
         "list",
         "--name",
         target.workerName,
+        "--format",
+        "json",
         "--config",
         wranglerConfig,
       ],

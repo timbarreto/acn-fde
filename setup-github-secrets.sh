@@ -94,7 +94,7 @@ if $do_prod; then
   say "Production Worker secrets — ACN FDE Practice"
   echo "  Target Worker: $WORKER_NAME"
 
-  installed_secrets="$(npx wrangler secret list --name "$WORKER_NAME")"
+  installed_secrets="$(npx wrangler secret list --name "$WORKER_NAME" --format json)"
   has_worker_secret() {
     local name=$1
     WORKER_SECRETS="$installed_secrets" node -e '

@@ -28,6 +28,10 @@ const records = existsSync(recordPath)
 
 if (args[0] !== "wrangler" || args[1] !== "secret") process.exit(64)
 if (args[2] === "list") {
+  const markerPath = recordPath + ".listed"
+  const formatIndex = args.indexOf("--format")
+  if (!existsSync(markerPath) && args[formatIndex + 1] !== "json") process.exit(65)
+  writeFileSync(markerPath, "listed")
   process.stdout.write(JSON.stringify(records.map(({ name }) => ({ name, type: "secret_text" }))))
   process.exit(0)
 }
