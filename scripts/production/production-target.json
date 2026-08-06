@@ -10,6 +10,7 @@
   "postgresProject": "backend/tools/Acn.Fde.Practice.Database/Acn.Fde.Practice.Database.csproj",
   "migrationManifest": "scripts/production/migrations.json",
   "d1Mode": "remote",
+  "postgresMode": "remote",
   "tools": {
     "node": "24.18.0",
     "dotnetSdk": "10.0.302",

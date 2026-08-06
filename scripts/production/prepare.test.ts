@@ -13,6 +13,25 @@ import { afterEach, describe, expect, it } from "vitest"
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../..")
 const temporaryDirectories: string[] = []
+const pinnedDotnetSdk = "10.0.302"
+
+function writeDotnetStub(directory: string, ledgerBehaviour = ""): string {
+  const fakeDotnet = path.join(directory, "dotnet")
+  writeFileSync(
+    fakeDotnet,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [ "$*" = "--version" ]; then
+  printf '${pinnedDotnetSdk}\\n'
+${ledgerBehaviour}else
+  printf 'unexpected dotnet command: %s\\n' "$*" >&2
+  exit 64
+fi
+`,
+    { mode: 0o755 },
+  )
+  return fakeDotnet
+}
 
 function git(cwd: string, ...args: string[]): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" })
@@ -97,9 +116,10 @@ function writeTarget(directory: string): string {
         "backend/tools/Acn.Fde.Practice.Database/Acn.Fde.Practice.Database.csproj",
       migrationManifest: "scripts/production/migrations.json",
       d1Mode: "remote",
+      postgresMode: "remote",
       tools: {
         node: process.versions.node,
-        dotnetSdk: "10.0.302",
+        dotnetSdk: pinnedDotnetSdk,
         wrangler: "4.118.0",
       },
     }),
@@ -181,6 +201,7 @@ describe("production:prepare preflight", () => {
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const fakeNpx = path.join(directory, "npx")
     writeFileSync(
       fakeNpx,
@@ -201,6 +222,7 @@ describe("production:prepare preflight", () => {
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const fakeNpx = path.join(directory, "npx")
     writeFileSync(fakeNpx, "#!/usr/bin/env bash\nprintf '4.118.0\\n'\n", {
       mode: 0o755,
@@ -220,6 +242,7 @@ describe("production:prepare preflight", () => {
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const fakeNpx = path.join(directory, "npx")
     const fakeEngine = path.join(directory, "container-engine")
     writeFileSync(
@@ -252,6 +275,7 @@ fi
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const fakeNpx = path.join(directory, "npx")
     const fakeEngine = path.join(directory, "container-engine")
     writeFileSync(
@@ -285,6 +309,7 @@ esac
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const fakeNpx = path.join(directory, "npx")
     const fakeEngine = path.join(directory, "container-engine")
     writeFileSync(
@@ -319,6 +344,7 @@ esac
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const commandLog = path.join(directory, "commands.log")
     const fakeNpx = path.join(directory, "npx")
     const fakeEngine = path.join(directory, "container-engine")
@@ -363,6 +389,7 @@ esac
     const checkout = createCurrentMainCheckout()
     const directory = path.dirname(checkout)
     const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
     const commandLog = path.join(directory, "commands.log")
     const fakeNpx = path.join(directory, "npx")
     const fakeEngine = path.join(directory, "container-engine")
@@ -403,6 +430,62 @@ esac
     expect(visibleText).not.toContain("must-never-appear")
   })
 
+  it("rejects a nested checked-in migration that the manifest does not list", () => {
+    const checkout = createCurrentMainCheckout()
+    addMigrationRelease(checkout)
+    const directory = path.dirname(checkout)
+    const targetPath = writeTarget(directory)
+    writeDotnetStub(directory)
+    const nestedMigration =
+      "backend/tools/Acn.Fde.Practice.Database/Migrations/2027/20270101-000001-nested.pgsql"
+    mkdirSync(path.dirname(path.join(checkout, nestedMigration)), {
+      recursive: true,
+    })
+    writeFileSync(
+      path.join(checkout, nestedMigration),
+      'CREATE TABLE "practice"."must_not_exist" ("id" int);\n',
+    )
+    git(checkout, "add", ".")
+    git(checkout, "commit", "-m", "add nested migration")
+    git(checkout, "push", "origin", "main")
+    const commandLog = path.join(directory, "commands.log")
+    const fakeNpx = path.join(directory, "npx")
+    const fakeEngine = path.join(directory, "container-engine")
+    writeFileSync(
+      fakeNpx,
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$COMMAND_LOG"
+case "$*" in
+  *"--version"*) printf '4.118.0\\n' ;;
+  *"whoami"*) printf 'Account ID: test-account\\n' ;;
+  *"deployments list"*) printf '[{"created_on":"2026-08-06T00:00:00Z","versions":[{"version_id":"worker-version-1","percentage":100}]}]\\n' ;;
+  *"d1 info"*) printf '{"uuid":"test-database-id","name":"test-auth","running_in_region":"ENAM"}\\n' ;;
+  *"secret list"*) printf '[{"name":"GITHUB_CLIENT_ID"},{"name":"GITHUB_CLIENT_SECRET"},{"name":"BETTER_AUTH_SECRET"},{"name":"POSTGRES_CONNECTION_STRING"}]\\n' ;;
+  *"containers list"*) printf '[]\\n' ;;
+  *"deploy --dry-run"*) printf '%s\\n' '--dry-run: exiting now.' ;;
+  *) printf 'unexpected npx command: %s\\n' "$*" >&2; exit 64 ;;
+esac
+`,
+      { mode: 0o755 },
+    )
+    writeFileSync(fakeEngine, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 })
+    const directConnection =
+      "Host=ep-example.us-east-1.aws.neon.tech;Database=neondb;Username=owner;Password=direct;SSL Mode=VerifyFull;Channel Binding=Require;GSS Encryption Mode=Disable"
+
+    const result = prepare(checkout, targetPath, `${directConnection}\n`, {
+      ...process.env,
+      COMMAND_LOG: commandLog,
+      PATH: `${directory}:${process.env.PATH ?? ""}`,
+      WRANGLER_DOCKER_BIN: fakeEngine,
+    })
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain(
+      `checked-in PostgreSQL migration is absent from the compatibility manifest: ${nestedMigration}`,
+    )
+    expect(readFileSync(commandLog, "utf8")).not.toContain("d1 migrations")
+  })
+
   it("prepares a fresh release in PostgreSQL-first order and verifies both ledgers", () => {
     const checkout = createCurrentMainCheckout()
     addMigrationRelease(checkout)
@@ -412,7 +495,6 @@ esac
     const stateDirectory = path.join(directory, "state")
     mkdirSync(stateDirectory)
     const fakeNpx = path.join(directory, "npx")
-    const fakeDotnet = path.join(directory, "dotnet")
     const fakeEngine = path.join(directory, "container-engine")
     writeFileSync(
       fakeNpx,
@@ -446,13 +528,9 @@ esac
 `,
       { mode: 0o755 },
     )
-    writeFileSync(
-      fakeDotnet,
-      `#!/usr/bin/env bash
-set -euo pipefail
-if [ "$*" = "--version" ]; then
-  printf '10.0.302\\n'
-elif [[ "$*" == *"migration-ledger"* ]]; then
+    writeDotnetStub(
+      directory,
+      `elif [[ "$*" == *"migration-ledger"* ]]; then
   if [ -f "$STATE_DIRECTORY/postgres-applied" ]; then
     printf '["Acn.Fde.Practice.Database.Migrations.20260804-000001-test.pgsql"]\\n'
   else
@@ -461,12 +539,7 @@ elif [[ "$*" == *"migration-ledger"* ]]; then
 elif [[ "$*" == *" Migrate"* ]]; then
   printf 'postgres:migrate\\n' >> "$COMMAND_LOG"
   touch "$STATE_DIRECTORY/postgres-applied"
-else
-  printf 'unexpected dotnet command: %s\\n' "$*" >&2
-  exit 64
-fi
 `,
-      { mode: 0o755 },
     )
     writeFileSync(fakeEngine, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 })
     const directConnection =

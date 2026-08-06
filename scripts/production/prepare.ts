@@ -23,6 +23,7 @@ interface ProductionTarget {
   postgresProject: string
   migrationManifest: string
   d1Mode: "local" | "remote"
+  postgresMode: "local" | "remote"
   d1PersistTo?: string
   tools: {
     node: string
@@ -101,6 +102,17 @@ interface MigrationManifest {
   d1: MigrationEntry[]
 }
 
+function readTarget(targetPath: string): ProductionTarget {
+  const target = parseJson<ProductionTarget>(
+    readFileSync(targetPath, "utf8"),
+    "Production target",
+  )
+  for (const field of ["d1Mode", "postgresMode"] as const)
+    if (target[field] !== "local" && target[field] !== "remote")
+      throw new Error(`production target ${field} must be local or remote`)
+  return target
+}
+
 function activeWorkerVersion(
   target: ProductionTarget,
   wranglerConfig: string,
@@ -163,10 +175,14 @@ function validateMigrationManifest(
     )
     for (const directory of directories) {
       for (const entry of readdirSync(path.resolve(repository, directory), {
+        recursive: true,
         withFileTypes: true,
       })) {
         if (!entry.isFile() || !entry.name.endsWith(extension)) continue
-        const migrationPath = path.join(directory, entry.name)
+        const migrationPath = path.relative(
+          repository,
+          path.join(entry.parentPath, entry.name),
+        )
         if (!listedPaths.has(migrationPath))
           throw new Error(
             `checked-in ${database} migration is absent from the compatibility manifest: ${migrationPath}`,
@@ -196,7 +212,7 @@ function connectionSettingValues(connection: string, key: string): string[] {
 
 function validateMigrationConnection(
   connection: string,
-  mode: ProductionTarget["d1Mode"],
+  mode: ProductionTarget["postgresMode"],
 ): void {
   const normalized = connection.toLowerCase().replaceAll(/\s/g, "")
   const requiredValues = new Map<string, string | undefined>([
@@ -320,7 +336,7 @@ function main(): void {
       path.join(repository, "scripts/production/production-target.json"),
     ),
   )
-  const target = JSON.parse(readFileSync(targetPath, "utf8")) as ProductionTarget
+  const target = readTarget(targetPath)
 
   if (run("git", ["status", "--porcelain"], repository))
     throw new Error("checkout must be clean")
@@ -483,7 +499,7 @@ function main(): void {
   if (!migrationConnection)
     throw new Error("PostgreSQL migration connection is required")
 
-  validateMigrationConnection(migrationConnection, target.d1Mode)
+  validateMigrationConnection(migrationConnection, target.postgresMode)
 
   const manifest = validateMigrationManifest(
     repository,
@@ -525,9 +541,8 @@ function main(): void {
     `PostgreSQL pending before apply: ${pendingPostgres.join(", ") || "<none>"}\nD1 pending before apply: ${pendingD1.join(", ") || "<none>"}\n`,
   )
 
-  const postgresWasCurrent = expectedPostgres.every((name) =>
-    initialPostgres.includes(name),
-  )
+  const postgresWasCurrent = pendingPostgres.length === 0
+  const d1WasCurrent = pendingD1.length === 0
   if (!postgresWasCurrent) {
     run(
       "dotnet",
@@ -557,7 +572,6 @@ function main(): void {
   if (missingPostgres.length > 0)
     throw new Error(`PostgreSQL migrations remain pending: ${missingPostgres.join(", ")}`)
 
-  const d1WasCurrent = expectedD1.every((name) => initialD1.includes(name))
   if (!d1WasCurrent) {
     run(
       "npx",

@@ -142,6 +142,7 @@ function createCheckout(): { checkout: string; target: string; persistTo: string
         "backend/tools/Acn.Fde.Practice.Database/Acn.Fde.Practice.Database.csproj",
       migrationManifest: "scripts/production/migrations.json",
       d1Mode: "local",
+      postgresMode: "local",
       d1PersistTo: persistTo,
       tools: {
         node: process.versions.node,
