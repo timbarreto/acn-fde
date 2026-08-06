@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Prompt for local GitHub OAuth credentials and the four production Worker
-# secrets, then store them where the plan says they belong. Never echoes a
-# secret, never passes one as a command-line argument (so nothing reaches shell
+# Prompt for local GitHub OAuth/Better Auth credentials and the four production
+# Worker secrets, then store them where the account system expects them. Never
+# echoes a secret, never passes one as a command-line argument (so nothing reaches shell
 # history or `ps`), and writes no temporary files.
 #
 #   ./setup-github-secrets.sh            # both local and production
@@ -68,23 +68,33 @@ if $do_local; then
 fi
 
 if $do_local; then
-  ask LOCAL_ID     "GitHub dev client ID    "
-  ask LOCAL_SECRET "GitHub dev client secret" hidden
+  ask LOCAL_ID          "GitHub dev client ID                 "
+  ask LOCAL_SECRET      "GitHub dev client secret             " hidden
+  ask LOCAL_AUTH_SECRET "Better Auth secret (32+ characters)" hidden
+
+  if [ "${#LOCAL_AUTH_SECRET}" -lt 32 ]; then
+    unset LOCAL_ID LOCAL_SECRET LOCAL_AUTH_SECRET
+    echo "error: local Better Auth secret must contain at least 32 characters" >&2
+    exit 1
+  fi
 
   dotnet user-secrets init --project "$APPHOST" >/dev/null
 
   # Piped JSON is the only form of `user-secrets set` that keeps values out of
   # argv. python3 does the escaping; the values travel by environment, not args.
-  LOCAL_ID="$LOCAL_ID" LOCAL_SECRET="$LOCAL_SECRET" python3 -c '
+  LOCAL_ID="$LOCAL_ID" LOCAL_SECRET="$LOCAL_SECRET" \
+    LOCAL_AUTH_SECRET="$LOCAL_AUTH_SECRET" python3 -c '
 import json, os
 print(json.dumps({
     "Parameters:github-client-id":     os.environ["LOCAL_ID"],
     "Parameters:github-client-secret": os.environ["LOCAL_SECRET"],
+    "Parameters:better-auth-secret":   os.environ["LOCAL_AUTH_SECRET"],
 }))' | dotnet user-secrets set --project "$APPHOST" >/dev/null
 
-  unset LOCAL_ID LOCAL_SECRET
+  unset LOCAL_ID LOCAL_SECRET LOCAL_AUTH_SECRET
   echo "  stored in .NET user-secrets for $APPHOST"
-  echo "  keys: Parameters:github-client-id, Parameters:github-client-secret"
+  echo "  keys: Parameters:github-client-id, Parameters:github-client-secret,"
+  echo "        Parameters:better-auth-secret"
   warn "  note: user-secrets is unencrypted plaintext under ~/.microsoft/usersecrets/"
 fi
 

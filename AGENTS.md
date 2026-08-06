@@ -10,7 +10,8 @@ Cloudflare Worker, a trimmed CoreEx service, local PostgreSQL, and authenticated
 schema-v2 practice-state load/merge/delete APIs plus first-sign-in sync into a
 subject-isolated browser cache with durable send-and-rebase synchronization,
 safe authentication recovery, passive sync status, and optional account UI
-with export, reset, and ordered account deletion controls.
+with GitHub identity, export, reset, and ordered account deletion controls.
+Candidate and operator behavior is documented in `docs/account-system*.md`.
 
 ## Vocabulary
 
@@ -41,6 +42,9 @@ terms do not yet appear in `src/`.
   synchronization, destructive data controls, and legacy migration.
 - `src/lib/data-controls.ts`: client-side practice-state export creation and
   download.
+- `src/lib/auth-client.ts`: Better Auth browser adapter, memory-only API token,
+  and current account identity presentation.
+- `src/lib/practice-api.ts`: handwritten same-origin practice-state adapter.
 - `src/lib/use-practice-state.ts`: thin React integration for the persistence
   store.
 - `src/lib/utils.ts`: shared UI utilities, including `cn`.
@@ -58,6 +62,9 @@ terms do not yet appear in `src/`.
   disposable-target tests.
 - `specs/`: implementation specification and delivery record for the backend,
   authentication, and production work.
+- `docs/account-system.md`: candidate-facing account and data behavior.
+- `docs/account-system-operations.md`: local and production operator runbook.
+- `docs/account-system-acceptance.md`: secret-free acceptance evidence.
 
 ## Development commands
 
@@ -124,6 +131,14 @@ legacy `agentic-ready-gh600-v1` shape and removes it only after a successful v2
 write. Treat envelope changes as data migrations and keep browser storage
 behind `src/lib/persistence.ts`. The application retains the 30 most recent
 finished attempts.
+
+Account caches use only
+`agentic-ready-gh600-v2:user:${encodeURIComponent(subject)}` and must not be
+read before the Better Auth subject resolves. Never enumerate account caches or
+persist a current-account pointer. D1 owns identity/session/JWKS state,
+PostgreSQL owns canonical account practice state, and the CoreEx filesystem owns
+nothing durable. Keep OAuth credentials and direct migration credentials out of
+browser storage, repository files, command arguments, and logs.
 
 ## Change guidelines
 

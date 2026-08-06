@@ -40,18 +40,39 @@ Open the URL printed by Vite (normally `http://localhost:5173`).
 This standalone command starts the complete guest application without Podman,
 .NET, PostgreSQL, or any backend service.
 
+## Guest and account modes
+
+Guest practice is permanent, complete, browser-only, and offline-first. GitHub
+sign-in is optional and adds cross-device synchronization and recovery after
+browser data is cleared; it never unlocks practice features. Account caches are
+keyed only by the authenticated subject, and a lost session hides and
+quarantines its cache until the same subject signs in again.
+
+Practice edits are saved locally before syncing. Each signed-in device therefore
+holds a practical backup, but server loss plus loss of every browser cache is
+total loss; Neon Free provides only a six-hour recovery window. Account offers
+client-side export, subject-isolated reset, safe sign-out, and practice-first
+account deletion. See the [candidate account guide](docs/account-system.md) for
+what is stored, recovery behavior, data controls, and preview-auth limitations.
+
 ## Run the full stack locally
 
 The full-stack path requires Podman and the exact .NET SDK version pinned in
 `global.json`, which disables roll-forward, so every `dotnet` command in this
-repository refuses a different .NET 10 patch. Install dependencies once, then
-start the complete development graph:
+repository refuses a different .NET 10 patch. Install dependencies once. For
+real local GitHub sign-in, configure the separate localhost OAuth app and local
+Better Auth secret before starting the graph:
 
 ```bash
 npm ci
 dotnet restore backend/Acn.Fde.Practice.slnx
+./setup-github-secrets.sh --local
 npm run dev:full
 ```
+
+The helper stores values in unencrypted .NET user-secrets outside the
+repository. The isolated automated stack supplies test-only identity values and
+does not require local GitHub credentials.
 
 Start a Podman machine first on Windows or macOS. The AppHost selects Podman
 explicitly on every platform; its published container ports must be reachable
@@ -278,6 +299,12 @@ or its head SHA needs to change, close the partial PR and dispatch a new workflo
 run instead of reusing the pinned approval.
 
 ## Deploy production
+
+Use the [account-system operator guide](docs/account-system-operations.md) for
+initial provisioning, local and production secrets, recovery, troubleshooting,
+and cost controls. Cloudflare and Neon alerts are informational: **they do not
+cap spend or stop services**. The secret-free evidence for the accepted stack is
+recorded in [account-system acceptance](docs/account-system-acceptance.md).
 
 [`scripts/production/production-target.json`](scripts/production/production-target.json)
 is the single source of truth for the production target. It pins the release

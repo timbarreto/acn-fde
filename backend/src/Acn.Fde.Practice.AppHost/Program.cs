@@ -16,6 +16,15 @@ var isolatedPostgresDataPath = isolated
         ?? throw new InvalidOperationException(
             "Integration:PostgresDataPath is required for an isolated stack.")
     : null;
+var githubClientId = isolated
+    ? null
+    : builder.AddParameter("github-client-id", secret: true);
+var githubClientSecret = isolated
+    ? null
+    : builder.AddParameter("github-client-secret", secret: true);
+var betterAuthSecret = isolated
+    ? null
+    : builder.AddParameter("better-auth-secret", secret: true);
 
 var postgres = builder
     .AddPostgres("postgres-server")
@@ -146,7 +155,14 @@ if (isolated)
 }
 else
 {
-    app.WithHttpEndpoint(port: 5173, name: "http");
+    app.WithHttpEndpoint(port: 5173, name: "http")
+        .WithEnvironment("GITHUB_CLIENT_ID", githubClientId!)
+        .WithEnvironment("GITHUB_CLIENT_SECRET", githubClientSecret!)
+        .WithEnvironment("BETTER_AUTH_SECRET", betterAuthSecret!);
+    ConfigureCoreExIdentity(
+        coreExProject!,
+        app.GetEndpoint("http"),
+        "http://localhost:5173");
 }
 
 app.WithHttpHealthCheck("/health/ready");

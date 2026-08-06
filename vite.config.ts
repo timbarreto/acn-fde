@@ -12,23 +12,28 @@ export default defineConfig(() => {
     process.env.ACN_FDE_WORKER_CONFIG ?? "./wrangler.local.jsonc"
   const workerStatePath = process.env.ACN_FDE_WORKER_STATE
 
-  const integrationWorkerOptions = integration
-    ? {
-        persistState: { path: requiredEnvironment("ACN_FDE_WORKER_STATE") },
-        config: {
-          vars: {
-            COREEX_API_ORIGIN: requiredEnvironment("COREEX_API_ORIGIN"),
-            BETTER_AUTH_URL: requiredEnvironment("BETTER_AUTH_URL"),
-            AUTH_TOKEN_ISSUER: requiredEnvironment("AUTH_TOKEN_ISSUER"),
-            AUTH_TOKEN_AUDIENCE: requiredEnvironment("AUTH_TOKEN_AUDIENCE"),
-            GITHUB_CLIENT_ID: requiredEnvironment("GITHUB_CLIENT_ID"),
-            GITHUB_CLIENT_SECRET: requiredEnvironment("GITHUB_CLIENT_SECRET"),
-            BETTER_AUTH_SECRET: requiredEnvironment("BETTER_AUTH_SECRET"),
-          },
-        },
-      }
+  const workerVars: Record<string, string> = !fullStack
+    ? {}
     : {
-        persistState: workerStatePath ? { path: workerStatePath } : true,
+        ...(integration
+          ? {
+              COREEX_API_ORIGIN: requiredEnvironment("COREEX_API_ORIGIN"),
+              BETTER_AUTH_URL: requiredEnvironment("BETTER_AUTH_URL"),
+              AUTH_TOKEN_ISSUER: requiredEnvironment("AUTH_TOKEN_ISSUER"),
+              AUTH_TOKEN_AUDIENCE: requiredEnvironment("AUTH_TOKEN_AUDIENCE"),
+            }
+          : {}),
+        GITHUB_CLIENT_ID: requiredEnvironment("GITHUB_CLIENT_ID"),
+        GITHUB_CLIENT_SECRET: requiredEnvironment("GITHUB_CLIENT_SECRET"),
+        BETTER_AUTH_SECRET: requiredEnvironment("BETTER_AUTH_SECRET"),
+      }
+  const fullStackWorkerOptions = !fullStack
+    ? {}
+    : {
+        persistState: integration
+          ? { path: requiredEnvironment("ACN_FDE_WORKER_STATE") }
+          : workerStatePath ? { path: workerStatePath } : true,
+        config: { vars: workerVars },
       }
 
   return {
@@ -41,7 +46,7 @@ export default defineConfig(() => {
             cloudflare({
               configPath: workerConfigPath,
               remoteBindings: false,
-              ...integrationWorkerOptions,
+              ...fullStackWorkerOptions,
             }),
           ]
         : []),
