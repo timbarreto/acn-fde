@@ -54,7 +54,8 @@ terms do not yet appear in `src/`.
 - `backend/`: CoreEx API, production Dockerfile, migrations, tests, and Aspire AppHost.
 - `contracts/`: append-only recognition data shared across browser and backend contracts.
 - `scripts/production/`: pinned production target, additive migration manifest,
-  secret bootstrap, migration preparation, and disposable-target tests.
+  secret bootstrap, rollback priming, resumable preparation and rollout, and
+  disposable-target tests.
 - `specs/`: implementation specification and delivery record for the backend,
   authentication, and production work.
 
@@ -70,7 +71,7 @@ npm run test      # Run Vitest unit tests
 npm run test:worker # Run Worker integration tests
 npm run test:backend # Run .NET tests
 npm run test:full # Exercise the isolated signed-in stack end to end
-npm run test:deployment # Exercise production preparation against disposable databases
+npm run test:deployment # Exercise production preparation and rollout against disposable databases
 npm run test:resilience # Restart project/container stacks and inspect the production image (operator-invoked)
 npm run lint      # Run ESLint
 npm run build     # Type-check and create a production build
@@ -78,7 +79,7 @@ npm run preview   # Serve the production build locally
 ```
 
 Unit tests use Vitest and live next to the code they cover (for example,
-`src/lib/exam.test.ts`). Production-preparation tests require Podman and run in
+`src/lib/exam.test.ts`). Production deployment tests require Podman and run in
 ordinary CI. Resilience tests also require Podman, write Aspire resource logs to
 the test output on failure, and run only through `npm run test:resilience`; CI
 and the other test commands exclude them. The Playwright QA suite in

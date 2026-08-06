@@ -515,7 +515,6 @@ case "$*" in
   *"secret list"*) printf '[{"name":"GITHUB_CLIENT_ID"},{"name":"GITHUB_CLIENT_SECRET"},{"name":"BETTER_AUTH_SECRET"},{"name":"POSTGRES_CONNECTION_STRING"}]\\n' ;;
   *"containers list"*) printf '[]\\n' ;;
   *"deploy --dry-run"*) printf '%s\\n' '--dry-run: exiting now.' ;;
-  *"d1 migrations list"*) printf 'd1:list\\n' >> "$COMMAND_LOG" ;;
   *"d1 execute"*)
     if [ -f "$STATE_DIRECTORY/d1-applied" ]; then
       printf '[{"results":[{"name":"0001_identity.sql"}],"success":true}]\\n'
@@ -560,7 +559,6 @@ elif [[ "$*" == *" Migrate"* ]]; then
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(readFileSync(commandLog, "utf8").split("\n")).toEqual([
       "worker:lookup",
-      "d1:list",
       "postgres:migrate",
       "d1:apply",
       "worker:lookup",

@@ -276,80 +276,106 @@ request is sent; rerun the failed jobs to request approval again. If the plan PR
 or its head SHA needs to change, close the partial PR and dispatch a new workflow
 run instead of reusing the pinned approval.
 
-## Prepare production
+## Deploy production
 
 [`scripts/production/production-target.json`](scripts/production/production-target.json)
 is the single source of truth for the production target. It pins the release
-branch, the Cloudflare account, the Worker, the singleton sleeping CoreEx
-Container application, the D1 database identity and region, the migration
-manifest and PostgreSQL migration project, and the exact Node, .NET SDK, and
-Wrangler versions. `npm run production:prepare` reads that file and refuses to
-run against anything else, so change the file rather than a command line. Match
-the pinned toolchain with `.nvmrc` and `global.json`, and run a Docker-compatible
-container engine, or set `WRANGLER_DOCKER_BIN` to Podman.
+branch, Cloudflare resources, rollback-prime source and active version, health
+gate, migration manifest, and exact Node, .NET SDK, and Wrangler versions. The
+production commands refuse another target. Match `.nvmrc` and `global.json`, and
+run a Docker-compatible container engine or set `WRANGLER_DOCKER_BIN` to Podman.
 
-Authenticate Wrangler, then install the four runtime secrets once:
+### One-time initialization
+
+The legacy static Worker predates its Durable Object class. Cloudflare cannot
+roll back across a Durable Object lifecycle migration, so establish a compatible
+static rollback version **before installing the first Worker secrets**:
 
 ```bash
 npx wrangler login
+npm ci
+npm run production:prime -- --dry-run
+npm run production:prime
 npm run production:bootstrap
 ```
 
-The helper reads existing secret names and prompts only for missing values:
-`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and the pooled
-`POSTGRES_CONNECTION_STRING`. It validates the Better Auth secret and the pooled
-Npgsql settings before changing the Worker. Values come from the password
-manager, travel through standard input, and never enter arguments, files, or
-logs. Each `wrangler secret put` creates a Worker version, so secret rotation is
-a separate deliberate maintenance operation.
+`production:prime` builds the pinned legacy commit, keeps its static asset
+behavior, adds only the dormant `CoreExContainer` Durable Object class, and
+creates no Container application or database binding. It accepts only the
+pinned legacy Worker version and is safely repeatable; later secret-created
+versions retain that class. Its dry run does not mutate Cloudflare.
 
-Prepare an accepted `main` release from a clean checkout whose `HEAD` exactly
-matches `origin/main`:
+The bootstrap helper then prompts only for missing `GITHUB_CLIENT_ID`,
+`GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and pooled
+`POSTGRES_CONNECTION_STRING` values. It validates all new values before the
+first write and passes them through standard input without storing or logging
+them. Secret rotation remains a separate maintenance operation because each
+`wrangler secret put` creates a Worker version.
+
+### Release
+
+Deploy an accepted `main` release only from a clean checkout whose `HEAD`
+exactly matches `origin/main`:
 
 ```bash
 npm ci
 npm run build
-npm run production:prepare
+npm run production:deploy -- --dry-run
+npm run production:deploy
 ```
 
-The command verifies the pinned tools, container engine, Cloudflare account,
-Worker, D1 identity and region, all four secret names, the active Worker version,
-and the active CoreEx image. It then performs a real `wrangler deploy --dry-run`
-to build and validate the incoming production image. When prompted, paste the
-**direct** Neon connection string from the password manager. It must use ADO.NET
-syntax with `SSL Mode=VerifyFull`, `Channel Binding=Require`, and
-`GSS Encryption Mode=Disable`; the value is supplied only to the PostgreSQL
-migration child process and is never stored or printed.
+Both deployment commands prompt for the **direct** Neon migration connection.
+It must use ADO.NET syntax with `SSL Mode=VerifyFull`,
+`Channel Binding=Require`, and `GSS Encryption Mode=Disable`. The deployment
+parent passes its terminal directly to the migration child, so the credential
+never enters an argument, file, log, or unrelated child process.
 
-`scripts/production/migrations.json` is the compatibility manifest. Every
-checked-in PostgreSQL and D1 migration must be listed with its SHA-256 digest and
-marked `expand`; a missing, changed, contracting, reordered, or database-only
-migration stops preparation. The command reads both native ledgers before any
-migration, applies PostgreSQL first and D1 second, verifies both heads, and then
-re-checks the active Worker version. A failure leaves successful additive
-migrations in place; repair the cause and rerun, which resumes from the first
-pending migration. It never reverses a database migration.
+The dry run verifies the pinned tools and identities, secret names, active
+Worker and CoreEx image, incoming production build, bindings, and native
+PostgreSQL/D1 ledgers. It reports the commit-addressed image tag, pending
+migrations, expected heads, and immediate singleton rollout without changing a
+database, image registry, Worker, or Container application.
 
-`production:prepare` deliberately stops after the databases are safe for the
-release. The commit-addressed application rollout, partial-deploy recovery, and
-one-minute production gate are implemented by the next delivery step rather
-than an unsafe raw `wrangler deploy` script.
+The real command repeats that preflight, applies hash-bound `expand` migrations
+PostgreSQL-first and D1-second, and verifies both native ledgers. It builds the
+CoreEx image as `coreex:<commit>`, pushes it, resolves and pins its immutable
+registry digest in a temporary configuration, rechecks the active Worker, then
+runs a strict `wrangler deploy` tagged with the commit and using an immediate
+Container rollout. `npm run production:prepare` remains available when an
+operator deliberately needs only the resumable database-preparation phase.
 
-The eventual deployment serves Vite assets, routes `/api` and `/api/*` through
-Better Auth or CoreEx, and returns the SPA shell for application routes. CoreEx
-health endpoints stay private in production: `/health*` is not routed to the
-Worker, so no anonymous request can wake or probe the sleeping Container.
+If application deployment fails after changing the Worker or Container, the
+command restores the captured Worker version and retained image—or removes a
+partially created first Container—and verifies both. It never reverses either
+database. A completed rollout is not automatically rolled back: the command
+checks `/` and the anonymous `GET /api/practice-state` response every five
+seconds for one minute, requiring HTML and CoreEx `401` liveness. A failed gate
+leaves the release active, emits a non-zero result, and records the observations
+for repair-forward work.
 
-Run the disposable migration simulations with:
+Production `/health*` remains private, so deployment never wakes or polls
+`/health/ready`; the report states that database readiness was intentionally not
+probed. Completed releases, application-recovery paths, and preparation aborts
+emit a secret-free operator record with the applicable release, timestamps,
+migration heads, Worker versions, image digests, and health findings.
+
+`scripts/production/migrations.json` remains the compatibility manifest. A
+missing, changed, contracting, reordered, unknown, or database-only migration
+stops before application rollout. Successfully applied additive migrations stay
+in place, and rerunning resumes from the native ledgers.
+
+Run the disposable simulations with:
 
 ```bash
 npm run test:deployment
 ```
 
-They use Podman-backed PostgreSQL and local D1 stores to cover fresh, current,
-pending, incompatible, unknown, failed, interrupted, and concurrent-change
-states. They never contact production and run in ordinary CI; restart resilience
-remains separately operator-invoked.
+They use Podman-backed PostgreSQL and local D1 stores and combine with the CLI
+rollout simulations to cover fresh, current, pending, incompatible, unknown,
+failed, interrupted, concurrent-change, dry-run, successful rollout, partial
+Worker/CoreEx failure, recovery, and failed-health states. They never contact
+production and run in ordinary CI; restart resilience remains separately
+operator-invoked.
 
 ## Content model
 

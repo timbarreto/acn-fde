@@ -563,7 +563,9 @@ For automated full-stack tests, create `Acn.Fde.Practice.IntegrationTests` with 
 
 Production deployment is a committed script run deliberately from an operator's terminal, not an automatic or GitHub Actions deployment ([#54](https://github.com/timbarreto/acn-fde/issues/54)). It accepts only a clean checkout whose `HEAD` exactly matches `origin/main`, records that commit as the release identifier, and permits only one production deployment at a time. The script captures the active Worker version during preflight and checks it again immediately before deployment; a change aborts the run. The two migration tools use their database-native ledgers and locking rather than a new distributed deployment lock.
 
-**Bootstrap runtime secrets once, outside the release sequence.** While the existing static Worker is still active, a separate helper sets `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and the pooled `POSTGRES_CONNECTION_STRING` as Worker secrets. The deployment script verifies that those names exist but never rewrites their values. Secret rotation is a separate maintenance operation because `wrangler secret put` creates a Worker deployment. PostgreSQL migrations cannot reuse the runtime secret: they require the direct Neon endpoint, and Worker secrets are not readable back into the operator's terminal. Retrieve that direct connection string from the password manager at deployment time and pass it only through the migration child process's environment — never through `argv`, logs, a file, or the Worker.
+**Prime rollback compatibility, then bootstrap runtime secrets once, outside the release sequence.** The legacy static Worker predates the `CoreExContainer` Durable Object class, and Cloudflare does not permit rollback across a Durable Object lifecycle migration. `npm run production:prime` therefore builds the exact pinned legacy commit and deploys the same static behavior with only the dormant class and binding; it creates no Container application or database binding. Run and verify its non-mutating `--dry-run` first. Priming accepts only the pinned legacy Worker version and remains recognizable after secret-created versions inherit the class.
+
+While that compatible static Worker is active, `npm run production:bootstrap` sets `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and the pooled `POSTGRES_CONNECTION_STRING` as Worker secrets. The deployment script verifies that those names exist but never rewrites their values. Secret rotation is a separate maintenance operation because `wrangler secret put` creates a Worker deployment. PostgreSQL migrations cannot reuse the runtime secret: they require the direct Neon endpoint, and Worker secrets are not readable back into the operator's terminal. Retrieve that direct connection string from the password manager at deployment time; the deployment parent passes its terminal directly to the preparation child, which exposes the value only in PostgreSQL child-process environments — never through `argv`, logs, a file, the image build, Wrangler, or the Worker.
 
 The non-mutating preflight runs before any database change:
 
@@ -577,14 +579,17 @@ The deployment script does not rerun the test suites; validation of `main` belon
 The preparation phase is implemented as `npm run production:prepare`, with the
 production identities and exact tool versions in
 `scripts/production/production-target.json`. It captures the active Worker and
-Container image, performs the image dry run, and completes steps 1–5 below, then
-stops before application rollout. `npm run production:bootstrap` installs only
-missing runtime secrets after validating all new values. The checked-in
-`scripts/production/migrations.json` records each migration's native ledger ID,
-SHA-256 digest, and explicit `expand` compatibility. Preparation rejects files
-absent from that manifest, digest drift, non-expand changes, unknown or reordered
-ledger entries, and a concurrent Worker change. The commit-addressed rollout and
-post-deploy recovery remain the following delivery phase (#80).
+Container image, performs the image dry run, completes database steps 1–4 below,
+and rechecks the active version, then stops before image publication or application
+rollout. `npm run production:deploy -- --dry-run`
+reuses that interface in read-only mode and adds the release, image, binding,
+secret-name, and intended-rollout report. `npm run production:deploy` runs the
+resumable preparation and then completes the application rollout, recovery, and
+health observation. The checked-in `scripts/production/migrations.json` records
+each migration's native ledger ID, SHA-256 digest, and explicit `expand`
+compatibility. Preparation rejects files absent from that manifest, digest
+drift, non-expand changes, unknown or reordered ledger entries, and a concurrent
+Worker change.
 
 **Every database change follows expand/contract compatibility.** A migration applied before a release must be safe for both the currently active application and the incoming one. A rename, removal, tightened constraint, or irreversible rewrite waits for a later cleanup release whose active and rollback-target code already tolerate the contraction. This is load-bearing because a Worker update and a Container image update are not atomic. The measured singleton rollout ([#42](https://github.com/timbarreto/acn-fde/issues/42)) served the old Container until roughly 27 seconds after `wrangler deploy` returned, then made one delayed request while the new image started. Adjacent Worker, Container, browser, and database versions therefore remain mutually compatible during deployment and rollback.
 
@@ -594,18 +599,19 @@ The mutating sequence is fixed:
 2. apply the PostgreSQL migrations through the direct endpoint, then query its ledger;
 3. apply the remote D1 migrations, then query its ledger;
 4. refuse to continue unless every expected migration is recorded, none is pending, and neither database contains a migration unknown to this checkout;
-5. re-check that the active Worker version still equals the preflight version; and
-6. run `wrangler deploy --containers-rollout=immediate`, attaching the Git commit SHA to the Worker version.
+5. build the Linux AMD64 CoreEx image as `coreex:<commit>`, push it, resolve its registry digest, and generate a temporary Wrangler configuration pinned to that immutable digest;
+6. re-check that the active Worker version still equals the preflight version; and
+7. run strict `wrangler deploy --containers-rollout=immediate`, attaching the full Git commit SHA to the Worker version.
 
 PostgreSQL goes first because it is the external dependency with the more failure-prone connection and migration path; D1 stays immediately adjacent to the Worker deployment it supports. With additive-first migrations, either database may safely remain ahead of the live code if a later step fails. The singleton uses an immediate Container rollout because a percentage rollout cannot provide a canary when `max_instances` is one; a request may pause during restart, and account sync already treats that failure as retryable.
 
 **Recovery is forward-only for databases and conditional for the application:**
 
 - If a migration fails, stop. Leave any successfully applied migration in place, repair the cause, and rerun the idempotent sequence from the first unapplied step.
-- If `wrangler deploy` exits unsuccessfully, compare the active Worker version and Container image with the captured values. If either changed, explicitly roll back to the captured Worker version and its retained image, then verify the prior application is active. Never roll back D1 or PostgreSQL automatically.
+- If `wrangler deploy` exits unsuccessfully, compare the active Worker version and Container image with the captured values. If an existing image changed, deploy its retained digest back to the Container application before rolling the Worker back; on the first rollout, remove a partially created Container application before rolling back to the primed Worker. Verify both captured states. Never roll back D1 or PostgreSQL automatically.
 - Do not delete an image while it is the current rollback target. Cloudflare Worker rollback does not reverse storage changes, which is why the compatibility rule applies to the captured application version too.
 
-A completed `wrangler deploy` has a deliberately narrow production gate. Retry every five seconds for at most one minute: first require the SPA, then wake the Container and require an anonymous `GET /api/practice-state` to answer `401` — which proves workerd reached CoreEx and CoreEx answered. The gate cannot use `/health*`, because production deliberately does not route it publicly. These are deployment-only checks, never a scheduled monitor. The gate does **not** exercise GitHub sign-in, authenticated practice APIs, or a guest's first sync. If any required check still fails at the deadline, leave the new deployment active, print the failed checks and release identifiers, and exit nonzero; a health failure is reported and repaired forward, never rolled back automatically.
+A completed `wrangler deploy` has a deliberately narrow production gate. Observe both routes every five seconds for one minute: require the SPA to return HTML, and wake the Container with an anonymous `GET /api/practice-state` that must answer `401` — which proves workerd reached CoreEx and CoreEx answered. Initial startup failures may recover, but any failure after the pair becomes healthy is instability. The gate cannot use `/health*`, because production deliberately does not route it publicly; the summary records that database readiness was intentionally not probed. These are deployment-only checks, never a scheduled monitor. The gate does **not** exercise GitHub sign-in, authenticated practice APIs, or a guest's first sync. If the pair is not stable and healthy at the deadline, leave the new deployment active, print the findings and release identifiers, and exit nonzero; a health failure is reported and repaired forward, never rolled back automatically.
 
 Print a secret-free deployment summary containing the commit SHA, previous and new Worker versions, previous and new Container image digests, expected and observed migration heads, timestamps, and both health-gate results. The Worker deployment metadata and terminal output are the deployment record; do not add a deployment database, issue, or committed log.
 
@@ -656,7 +662,7 @@ This section fixes the verification coverage the build must provide, not the top
 - `npm run test:worker`: Better Auth D1 adapter, JWT/JWKS, routing precedence, production exclusion of test auth, and local API-origin proxy tests in the Cloudflare Worker test runtime.
 - `npm run lint && npm run build`: lint/type-check the handwritten frontend wire types/client and Worker, then build Vite assets.
 - `dotnet test backend/Acn.Fde.Practice.slnx`: CoreEx validators/services/repositories/controllers plus the merge scenarios from #40 including idempotency; every #53 validation boundary and Problem Details code; 30 + 30 + abandoned-loser transient retention; future-clock retention; valid, expired, wrong-issuer/audience, and rotated-key JWTs; and authorization filters.
-- `npm run test:deployment`: exercise `production:prepare` through its command-line interface against disposable Podman PostgreSQL and local D1 stores. It covers fresh, current, pending, incompatible, unexpected, unknown/reordered, failed, interrupted/resumed, and concurrent-Worker states without contacting production. Ordinary CI runs it; this is separate from the operator-invoked restart resilience suite.
+- `npm run test:deployment`: exercise preparation and rollout through their command-line interfaces against disposable Podman PostgreSQL and local D1 stores. It covers fresh, current, pending, incompatible, unexpected, unknown/reordered, failed, interrupted/resumed, concurrent-Worker, and PostgreSQL-first release states without contacting production. Ordinary CI runs it; fast CLI simulations additionally cover prime/dry-run, success, partial Worker/Container recovery, first-Container removal, and failed health. This remains separate from the operator-invoked restart resilience suite.
 
 ### Aspire full-stack suite
 
@@ -697,6 +703,6 @@ Also verify the frontend-only behaviours from [#50](https://github.com/timbarret
 
 ### Deployment
 
-Bootstrap the four runtime Worker secrets once, then exercise `production:prepare` from a clean checkout matching `origin/main`. Prove its PostgreSQL-first and D1-second migration gates, native ledger verification, active-version re-check, resumable failure behavior, and secret-free summary. The disposable deployment suite covers those preparation boundaries. The following rollout phase must add the immediate Container rollout, simulate partial `wrangler deploy` failures and application rollback without reversing either database, and prove that a completed deployment with failed health checks remains active while the script exits nonzero.
+From a clean checkout matching `origin/main`, dry-run and apply the one-time rollback prime before bootstrapping the four runtime Worker secrets. Then dry-run and exercise `production:deploy`: prove its PostgreSQL-first and D1-second migration gates, native ledger verification, immutable commit-addressed image, active-version re-check, immediate singleton rollout, resumable migration failure, partial Worker/Container recovery without database reversal, first-Container removal, secret-free summaries, and completed-but-unhealthy nonzero path. The disposable deployment suite and fast CLI simulations cover these boundaries without contacting production.
 
 Against production, retry only the agreed anonymous gate for one minute: the SPA, then an unauthenticated `GET /api/practice-state` answering `401` from CoreEx. Production does not route `/health*`, so the gate never probes it. GitHub auth, authenticated practice APIs, a guest's first sync, five-minute sleep, and billing inspection are deliberately not deployment gates; the runtime and cost assumptions were already measured by [#42](https://github.com/timbarreto/acn-fde/issues/42). Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.

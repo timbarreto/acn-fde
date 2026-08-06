@@ -10,13 +10,15 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../..")
 const prepareScript = path.join(repositoryRoot, "scripts/production/prepare.ts")
+const deployScript = path.join(repositoryRoot, "scripts/production/deploy.ts")
 const wrangler = path.join(repositoryRoot, "node_modules/.bin/wrangler")
 const temporaryDirectories: string[] = []
+const childProcesses: ChildProcess[] = []
 const postgresContainer = `acn-fde-deployment-tests-${randomUUID()}`
 const postgresPassword = "disposable-deployment-password"
 let postgresPort = ""
@@ -44,7 +46,10 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function copyMigrationRelease(checkout: string): void {
-  writeFileSync(path.join(checkout, ".gitignore"), "**/bin/\n**/obj/\n")
+  writeFileSync(
+    path.join(checkout, ".gitignore"),
+    "**/bin/\n**/obj/\ndist/\n.wrangler/\n",
+  )
   mkdirSync(path.join(checkout, "backend"), { recursive: true })
   for (const name of ["Directory.Build.props", "Directory.Packages.props"])
     cpSync(path.join(repositoryRoot, "backend", name), path.join(checkout, "backend", name))
@@ -91,12 +96,19 @@ function copyMigrationRelease(checkout: string): void {
   )
 
   writeFileSync(path.join(checkout, "worker.ts"), "export default { fetch: () => new Response('ok') }\n")
+  mkdirSync(path.join(checkout, "dist"))
+  writeFileSync(
+    path.join(checkout, "dist/index.html"),
+    "<!doctype html><title>deployment test</title>",
+  )
+  writeFileSync(path.join(checkout, "backend/Dockerfile"), "FROM scratch\n")
   writeFileSync(
     path.join(checkout, "wrangler.deployment-test.jsonc"),
     JSON.stringify({
       name: "deployment-test",
       main: "worker.ts",
       compatibility_date: "2026-08-04",
+      assets: { directory: "dist", binding: "ASSETS" },
       d1_databases: [
         {
           binding: "AUTH_DB",
@@ -105,6 +117,19 @@ function copyMigrationRelease(checkout: string): void {
           migrations_dir: "worker/migrations",
         },
       ],
+      containers: [{
+        name: "test-worker-CoreExContainer",
+        class_name: "CoreExContainer",
+        image: "./backend/Dockerfile",
+        image_build_context: ".",
+        max_instances: 1,
+        instance_type: "basic",
+        constraints: { regions: ["ENAM"] },
+      }],
+      durable_objects: {
+        bindings: [{ name: "COREEX", class_name: "CoreExContainer" }],
+      },
+      migrations: [{ tag: "v1", new_sqlite_classes: ["CoreExContainer"] }],
     }),
   )
 }
@@ -137,6 +162,7 @@ function createCheckout(): { checkout: string; target: string; persistTo: string
       d1DatabaseId: "test-database-id",
       d1Region: "ENAM",
       containerApplicationName: "test-worker-CoreExContainer",
+      containerImageName: "coreex",
       wranglerConfig: "wrangler.deployment-test.jsonc",
       postgresProject:
         "backend/tools/Acn.Fde.Practice.Database/Acn.Fde.Practice.Database.csproj",
@@ -144,6 +170,16 @@ function createCheckout(): { checkout: string; target: string; persistTo: string
       d1Mode: "local",
       postgresMode: "local",
       d1PersistTo: persistTo,
+      healthOrigin: "http://127.0.0.1:1",
+      healthGate: {
+        attempts: 2,
+        intervalMilliseconds: 1,
+        requestTimeoutMilliseconds: 1000,
+      },
+      rollbackPrime: {
+        legacyCommit: git(checkout, "rev-parse", "HEAD"),
+        expectedWorkerVersion: "worker-version-1",
+      },
       tools: {
         node: process.versions.node,
         dotnetSdk: command("dotnet", ["--version"]),
@@ -218,6 +254,40 @@ function runPreparation(
   )
 }
 
+function startHealthServer(directory: string): string {
+  const serverPath = path.join(directory, "health-server.mjs")
+  const portPath = path.join(directory, "health-port")
+  writeFileSync(
+    serverPath,
+    `import { createServer } from "node:http"
+import { writeFileSync } from "node:fs"
+const server = createServer((request, response) => {
+  if (request.url === "/") {
+    response.writeHead(200, { "content-type": "text/html" })
+    response.end("<!doctype html><title>healthy</title>")
+  } else if (request.url === "/api/practice-state") {
+    response.writeHead(401)
+    response.end()
+  } else {
+    response.writeHead(404)
+    response.end()
+  }
+})
+server.listen(0, "127.0.0.1", () => {
+  writeFileSync(process.argv[2], String(server.address().port))
+})
+`,
+  )
+  const server = spawn(process.execPath, [serverPath, portPath], {
+    stdio: "ignore",
+  })
+  childProcesses.push(server)
+  for (let attempt = 0; attempt < 100 && !existsSync(portPath); attempt += 1)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+  if (!existsSync(portPath)) throw new Error("health server did not start")
+  return `http://127.0.0.1:${readFileSync(portPath, "utf8")}`
+}
+
 function createDatabase(): { name: string; connection: string } {
   const name = `deployment_${randomUUID().replaceAll("-", "")}`
   command("podman", ["exec", postgresContainer, "createdb", "-U", "postgres", name])
@@ -258,6 +328,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  for (const process of childProcesses.splice(0)) process.kill("SIGTERM")
   spawnSync("podman", ["rm", "--force", postgresContainer], { stdio: "ignore" })
   for (const directory of temporaryDirectories.splice(0))
     rmSync(directory, { recursive: true, force: true })
@@ -318,6 +389,71 @@ describe.sequential("production:prepare disposable databases", () => {
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
     ])
+  })
+
+  it("reports pending migrations in dry-run mode without creating either native ledger", () => {
+    const { checkout, target, persistTo } = createCheckout()
+    const database = createDatabase()
+    const directory = path.dirname(target)
+    const result = spawnSync(
+      process.execPath,
+      [
+        prepareScript,
+        "--dry-run",
+        "--repository",
+        checkout,
+        "--target",
+        target,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${path.join(directory, "bin")}:${process.env.PATH ?? ""}`,
+          TEST_WRANGLER: wrangler,
+          TEST_WRANGLER_VERSION: JSON.parse(
+            readFileSync(
+              path.join(repositoryRoot, "node_modules/wrangler/package.json"),
+              "utf8",
+            ),
+          ).version,
+          WRANGLER_DOCKER_BIN: path.join(directory, "bin/container-engine"),
+        },
+        input: `${database.connection}\n`,
+      },
+    )
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain("PostgreSQL migrations: pending")
+    expect(result.stdout).toContain("D1 migrations: pending")
+    const postgresLedgerExists = command("podman", [
+      "exec",
+      postgresContainer,
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      database.name,
+      "-Atc",
+      "SELECT to_regclass('public.schemaversions') IS NOT NULL",
+    ])
+    expect(postgresLedgerExists).toBe("f")
+    const d1TableResponse = JSON.parse(
+      command(wrangler, [
+        "d1",
+        "execute",
+        "test-auth",
+        "--local",
+        "--persist-to",
+        persistTo,
+        "--command",
+        "SELECT COUNT(*) AS present FROM sqlite_schema WHERE type = 'table' AND name = 'd1_migrations'",
+        "--json",
+        "--config",
+        path.join(checkout, "wrangler.deployment-test.jsonc"),
+      ]),
+    ) as Array<{ results: Array<{ present: number }> }>
+    expect(Number(d1TableResponse[0].results[0].present)).toBe(0)
   })
 
   it("recognizes current ledgers without repeating migrations", () => {
@@ -743,6 +879,139 @@ describe.sequential("production:prepare disposable databases", () => {
       "0001_identity.sql",
       "0002_resume.sql",
     ])
+  })
+
+  it("deploys only after both disposable native ledgers reach the release heads", () => {
+    const { checkout, target, persistTo } = createCheckout()
+    const database = createDatabase()
+    const directory = path.dirname(target)
+    const bin = path.join(directory, "bin")
+    const commandLog = path.join(directory, "rollout-commands.log")
+    const deployed = path.join(directory, "rollout-deployed")
+    const release = git(checkout, "rev-parse", "HEAD")
+    const targetConfiguration = JSON.parse(readFileSync(target, "utf8")) as {
+      healthOrigin: string
+    }
+    targetConfiguration.healthOrigin = startHealthServer(directory)
+    writeFileSync(target, JSON.stringify(targetConfiguration))
+
+    writeFileSync(
+      path.join(bin, "npx"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+shift 2
+printf '%s\\n' "$*" >> "$COMMAND_LOG"
+case "$*" in
+  *"--version"*) printf '%s\\n' "$TEST_WRANGLER_VERSION" ;;
+  *"whoami"*) printf 'Account ID: test-account\\n' ;;
+  *"deployments list"*)
+    version="worker-version-old"
+    [ -f "${deployed}" ] && version="worker-version-new"
+    printf '[{"created_on":"2026-08-06T00:00:00Z","versions":[{"version_id":"%s","percentage":100}]}]\\n' "$version"
+    ;;
+  *"versions view worker-version-new"*)
+    printf '{"id":"worker-version-new","annotations":{"workers/tag":"${release}"}}\\n'
+    ;;
+  *"d1 info"*) printf '{"uuid":"test-database-id","name":"test-auth","running_in_region":"ENAM"}\\n' ;;
+  *"secret list"*) printf '[{"name":"GITHUB_CLIENT_ID"},{"name":"GITHUB_CLIENT_SECRET"},{"name":"BETTER_AUTH_SECRET"},{"name":"POSTGRES_CONNECTION_STRING"}]\\n' ;;
+  *"containers list"*)
+    if [ -f "${deployed}" ]; then
+      printf '[{"id":"container-new","name":"test-worker-CoreExContainer","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}}]\\n'
+    else
+      printf '[{"id":"container-old","name":"test-worker-CoreExContainer","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:old"}}]\\n'
+    fi
+    ;;
+  *"deploy --dry-run"*) printf '%s\\n' '--dry-run: exiting now.' ;;
+  *"containers push coreex:${release}"*) printf 'Pushed image\\n' ;;
+  "deploy "*) touch "${deployed}"; printf 'Current Version ID: worker-version-new\\n' ;;
+  "d1 "*) exec "$TEST_WRANGLER" "$@" ;;
+  *) printf 'unexpected npx command: %s\\n' "$*" >&2; exit 64 ;;
+esac
+`,
+      { mode: 0o755 },
+    )
+    writeFileSync(
+      path.join(bin, "container-engine"),
+      `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$COMMAND_LOG"
+if [ "$*" = "info" ]; then
+  exit 0
+elif [[ "$*" == build* ]]; then
+  exit 0
+elif [[ "$*" == *"image inspect"* ]]; then
+  printf '["registry.cloudflare.com/test-account/coreex@sha256:newdigest"]\\n'
+else
+  exit 64
+fi
+`,
+      { mode: 0o755 },
+    )
+
+    const result = spawnSync(
+      process.execPath,
+      [deployScript, "--repository", checkout, "--target", target],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          COMMAND_LOG: commandLog,
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          TEST_WRANGLER: wrangler,
+          TEST_WRANGLER_VERSION: JSON.parse(
+            readFileSync(
+              path.join(repositoryRoot, "node_modules/wrangler/package.json"),
+              "utf8",
+            ),
+          ).version,
+          WRANGLER_DOCKER_BIN: path.join(bin, "container-engine"),
+        },
+        input: `${database.connection}\n`,
+      },
+    )
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain("Status: succeeded")
+    const postgresLedger = command("podman", [
+      "exec",
+      postgresContainer,
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      database.name,
+      "-Atc",
+      "SELECT scriptname FROM public.schemaversions ORDER BY schemaversionsid",
+    ]).split("\n")
+    expect(postgresLedger).toEqual([
+      "Acn.Fde.Practice.Database.Migrations.20260804-000001-create-practice-schema.pgsql",
+      "Acn.Fde.Practice.Database.Migrations.20260804-000002-create-practice-state.pgsql",
+    ])
+    const d1LedgerResponse = JSON.parse(
+      command(wrangler, [
+        "d1",
+        "execute",
+        "test-auth",
+        "--local",
+        "--persist-to",
+        persistTo,
+        "--command",
+        "SELECT name FROM d1_migrations ORDER BY id",
+        "--json",
+        "--config",
+        path.join(checkout, "wrangler.deployment-test.jsonc"),
+      ]),
+    ) as Array<{ results: Array<{ name: string }> }>
+    expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
+      "0001_identity.sql",
+    ])
+    expect(result.stdout.indexOf("PostgreSQL migrations: applied")).toBeLessThan(
+      result.stdout.indexOf("D1 migrations: applied"),
+    )
+    const commands = readFileSync(commandLog, "utf8")
+    expect(commands.indexOf("d1 migrations apply")).toBeLessThan(
+      commands.indexOf(`containers push coreex:${release}`),
+    )
   })
 
   it("aborts when the active Worker changes while leaving additive migrations applied", () => {

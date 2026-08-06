@@ -6,11 +6,22 @@
   "d1DatabaseId": "ea5f600d-fc37-4770-a521-87c75de21bf7",
   "d1Region": "ENAM",
   "containerApplicationName": "coreex",
+  "containerImageName": "coreex",
   "wranglerConfig": "wrangler.jsonc",
   "postgresProject": "backend/tools/Acn.Fde.Practice.Database/Acn.Fde.Practice.Database.csproj",
   "migrationManifest": "scripts/production/migrations.json",
   "d1Mode": "remote",
   "postgresMode": "remote",
+  "healthOrigin": "https://agentic-ready-gh-600.timothy-barreto.workers.dev",
+  "healthGate": {
+    "attempts": 13,
+    "intervalMilliseconds": 5000,
+    "requestTimeoutMilliseconds": 4500
+  },
+  "rollbackPrime": {
+    "legacyCommit": "0cc4d42d519f9e8c5054b1058121828bba3ea6a0",
+    "expectedWorkerVersion": "85710d22-97ac-4de0-bebd-10a25842c8c3"
+  },
   "tools": {
     "node": "24.18.0",
     "dotnetSdk": "10.0.302",
