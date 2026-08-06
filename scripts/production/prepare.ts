@@ -513,7 +513,11 @@ function main(): void {
     throw new Error(`missing Worker secrets: ${missingSecrets.join(", ")}`)
 
   const containerApplications = parseJson<
-    Array<{ name: string; configuration?: { image?: string } }>
+    Array<{
+      name: string
+      image?: string
+      configuration?: { image?: string }
+    }>
   >(
     run(
       "npx",
@@ -533,9 +537,11 @@ function main(): void {
   const activeContainer = containerApplications.find(
     ({ name }) => name === target.containerApplicationName,
   )
-  if (activeContainer && !activeContainer.configuration?.image)
+  const activeImage = activeContainer
+    ? activeContainer.image ?? activeContainer.configuration?.image
+    : "<none>"
+  if (!activeImage)
     throw new Error("active CoreEx Container image could not be captured")
-  const activeImage = activeContainer?.configuration?.image ?? "<none>"
   if (
     process.argv.includes("--require-primed") &&
     activeImage === "<none>" &&

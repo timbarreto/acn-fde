@@ -152,7 +152,14 @@ function activeWorkerVersion(
 interface ContainerApplication {
   id?: string
   name: string
+  image?: string
   configuration?: { image?: string }
+}
+
+function containerApplicationImage(
+  application: ContainerApplication,
+): string | undefined {
+  return application.image ?? application.configuration?.image
 }
 
 function activeContainerApplication(
@@ -167,7 +174,7 @@ function activeContainerApplication(
   const application = applications.find(
     ({ name }) => name === target.containerApplicationName,
   )
-  if (application && !application.configuration?.image)
+  if (application && !containerApplicationImage(application))
     throw new Error("active CoreEx Container image could not be captured")
   return application
 }
@@ -177,8 +184,8 @@ function activeContainerImage(
   repository: string,
   config: string,
 ): string {
-  return activeContainerApplication(target, repository, config)
-    ?.configuration?.image ?? "<none>"
+  const application = activeContainerApplication(target, repository, config)
+  return application ? containerApplicationImage(application)! : "<none>"
 }
 
 function runPreparation(

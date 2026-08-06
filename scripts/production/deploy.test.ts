@@ -199,7 +199,7 @@ elif [[ "$*" == *"containers list"* ]]; then
   if [ -n "\${NO_CONTAINER_APPLICATION:-}" ]; then
     printf '[]\n'
   else
-    printf '[{"id":"container-old","name":"coreex","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:old"}}]\n'
+    printf '[{"id":"container-old","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:old"}]\n'
   fi
 elif [[ "$*" == *"deploy --dry-run"* ]]; then
   printf '%s\n' '--dry-run: exiting now.'
@@ -318,7 +318,7 @@ elif [[ "$*" == *"secret list"* ]]; then
 elif [[ "$*" == *"containers list"* ]]; then
   image="$(cat "${imageState}")"
   if [ -n "$image" ]; then
-    printf '[{"id":"container-app","name":"coreex","configuration":{"image":"%s"}}]\\n' "$image"
+    printf '[{"id":"container-app","name":"coreex","image":"%s"}]\\n' "$image"
   else
     printf '[]\\n'
   fi
@@ -411,9 +411,9 @@ elif [[ "$*" == *"secret list"* ]]; then
   printf '[{"name":"GITHUB_CLIENT_ID"},{"name":"GITHUB_CLIENT_SECRET"},{"name":"BETTER_AUTH_SECRET"},{"name":"POSTGRES_CONNECTION_STRING"}]\\n'
 elif [[ "$*" == *"containers list"* ]]; then
   if [ -f "${deployed}" ]; then
-    printf '[{"id":"container-new","name":"coreex","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}}]\\n'
+    printf '[{"id":"container-new","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:newdigest"}]\\n'
   else
-    printf '[{"id":"container-old","name":"coreex","configuration":{"image":"registry.cloudflare.com/test-account/coreex@sha256:old"}}]\\n'
+    printf '[{"id":"container-old","name":"coreex","image":"registry.cloudflare.com/test-account/coreex@sha256:old"}]\\n'
   fi
 elif [[ "$*" == *"deploy --dry-run"* ]]; then
   printf '%s\\n' '--dry-run: exiting now.'
