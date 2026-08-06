@@ -42,8 +42,10 @@ This standalone command starts the complete guest application without Podman,
 
 ## Run the full stack locally
 
-The full-stack path requires the .NET 10 SDK and Podman. Install dependencies
-once, then start the complete development graph:
+The full-stack path requires Podman and the exact .NET SDK version pinned in
+`global.json`, which disables roll-forward, so every `dotnet` command in this
+repository refuses a different .NET 10 patch. Install dependencies once, then
+start the complete development graph:
 
 ```bash
 npm ci

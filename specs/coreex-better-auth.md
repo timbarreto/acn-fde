@@ -565,7 +565,7 @@ The non-mutating preflight runs before any database change:
 1. verify the clean/current `main` checkout, pinned tools, Docker availability, and the expected Cloudflare account, Worker, and D1 identifiers;
 2. verify the required Worker-secret names, the direct PostgreSQL connection, and both current migration ledgers;
 3. capture the active Worker version and its Container image digest; and
-4. run `wrangler deploy --dry-run` when the installed Wrangler/Container path supports it.
+4. build and validate the incoming production image with `wrangler deploy --dry-run`, which must succeed.
 
 The deployment script does not rerun the test suites; validation of `main` belongs to the build/CI path. Its responsibility is to prove the production target is safe to mutate.
 
