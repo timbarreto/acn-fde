@@ -582,10 +582,12 @@ production identities and exact tool versions in
 Container image, performs the image dry run, completes database steps 1–4 below,
 and rechecks the active version, then stops before image publication or application
 rollout. `npm run production:deploy -- --dry-run`
-reuses that interface in read-only mode and adds the release, image, binding,
-secret-name, and intended-rollout report. `npm run production:deploy` runs the
-resumable preparation and then completes the application rollout, recovery, and
-health observation. The checked-in `scripts/production/migrations.json` records
+reuses that interface in read-only mode, rebuilds and validates account-enabled
+browser assets rather than trusting a prior guest build, and adds the release,
+image, binding, secret-name, and intended-rollout report. `npm run
+production:deploy` runs the resumable preparation, performs the same production
+asset build, and then completes the application rollout, recovery, and health
+observation. The checked-in `scripts/production/migrations.json` records
 each migration's native ledger ID, SHA-256 digest, and explicit `expand`
 compatibility. Preparation rejects files absent from that manifest, digest
 drift, non-expand changes, unknown or reordered ledger entries, and a concurrent

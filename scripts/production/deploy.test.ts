@@ -64,7 +64,7 @@ function createReleaseFixture(): {
       private: true,
       scripts: {
         build:
-          "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/index.html','<!doctype html><title>legacy</title>')\"",
+          "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/index.html','<!doctype html><title>legacy</title>');require('fs').writeFileSync('dist/account-mode',process.env.ACN_FDE_ACCOUNT_MODE||'unset')\"",
       },
     }),
   )
@@ -664,6 +664,9 @@ describe("production:deploy", () => {
     expect(result.stdout).toContain("Intended rollout: immediate, one CoreEx instance")
     expect(result.stdout).toContain("Database mutations: none")
     expect(result.stdout).toContain("Application mutations: none")
+    expect(
+      readFileSync(path.join(fixture.checkout, "dist/account-mode"), "utf8"),
+    ).toBe("true")
 
     const commands = readFileSync(fixture.commandLog, "utf8")
     expect(commands).not.toContain(" Migrate")

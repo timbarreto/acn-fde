@@ -324,8 +324,10 @@ npm run production:deploy -- --dry-run
 npm run production:deploy
 ```
 
-Both deployment commands prompt for the **direct** Neon migration connection.
-It must use ADO.NET syntax with `SSL Mode=VerifyFull`,
+Both deployment commands rebuild and validate the browser assets with account
+mode enabled before reporting or rolling out the release; they never reuse a
+possibly guest-only `dist/` build. They then prompt for the **direct** Neon
+migration connection. It must use ADO.NET syntax with `SSL Mode=VerifyFull`,
 `Channel Binding=Require`, and `GSS Encryption Mode=Disable`. The deployment
 parent passes its terminal directly to the migration child, so the credential
 never enters an argument, file, log, or unrelated child process.

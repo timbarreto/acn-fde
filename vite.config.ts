@@ -5,6 +5,8 @@ import path from "node:path"
 
 export default defineConfig(() => {
   const fullStack = process.env.ACN_FDE_FULL_STACK === "true"
+  const accountMode =
+    fullStack || process.env.ACN_FDE_ACCOUNT_MODE === "true"
   const integration = process.env.ACN_FDE_INTEGRATION === "true"
   const workerConfigPath =
     process.env.ACN_FDE_WORKER_CONFIG ?? "./wrangler.local.jsonc"
@@ -31,7 +33,7 @@ export default defineConfig(() => {
 
   return {
     define: {
-      "import.meta.env.ACN_FDE_FULL_STACK": JSON.stringify(fullStack),
+      "import.meta.env.ACN_FDE_FULL_STACK": JSON.stringify(accountMode),
     },
     plugins: [
       ...(fullStack
