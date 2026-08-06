@@ -3,9 +3,10 @@
 > **Status: implementation specification and delivery record.** The optional
 > CoreEx/Better Auth stack, account mode, data controls, production-shaped
 > container, and restart-resilience coverage through issue #78 are implemented.
-> Unchecked deployment and operations items remain future work under the parent
-> issue. See [`AGENTS.md`](../AGENTS.md) for the current repository map and
-> commands.
+> The checklist below records the original implementation order rather than
+> current progress; its deployment and operations items remain future work under
+> the parent issue. See [`AGENTS.md`](../AGENTS.md) for the current repository
+> map and commands.
 
 ## Context
 

@@ -129,19 +129,19 @@ the complete signed-in path:
 npm run test:full
 ```
 
-The harness creates a fresh, unpersisted PostgreSQL container and a unique
-temporary local D1 store, applies both sets of real migrations, and waits for
-Aspire resource health. It then uses same-origin HTTP to verify application and
-API health, reject an unauthenticated practice-state request with `401`, issue
-real short-lived identity tokens for two independent test subjects, and prove
-that each subject can save, load, reset, and delete only its own state while
-practice data is removed before the selected identity.
+The harness creates a PostgreSQL container over a unique temporary data
+directory and a unique temporary local D1 store, applies both sets of real
+migrations, and waits for Aspire resource health. It then uses same-origin HTTP
+to verify application and API health, reject an unauthenticated practice-state
+request with `401`, issue real short-lived identity tokens for two independent
+test subjects, and prove that each subject can save, load, reset, and delete
+only its own state while practice data is removed before the selected identity.
 
 No GitHub credentials, Cloudflare service, hosted database, or fixed readiness
 delay is involved. Identity issuance lives behind a separate integration-only
 Worker entry point; the production Worker explicitly returns `404` for every
-test-auth path. The harness stops all Aspire resources and deletes its temporary
-D1 store after either success or failure. On failure, it also writes the
+test-auth path. The harness stops all Aspire resources and deletes both
+temporary stores after either success or failure. On failure, it also writes the
 PostgreSQL, migration, CoreEx, and Worker resource logs to the test output.
 
 The same harness runs with the backend tests in the ordinary pull-request CI
@@ -278,12 +278,14 @@ run instead of reusing the pinned approval.
 The production build deploys as a Cloudflare Worker with Static Assets, the
 `AUTH_DB` D1 binding, and a singleton sleeping CoreEx Container. Before the first
 auth-capable deployment, configure the
-GitHub OAuth Worker secrets, set a random Better Auth secret once, and apply the
-checked-in D1 migration:
+GitHub OAuth Worker secrets, set a random Better Auth secret once, store the
+pooled PostgreSQL connection string the Container reads as
+`ConnectionStrings__Postgres`, and apply the checked-in D1 migration:
 
 ```bash
 ./setup-github-secrets.sh --prod
 npx wrangler secret put BETTER_AUTH_SECRET --name agentic-ready-gh-600
+npx wrangler secret put POSTGRES_CONNECTION_STRING --name agentic-ready-gh-600
 npx wrangler d1 migrations apply acn-fde-auth --remote --config wrangler.jsonc
 ```
 
@@ -294,6 +296,10 @@ must not be committed. Authenticate Wrangler once, then build and deploy:
 npx wrangler login
 npm run deploy
 ```
+
+`npm run deploy` builds the Container image from `backend/Dockerfile`, so a
+container runtime must be running; set `WRANGLER_DOCKER_BIN` to the Podman
+executable when Docker is not installed.
 
 Wrangler prints the deployed `workers.dev` URL when the upload completes. The
 deployment uses `wrangler.jsonc` to serve the Vite output in `dist/`, route

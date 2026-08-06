@@ -49,7 +49,8 @@ terms do not yet appear in `src/`.
 - `src/components/ui/`: reusable UI primitives.
 - `src/index.css`: global styles and Tailwind layers.
 - `public/`: static assets (favicon, Open Graph cover, touch icon).
-- `worker/`: same-origin routing between application assets and CoreEx.
+- `worker/`: same-origin routing between application assets and CoreEx, plus the
+  production CoreEx Container class.
 - `backend/`: CoreEx API, production Dockerfile, migrations, tests, and Aspire AppHost.
 - `contracts/`: append-only recognition data shared across browser and backend contracts.
 - `GH-600/`: source material and study documentation.
