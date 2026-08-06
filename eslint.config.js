@@ -22,4 +22,10 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
     },
   },
+  {
+    files: ["scripts/**/*.ts", "vitest*.config.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 )

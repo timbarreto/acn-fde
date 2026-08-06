@@ -5,6 +5,7 @@
   <ItemGroup>
     <PackageReference Include="CoreEx.Database" />
     <PackageReference Include="DbEx.Postgres" />
+    <PackageReference Include="Npgsql" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Schema\**\*" />

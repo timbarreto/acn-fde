@@ -25,13 +25,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.18.0
           cache: npm
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.302
 
       - name: Install dependencies
         run: npm ci
@@ -56,3 +56,6 @@ jobs:
 
       - name: Run backend and signed-in full-stack tests
         run: npm run test:backend
+
+      - name: Exercise production migration preparation
+        run: npm run test:deployment

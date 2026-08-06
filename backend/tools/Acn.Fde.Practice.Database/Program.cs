@@ -1,6 +1,8 @@
 using CoreEx.Database;
 using DbEx.Migration;
 using DbEx.Postgres.Console;
+using Npgsql;
+using System.Text.Json;
 
 namespace Acn.Fde.Practice.Database;
 
@@ -14,10 +16,39 @@ public class Program
             ?? throw new InvalidOperationException(
                 "The ConnectionStrings__Postgres environment variable is required.");
 
+        if (args is ["migration-ledger"])
+            return WriteMigrationLedgerAsync(connectionString);
+
         return PostgresMigrationConsole
             .Create<Program>(connectionString)
             .Configure(c => ConfigureMigrationArgs(c.Args))
             .RunAsync(args);
+    }
+
+    private static async Task<int> WriteMigrationLedgerAsync(string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+
+        await using var exists = new NpgsqlCommand(
+            "SELECT to_regclass('public.schemaversions') IS NOT NULL",
+            connection);
+        if (await exists.ExecuteScalarAsync() is not true)
+        {
+            Console.WriteLine("[]");
+            return 0;
+        }
+
+        await using var ledger = new NpgsqlCommand(
+            "SELECT scriptname FROM public.schemaversions ORDER BY schemaversionsid",
+            connection);
+        await using var reader = await ledger.ExecuteReaderAsync();
+        var migrations = new List<string>();
+        while (await reader.ReadAsync())
+            migrations.Add(reader.GetString(0));
+
+        Console.WriteLine(JsonSerializer.Serialize(migrations));
+        return 0;
     }
 
     /// <summary>Configure the <see cref="MigrationArgs"/>.</summary>

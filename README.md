@@ -188,6 +188,7 @@ npm run test
 npm run test:worker
 npm run test:backend
 npm run test:full
+npm run test:deployment
 npm run test:resilience
 npm run lint
 npm run build
@@ -273,45 +274,76 @@ request is sent; rerun the failed jobs to request approval again. If the plan PR
 or its head SHA needs to change, close the partial PR and dispatch a new workflow
 run instead of reusing the pinned approval.
 
-## Deploy to Cloudflare
+## Prepare production
 
-The production build deploys as a Cloudflare Worker with Static Assets, the
-`AUTH_DB` D1 binding, and a singleton sleeping CoreEx Container. Before the first
-auth-capable deployment, configure the
-GitHub OAuth Worker secrets, set a random Better Auth secret once, store the
-pooled PostgreSQL connection string the Container reads as
-`ConnectionStrings__Postgres`, and apply the checked-in D1 migration:
+Production uses Cloudflare account `263caf3ee0ff6b4a0b0945a344fd13b1`, Worker
+`agentic-ready-gh-600`, D1 database `acn-fde-auth` in ENAM, and the singleton
+sleeping `coreex` Container. The committed target pins Node, .NET, Wrangler, and
+those resource identities. Use `.nvmrc` and `global.json`; run a Docker-compatible
+container engine, or set `WRANGLER_DOCKER_BIN` to Podman.
 
-```bash
-./setup-github-secrets.sh --prod
-npx wrangler secret put BETTER_AUTH_SECRET --name agentic-ready-gh-600
-npx wrangler secret put POSTGRES_CONNECTION_STRING --name agentic-ready-gh-600
-npx wrangler d1 migrations apply acn-fde-auth --remote --config wrangler.jsonc
-```
-
-Secret values are read from stdin and must remain in the password manager; they
-must not be committed. Authenticate Wrangler once, then build and deploy:
+Authenticate Wrangler, then install the four runtime secrets once:
 
 ```bash
 npx wrangler login
-npm run deploy
+npm run production:bootstrap
 ```
 
-`npm run deploy` builds the Container image from `backend/Dockerfile`, so a
-container runtime must be running; set `WRANGLER_DOCKER_BIN` to the Podman
-executable when Docker is not installed.
+The helper reads existing secret names and prompts only for missing values:
+`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, and the pooled
+`POSTGRES_CONNECTION_STRING`. It validates the Better Auth secret and the pooled
+Npgsql settings before changing the Worker. Values come from the password
+manager, travel through standard input, and never enter arguments, files, or
+logs. Each `wrangler secret put` creates a Worker version, so secret rotation is
+a separate deliberate maintenance operation.
 
-Wrangler prints the deployed `workers.dev` URL when the upload completes. The
-deployment uses `wrangler.jsonc` to serve the Vite output in `dist/`, route
-`/api` and `/api/*` through the Worker before SPA fallback — Better Auth handles
-its own routes and everything else reaches the CoreEx Container — and return the
-SPA shell for application routes. CoreEx health endpoints stay private in
-production: `/health*` is not routed to the Worker, so no anonymous request can
-wake or probe the sleeping Container.
+Prepare an accepted `main` release from a clean checkout whose `HEAD` exactly
+matches `origin/main`:
 
-To use a custom domain, deploy the Worker first, then add the hostname under
-**Workers & Pages > agentic-ready-gh-600 > Settings > Domains & Routes** in the
-Cloudflare dashboard. The domain must belong to an active Cloudflare zone.
+```bash
+npm ci
+npm run build
+npm run production:prepare
+```
+
+The command verifies the pinned tools, container engine, Cloudflare account,
+Worker, D1 identity and region, all four secret names, the active Worker version,
+and the active CoreEx image. It then performs a real `wrangler deploy --dry-run`
+to build and validate the incoming production image. When prompted, paste the
+**direct** Neon connection string from the password manager. It must use ADO.NET
+syntax with `SSL Mode=VerifyFull`, `Channel Binding=Require`, and
+`GSS Encryption Mode=Disable`; the value is supplied only to the PostgreSQL
+migration child process and is never stored or printed.
+
+`scripts/production/migrations.json` is the compatibility manifest. Every
+checked-in PostgreSQL and D1 migration must be listed with its SHA-256 digest and
+marked `expand`; a missing, changed, contracting, reordered, or database-only
+migration stops preparation. The command reads both native ledgers before any
+migration, applies PostgreSQL first and D1 second, verifies both heads, and then
+re-checks the active Worker version. A failure leaves successful additive
+migrations in place; repair the cause and rerun, which resumes from the first
+pending migration. It never reverses a database migration.
+
+`production:prepare` deliberately stops after the databases are safe for the
+release. The commit-addressed application rollout, partial-deploy recovery, and
+one-minute production gate are implemented by the next delivery step rather
+than an unsafe raw `wrangler deploy` script.
+
+The eventual deployment serves Vite assets, routes `/api` and `/api/*` through
+Better Auth or CoreEx, and returns the SPA shell for application routes. CoreEx
+health endpoints stay private in production: `/health*` is not routed to the
+Worker, so no anonymous request can wake or probe the sleeping Container.
+
+Run the disposable migration simulations with:
+
+```bash
+npm run test:deployment
+```
+
+They use Podman-backed PostgreSQL and local D1 stores to cover fresh, current,
+pending, incompatible, unknown, failed, interrupted, and concurrent-change
+states. They never contact production and run in ordinary CI; restart resilience
+remains separately operator-invoked.
 
 ## Content model
 
