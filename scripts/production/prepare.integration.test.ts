@@ -50,6 +50,16 @@ function copyMigrationRelease(checkout: string): void {
     path.join(checkout, ".gitignore"),
     "**/bin/\n**/obj/\ndist/\n.wrangler/\n",
   )
+  writeFileSync(
+    path.join(checkout, "package.json"),
+    JSON.stringify({
+      private: true,
+      scripts: {
+        build:
+          "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/index.html','<!doctype html><title>deployment</title>');require('fs').writeFileSync('dist/account-mode',process.env.ACN_FDE_ACCOUNT_MODE||'unset')\"",
+      },
+    }),
+  )
   mkdirSync(path.join(checkout, "backend"), { recursive: true })
   for (const name of ["Directory.Build.props", "Directory.Packages.props"])
     cpSync(path.join(repositoryRoot, "backend", name), path.join(checkout, "backend", name))
@@ -1066,6 +1076,9 @@ fi
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(result.stdout).toContain("Status: succeeded")
+    expect(readFileSync(path.join(checkout, "dist/account-mode"), "utf8")).toBe(
+      "true",
+    )
     const postgresLedger = command("podman", [
       "exec",
       postgresContainer,

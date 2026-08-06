@@ -87,11 +87,16 @@ function parseJson<T>(value: string, description: string): T {
   }
 }
 
-function run(command: string, args: string[], cwd: string): string {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  options: { environment?: NodeJS.ProcessEnv } = {},
+): string {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: process.env,
+    env: { ...process.env, ...options.environment },
     maxBuffer: 50 * 1024 * 1024,
   })
   if (result.error)
@@ -214,6 +219,38 @@ function runPreparation(
     throw new Error(
       dryRun ? "production preparation dry run failed" : "production preparation failed",
     )
+}
+
+function buildAndValidateProductionAssets(
+  repository: string,
+  config: string,
+): void {
+  run("npm", ["run", "build"], repository, {
+    environment: {
+      ACN_FDE_ACCOUNT_MODE: "true",
+      ACN_FDE_FULL_STACK: "false",
+      ACN_FDE_INTEGRATION: "false",
+    },
+  })
+
+  const outputDirectory = mkdtempSync(
+    path.join(tmpdir(), "acn-fde-production-assets-"),
+  )
+  try {
+    wrangler(
+      repository,
+      config,
+      "deploy",
+      "--dry-run",
+      "--strict",
+      "--containers-rollout",
+      "immediate",
+      "--outdir",
+      outputDirectory,
+    )
+  } finally {
+    rmSync(outputDirectory, { recursive: true, force: true })
+  }
 }
 
 function bindingNames(configuration: WorkerConfiguration): string[] {
@@ -622,6 +659,8 @@ async function main(): Promise<void> {
   const release = run("git", ["rev-parse", "HEAD"], repository)
   try {
     runPreparation(repository, targetPath, dryRun)
+    buildAndValidateProductionAssets(repository, config)
+    process.stdout.write("Production account assets: built and validated\n")
   } catch (error) {
     process.stdout.write(
       `\nDeployment record\nStatus: preparation aborted\nRelease: ${release}\nApplication rollout: not started\nDatabase rollback: not attempted\n`,
