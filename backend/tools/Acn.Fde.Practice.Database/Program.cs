@@ -19,6 +19,15 @@ public class Program
         if (args is ["migration-ledger"])
             return WriteMigrationLedgerAsync(connectionString);
 
+        if (args is [var command] &&
+            string.Equals(command, "Migrate", StringComparison.OrdinalIgnoreCase))
+        {
+            var migrationArgs = new MigrationArgs { ConnectionString = connectionString };
+            migrationArgs.AddAssembly<Program>();
+            ConfigureMigrationArgs(migrationArgs);
+            return new ExistingDatabasePostgresMigrationConsole(migrationArgs).RunAsync(args);
+        }
+
         return PostgresMigrationConsole
             .Create<Program>(connectionString)
             .Configure(c => ConfigureMigrationArgs(c.Args))
