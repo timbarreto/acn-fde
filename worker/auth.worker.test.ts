@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers"
 import { SELF } from "cloudflare:test"
 import { getMigrations } from "better-auth/db/migration"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAuth, createAuthOptions } from "./auth"
 
 function decodeSegment<T>(segment: string): T {
@@ -11,6 +11,10 @@ function decodeSegment<T>(segment: string): T {
     .padEnd(Math.ceil(segment.length / 4) * 4, "=")
   return JSON.parse(atob(padded)) as T
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 interface ServerJwtApi {
   signJWT(input: {
@@ -66,6 +70,81 @@ describe("Better Auth on D1", () => {
     expect(cookie).toContain("HttpOnly")
     expect(cookie).toContain("SameSite=Lax")
     expect(cookie).toContain("Secure")
+  })
+
+  it("persists the GitHub recovery identifier through the OAuth callback", async () => {
+    const productionUrl = "https://practice.example"
+    const auth = createAuth({
+      ...env,
+      BETTER_AUTH_URL: productionUrl,
+      AUTH_TOKEN_ISSUER: productionUrl,
+    })
+    const start = await auth.handler(
+      new Request(`${productionUrl}/api/auth/sign-in/social`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: productionUrl,
+        },
+        body: JSON.stringify({
+          provider: "github",
+          callbackURL: `${productionUrl}/account`,
+          errorCallbackURL: `${productionUrl}/account`,
+        }),
+      }),
+    )
+    const authorization = await start.json<{ url: string }>()
+    const authorizationUrl = new URL(authorization.url)
+    const stateCookie = start.headers.get("set-cookie")?.split(";", 1)[0]
+    expect(stateCookie).toBeTruthy()
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url.startsWith("https://github.com/login/oauth/access_token"))
+        return Response.json({
+          access_token: "github-token",
+          token_type: "bearer",
+          scope: "read:user,user:email",
+        })
+      if (url === "https://api.github.com/user")
+        return Response.json({
+          id: 123456,
+          login: "candidate",
+          name: "Candidate",
+          email: null,
+          avatar_url: "https://avatars.githubusercontent.com/u/123456",
+        })
+      if (url === "https://api.github.com/user/emails")
+        return Response.json([{
+          email: "candidate@example.test",
+          primary: true,
+          verified: true,
+        }])
+      throw new Error(`Unexpected GitHub request: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const callback = await auth.handler(
+      new Request(
+        `${productionUrl}/api/auth/callback/github?code=github-code&state=${authorizationUrl.searchParams.get("state")}`,
+        { headers: { cookie: stateCookie! } },
+      ),
+    )
+
+    expect(callback.status).toBe(302)
+    expect(callback.headers.get("location")).toBe(`${productionUrl}/account`)
+    const sessionCookie = callback.headers.get("set-cookie")
+      ?.split(",")
+      .map((cookie) => cookie.split(";", 1)[0])
+      .join("; ")
+    const session = await auth.handler(
+      new Request(`${productionUrl}/api/auth/get-session`, {
+        headers: { cookie: sessionCookie ?? "" },
+      }),
+    )
+    expect(await session.json()).toMatchObject({
+      user: { githubAccountId: "123456" },
+    })
   })
 
   it("rejects an untrusted request origin", async () => {
