@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# Prompt for the GitHub OAuth app credentials and store them where the plan says
-# they belong. Never echoes a secret, never passes one as a command-line argument
-# (so nothing reaches shell history or `ps`), and writes no temporary files.
+# Prompt for local GitHub OAuth credentials and the four production Worker
+# secrets, then store them where the plan says they belong. Never echoes a
+# secret, never passes one as a command-line argument (so nothing reaches shell
+# history or `ps`), and writes no temporary files.
 #
 #   ./setup-github-secrets.sh            # both local and production
 #   ./setup-github-secrets.sh --local    # local development only
-#   ./setup-github-secrets.sh --prod     # production only
+#   npm run production:bootstrap         # one-time production bootstrap
 #
 # Two OAuth apps are required because a GitHub OAuth app accepts exactly one
 # callback URL:
@@ -14,9 +15,9 @@
 #   local       http://localhost:5173/api/auth/callback/github
 #   production  https://agentic-ready-gh-600.timothy-barreto.workers.dev/api/auth/callback/github
 #
-# NOT handled here, deliberately — see issue #35:
-#   BETTER_AUTH_SECRET             generate with `openssl rand -base64 32`
-#   POSTGRES_CONNECTION_STRING     from the Neon console, once it exists
+# Production values come from the password manager. POSTGRES_CONNECTION_STRING
+# is the pooled Neon connection used by the runtime; the direct migration
+# connection is deliberately not installed as a Worker secret.
 #
 set -euo pipefail
 
@@ -90,27 +91,86 @@ fi
 # ----------------------------------------------------------------- prod
 
 if $do_prod; then
-  say "Production OAuth app — ACN FDE Practice"
+  say "Production Worker secrets — ACN FDE Practice"
   echo "  Target Worker: $WORKER_NAME"
-  warn "  Each secret creates and deploys a new Worker version (same code)."
 
-  read -rp "  Continue? [y/N] " reply
-  case "$reply" in
-    [yY]*) ;;
-    *) echo "  skipped"; do_prod=false ;;
-  esac
+  installed_secrets="$(npx wrangler secret list --name "$WORKER_NAME" --format json)"
+  has_worker_secret() {
+    local name=$1
+    WORKER_SECRETS="$installed_secrets" node -e '
+const secrets = JSON.parse(process.env.WORKER_SECRETS)
+process.exit(secrets.some(secret => secret.name === process.argv[1]) ? 0 : 1)
+' "$name"
+  }
+
+  missing_secrets=()
+  for name in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET BETTER_AUTH_SECRET POSTGRES_CONNECTION_STRING; do
+    if has_worker_secret "$name"; then
+      echo "  already configured: $name"
+    else
+      missing_secrets+=("$name")
+    fi
+  done
+
+  if [ "${#missing_secrets[@]}" -eq 0 ]; then
+    echo "  all required Worker secrets are already configured"
+    do_prod=false
+  else
+    warn "  Missing: ${missing_secrets[*]}"
+    warn "  Each new secret creates and deploys a Worker version (same code)."
+    read -rp "  Continue? [y/N] " reply
+    case "$reply" in
+      [yY]*) ;;
+      *) echo "  skipped"; do_prod=false ;;
+    esac
+  fi
 fi
 
 if $do_prod; then
-  ask PROD_ID     "GitHub prod client ID    "
-  ask PROD_SECRET "GitHub prod client secret" hidden
+  PROD_ID=""
+  PROD_SECRET=""
+  BETTER_AUTH_SECRET=""
+  POSTGRES_CONNECTION=""
 
-  # wrangler reads the value from stdin when it is not a terminal, so the secret
-  # is never an argument and is never prompted for twice.
-  printf '%s' "$PROD_ID"     | npx wrangler secret put GITHUB_CLIENT_ID     --name "$WORKER_NAME"
-  printf '%s' "$PROD_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --name "$WORKER_NAME"
+  has_worker_secret GITHUB_CLIENT_ID || ask PROD_ID "GitHub prod client ID              "
+  has_worker_secret GITHUB_CLIENT_SECRET || ask PROD_SECRET "GitHub prod client secret          " hidden
+  has_worker_secret BETTER_AUTH_SECRET || ask BETTER_AUTH_SECRET "Better Auth secret (32+ characters)" hidden
+  has_worker_secret POSTGRES_CONNECTION_STRING || ask POSTGRES_CONNECTION "Pooled PostgreSQL connection string" hidden
 
-  unset PROD_ID PROD_SECRET
+  validation_failed=false
+  if [ -n "$BETTER_AUTH_SECRET" ] && [ "${#BETTER_AUTH_SECRET}" -lt 32 ]; then
+    echo "error: BETTER_AUTH_SECRET must contain at least 32 characters" >&2
+    validation_failed=true
+  fi
+
+  if [ -n "$POSTGRES_CONNECTION" ] && \
+     ! printf '%s' "$POSTGRES_CONNECTION" | node scripts/production/validate-runtime-connection.ts; then
+    echo "error: POSTGRES_CONNECTION_STRING must use the pooled endpoint and required Npgsql settings" >&2
+    validation_failed=true
+  fi
+
+  if $validation_failed; then
+    unset PROD_ID PROD_SECRET BETTER_AUTH_SECRET POSTGRES_CONNECTION
+    exit 1
+  fi
+
+  # Wrangler reads each value from stdin when it is not a terminal, so no
+  # secret is an argument or needs a temporary file. Values are all validated
+  # before the first Worker version is changed.
+  if [ -n "$PROD_ID" ]; then
+    printf '%s' "$PROD_ID" | npx wrangler secret put GITHUB_CLIENT_ID --name "$WORKER_NAME"
+  fi
+  if [ -n "$PROD_SECRET" ]; then
+    printf '%s' "$PROD_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --name "$WORKER_NAME"
+  fi
+  if [ -n "$BETTER_AUTH_SECRET" ]; then
+    printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --name "$WORKER_NAME"
+  fi
+  if [ -n "$POSTGRES_CONNECTION" ]; then
+    printf '%s' "$POSTGRES_CONNECTION" | npx wrangler secret put POSTGRES_CONNECTION_STRING --name "$WORKER_NAME"
+  fi
+
+  unset PROD_ID PROD_SECRET BETTER_AUTH_SECRET POSTGRES_CONNECTION
   echo
   npx wrangler secret list --name "$WORKER_NAME"
   warn "  note: Cloudflare shows names only — these values can be replaced, never read back."

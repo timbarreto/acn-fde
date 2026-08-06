@@ -1,0 +1,24 @@
+{
+  "postgres": [
+    {
+      "id": "Acn.Fde.Practice.Database.Migrations.20260804-000001-create-practice-schema.pgsql",
+      "path": "backend/tools/Acn.Fde.Practice.Database/Migrations/20260804-000001-create-practice-schema.pgsql",
+      "sha256": "4839b2888126cf510070d6986f8582449e5d0eac82c343dbbd53d78b6911520c",
+      "compatibility": "expand"
+    },
+    {
+      "id": "Acn.Fde.Practice.Database.Migrations.20260804-000002-create-practice-state.pgsql",
+      "path": "backend/tools/Acn.Fde.Practice.Database/Migrations/20260804-000002-create-practice-state.pgsql",
+      "sha256": "915a8a56b71f3dff3b9f9451407e27728282193e6205d03e28c35c34d7091208",
+      "compatibility": "expand"
+    }
+  ],
+  "d1": [
+    {
+      "id": "0001_identity.sql",
+      "path": "worker/migrations/0001_identity.sql",
+      "sha256": "89f8cfd83b2d7eeae05c554f50cd01439f424e6571bc12f6cf836f6388bdb16e",
+      "compatibility": "expand"
+    }
+  ]
+}

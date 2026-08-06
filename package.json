@@ -8,10 +8,12 @@
     "dev:full": "dotnet run --project backend/src/Acn.Fde.Practice.AppHost",
     "auth:migrate:local": "wrangler d1 migrations apply acn-fde-auth --local --config wrangler.local.jsonc",
     "build": "tsc -b && vite build",
-    "deploy": "npm run build && wrangler deploy",
+    "production:bootstrap": "./setup-github-secrets.sh --prod",
+    "production:prepare": "node scripts/production/prepare.ts",
     "lint": "eslint .",
     "test": "vitest run",
     "test:worker": "vitest run --config vitest.worker.config.ts",
+    "test:deployment": "vitest run --config vitest.deployment.config.ts",
     "test:backend": "dotnet test backend/Acn.Fde.Practice.slnx --filter \"TestCategory!=Resilience\"",
     "test:full": "dotnet test backend/tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj --filter \"TestCategory!=Resilience\"",
     "test:resilience": "dotnet test backend/tests/Acn.Fde.Practice.IntegrationTests/Acn.Fde.Practice.IntegrationTests.csproj --filter TestCategory=Resilience",
@@ -52,6 +54,6 @@
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.112.0"
+    "wrangler": "4.118.0"
   }
 }

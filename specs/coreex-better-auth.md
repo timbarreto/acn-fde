@@ -108,6 +108,11 @@ Everything below exists ([#35](https://github.com/timbarreto/acn-fde/issues/35))
 | PostgreSQL | Neon project in `aws-us-east-1`, database `neondb`, role `neondb_owner` | autoscaling pinned to 0.25 CU min *and* max; schema `practice` is created by migration |
 | GitHub OAuth apps | two, owned by the personal account `timbarreto` | dev callback `http://localhost:5173/api/auth/callback/github`; production callback on the Worker origin above |
 
+The table above records what was provisioned and why. The identities the
+production tooling actually enforces live in
+[`scripts/production/production-target.json`](../scripts/production/production-target.json);
+change them there.
+
 Three facts about this set that are easy to get wrong:
 
 - **`wrangler d1 create` places the database near whoever ran the command**, not near the Worker or the application's other regions. The first attempt landed in WNAM and had to be recreated with `--location enam`. D1 region is fixed at creation.
@@ -125,7 +130,7 @@ No secret value appears in any committed file, issue, or spec; `.gitignore` cove
 | PostgreSQL runtime connection string | Aspire-generated local credentials | Pooled endpoint in Worker secret `POSTGRES_CONNECTION_STRING`, forwarded to the container as `ConnectionStrings__Postgres` via the Container Durable Object's `envVars` — the name CoreEx's `AddNpgsqlDataSource("Postgres")` reads |
 | PostgreSQL migration connection string | Aspire-generated local credentials | Direct endpoint retained in the password manager and supplied only to the migration child process during a production deployment; never a Worker secret |
 
-`setup-github-secrets.sh` at the repository root prompts for the GitHub credentials and writes them to both destinations without passing any value through `argv` or shell history. Two caveats belong in the README: `dotnet user-secrets` is **unencrypted plaintext** under `~/.microsoft/usersecrets/` — it keeps secrets out of the repository, not off the disk — and each `wrangler secret put` creates and deploys a new Worker version.
+`setup-github-secrets.sh --local` prompts for the local GitHub credentials and writes them to .NET user-secrets without passing a value through `argv` or shell history. `npm run production:bootstrap` uses the same helper's production mode: it reads the current Worker secret names, prompts only for missing values across all four production secrets, validates new values before the first write, and pipes each value to Wrangler without an argument or temporary file. Two caveats belong in the README: `dotnet user-secrets` is **unencrypted plaintext** under `~/.microsoft/usersecrets/` — it keeps secrets out of the repository, not off the disk — and each `wrangler secret put` creates and deploys a new Worker version.
 
 ### Authentication contract
 
@@ -565,9 +570,21 @@ The non-mutating preflight runs before any database change:
 1. verify the clean/current `main` checkout, pinned tools, Docker availability, and the expected Cloudflare account, Worker, and D1 identifiers;
 2. verify the required Worker-secret names, the direct PostgreSQL connection, and both current migration ledgers;
 3. capture the active Worker version and its Container image digest; and
-4. run `wrangler deploy --dry-run` when the installed Wrangler/Container path supports it.
+4. build and validate the incoming production image with `wrangler deploy --dry-run`, which must succeed.
 
 The deployment script does not rerun the test suites; validation of `main` belongs to the build/CI path. Its responsibility is to prove the production target is safe to mutate.
+
+The preparation phase is implemented as `npm run production:prepare`, with the
+production identities and exact tool versions in
+`scripts/production/production-target.json`. It captures the active Worker and
+Container image, performs the image dry run, and completes steps 1–5 below, then
+stops before application rollout. `npm run production:bootstrap` installs only
+missing runtime secrets after validating all new values. The checked-in
+`scripts/production/migrations.json` records each migration's native ledger ID,
+SHA-256 digest, and explicit `expand` compatibility. Preparation rejects files
+absent from that manifest, digest drift, non-expand changes, unknown or reordered
+ledger entries, and a concurrent Worker change. The commit-addressed rollout and
+post-deploy recovery remain the following delivery phase (#80).
 
 **Every database change follows expand/contract compatibility.** A migration applied before a release must be safe for both the currently active application and the incoming one. A rename, removal, tightened constraint, or irreversible rewrite waits for a later cleanup release whose active and rollback-target code already tolerate the contraction. This is load-bearing because a Worker update and a Container image update are not atomic. The measured singleton rollout ([#42](https://github.com/timbarreto/acn-fde/issues/42)) served the old Container until roughly 27 seconds after `wrangler deploy` returned, then made one delayed request while the new image started. Adjacent Worker, Container, browser, and database versions therefore remain mutually compatible during deployment and rollback.
 
@@ -639,6 +656,7 @@ This section fixes the verification coverage the build must provide, not the top
 - `npm run test:worker`: Better Auth D1 adapter, JWT/JWKS, routing precedence, production exclusion of test auth, and local API-origin proxy tests in the Cloudflare Worker test runtime.
 - `npm run lint && npm run build`: lint/type-check the handwritten frontend wire types/client and Worker, then build Vite assets.
 - `dotnet test backend/Acn.Fde.Practice.slnx`: CoreEx validators/services/repositories/controllers plus the merge scenarios from #40 including idempotency; every #53 validation boundary and Problem Details code; 30 + 30 + abandoned-loser transient retention; future-clock retention; valid, expired, wrong-issuer/audience, and rotated-key JWTs; and authorization filters.
+- `npm run test:deployment`: exercise `production:prepare` through its command-line interface against disposable Podman PostgreSQL and local D1 stores. It covers fresh, current, pending, incompatible, unexpected, unknown/reordered, failed, interrupted/resumed, and concurrent-Worker states without contacting production. Ordinary CI runs it; this is separate from the operator-invoked restart resilience suite.
 
 ### Aspire full-stack suite
 
@@ -679,6 +697,6 @@ Also verify the frontend-only behaviours from [#50](https://github.com/timbarret
 
 ### Deployment
 
-Bootstrap the four runtime Worker secrets once, then exercise the production script from a clean checkout matching `origin/main`. Prove its PostgreSQL-first and D1-second migration gates, active-version re-check, immediate Container rollout, and secret-free summary. On a disposable target, force each partial-failure boundary and verify that migration failures stop for repair, a partially changed `wrangler deploy` restores the captured application version without reversing either database, and a completed deployment with failed health checks remains active while the script exits nonzero.
+Bootstrap the four runtime Worker secrets once, then exercise `production:prepare` from a clean checkout matching `origin/main`. Prove its PostgreSQL-first and D1-second migration gates, native ledger verification, active-version re-check, resumable failure behavior, and secret-free summary. The disposable deployment suite covers those preparation boundaries. The following rollout phase must add the immediate Container rollout, simulate partial `wrangler deploy` failures and application rollback without reversing either database, and prove that a completed deployment with failed health checks remains active while the script exits nonzero.
 
 Against production, retry only the agreed anonymous gate for one minute: the SPA, then an unauthenticated `GET /api/practice-state` answering `401` from CoreEx. Production does not route `/health*`, so the gate never probes it. GitHub auth, authenticated practice APIs, a guest's first sync, five-minute sleep, and billing inspection are deliberately not deployment gates; the runtime and cost assumptions were already measured by [#42](https://github.com/timbarreto/acn-fde/issues/42). Do not run the existing Playwright QA suite without explicit approval; if browser automation is later desired, obtain approval and point it at the isolated Aspire integration profile.
