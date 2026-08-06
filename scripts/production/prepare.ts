@@ -151,6 +151,44 @@ function activeWorkerVersion(
   return version
 }
 
+function workerVersionHasCoreExBinding(
+  target: ProductionTarget,
+  wranglerConfig: string,
+  repository: string,
+  version: string,
+): boolean {
+  const detail = parseJson<{
+    id: string
+    resources?: {
+      bindings?: Array<{ type?: string; class_name?: string }>
+    }
+  }>(
+    run(
+      "npx",
+      [
+        "--no-install",
+        "wrangler",
+        "versions",
+        "view",
+        version,
+        "--name",
+        target.workerName,
+        "--json",
+        "--config",
+        wranglerConfig,
+      ],
+      repository,
+    ),
+    "Worker version lookup",
+  )
+  if (detail.id !== version)
+    throw new Error("Worker version lookup returned the wrong ID")
+  return detail.resources?.bindings?.some(
+    ({ type, class_name: className }) =>
+      type === "durable_object_namespace" && className === "CoreExContainer",
+  ) === true
+}
+
 function validateMigrationManifest(
   repository: string,
   manifestPath: string,
@@ -280,13 +318,15 @@ function readPostgresLedger(
   )
 }
 
-function readD1Ledger(
+function executeD1Query<T>(
   target: ProductionTarget,
   wranglerConfig: string,
   repository: string,
-): string[] {
+  query: string,
+  description: string,
+): T[] {
   const response = parseJson<
-    Array<{ results: Array<{ name: string }>; success: boolean }>
+    Array<{ results: T[]; success: boolean }>
   >(
     run(
       "npx",
@@ -298,18 +338,45 @@ function readD1Ledger(
         target.d1DatabaseName,
         ...d1LocationArguments(target, repository),
         "--command",
-        "SELECT name FROM d1_migrations ORDER BY id",
+        query,
         "--json",
         "--config",
         wranglerConfig,
       ],
       repository,
     ),
-    "D1 migration ledger",
+    description,
   )
   if (response.some(({ success }) => !success))
-    throw new Error("D1 migration ledger check failed")
-  return response.flatMap(({ results }) => results.map(({ name }) => name))
+    throw new Error(`${description} failed`)
+  return response.flatMap(({ results }) => results)
+}
+
+function readD1Ledger(
+  target: ProductionTarget,
+  wranglerConfig: string,
+  repository: string,
+): string[] {
+  try {
+    return executeD1Query<{ name: string }>(
+      target,
+      wranglerConfig,
+      repository,
+      "SELECT name FROM d1_migrations ORDER BY id",
+      "D1 migration ledger",
+    ).map(({ name }) => name)
+  } catch (ledgerError) {
+    const tableCheck = executeD1Query<{ present: number }>(
+      target,
+      wranglerConfig,
+      repository,
+      "SELECT COUNT(*) AS present FROM sqlite_schema WHERE type = 'table' AND name = 'd1_migrations'",
+      "D1 migration ledger table check",
+    )
+    if (tableCheck.length === 1 && Number(tableCheck[0].present) === 0)
+      return []
+    throw ledgerError
+  }
 }
 
 function rejectUnknownMigrations(
@@ -329,6 +396,7 @@ function rejectUnknownMigrations(
 }
 
 function main(): void {
+  const dryRun = process.argv.includes("--dry-run")
   const repository = path.resolve(option("--repository", process.cwd()))
   const targetPath = path.resolve(
     option(
@@ -468,6 +536,19 @@ function main(): void {
   if (activeContainer && !activeContainer.configuration?.image)
     throw new Error("active CoreEx Container image could not be captured")
   const activeImage = activeContainer?.configuration?.image ?? "<none>"
+  if (
+    process.argv.includes("--require-primed") &&
+    activeImage === "<none>" &&
+    !workerVersionHasCoreExBinding(
+      target,
+      wranglerConfig,
+      repository,
+      activeVersion,
+    )
+  )
+    throw new Error(
+      "production has no rollback-compatible CoreEx application; run npm run production:prime first",
+    )
 
   const dryRunDirectory = mkdtempSync(
     path.join(tmpdir(), "acn-fde-production-dry-run-"),
@@ -517,21 +598,6 @@ function main(): void {
   )
   rejectUnknownMigrations("PostgreSQL", expectedPostgres, initialPostgres)
 
-  run(
-    "npx",
-    [
-      "--no-install",
-      "wrangler",
-      "d1",
-      "migrations",
-      "list",
-      target.d1DatabaseName,
-      ...d1LocationArguments(target, repository),
-      "--config",
-      wranglerConfig,
-    ],
-    repository,
-  )
   const initialD1 = readD1Ledger(target, wranglerConfig, repository)
   rejectUnknownMigrations("D1", expectedD1, initialD1)
 
@@ -545,6 +611,18 @@ function main(): void {
 
   const postgresWasCurrent = pendingPostgres.length === 0
   const d1WasCurrent = pendingD1.length === 0
+  if (dryRun) {
+    const currentVersion = activeWorkerVersion(target, wranglerConfig, repository)
+    if (currentVersion !== activeVersion)
+      throw new Error(
+        `active Worker changed during preparation (${activeVersion} -> ${currentVersion})`,
+      )
+    process.stdout.write(
+      `PostgreSQL migrations: ${postgresWasCurrent ? "current" : "pending"}\nD1 migrations: ${d1WasCurrent ? "current" : "pending"}\nPostgreSQL migration head: ${expectedPostgres.at(-1) ?? "<none>"}\nD1 migration head: ${expectedD1.at(-1) ?? "<none>"}\nProduction preparation dry run completed for ${release}\n`,
+    )
+    return
+  }
+
   if (!postgresWasCurrent) {
     run(
       "dotnet",

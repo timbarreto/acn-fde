@@ -10,6 +10,8 @@
     "build": "tsc -b && vite build",
     "production:bootstrap": "./setup-github-secrets.sh --prod",
     "production:prepare": "node scripts/production/prepare.ts",
+    "production:prime": "node scripts/production/prime.ts",
+    "production:deploy": "node scripts/production/deploy.ts",
     "lint": "eslint .",
     "test": "vitest run",
     "test:worker": "vitest run --config vitest.worker.config.ts",
