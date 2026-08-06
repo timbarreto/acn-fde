@@ -72,7 +72,7 @@ describe("Better Auth on D1", () => {
     expect(cookie).toContain("Secure")
   })
 
-  it("persists the GitHub recovery identifier through the OAuth callback", async () => {
+  it("persists and refreshes the GitHub identity through OAuth callbacks", async () => {
     const productionUrl = "https://practice.example"
     const auth = createAuth({
       ...env,
@@ -85,6 +85,7 @@ describe("Better Auth on D1", () => {
         headers: {
           "content-type": "application/json",
           origin: productionUrl,
+          "x-forwarded-for": "192.0.2.10",
         },
         body: JSON.stringify({
           provider: "github",
@@ -98,6 +99,13 @@ describe("Better Auth on D1", () => {
     const stateCookie = start.headers.get("set-cookie")?.split(";", 1)[0]
     expect(stateCookie).toBeTruthy()
 
+    let githubProfile = {
+      id: 123456,
+      login: "candidate",
+      name: "Candidate",
+      email: null,
+      avatar_url: "https://avatars.githubusercontent.com/u/123456",
+    }
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : input.toString()
       if (url.startsWith("https://github.com/login/oauth/access_token"))
@@ -107,13 +115,7 @@ describe("Better Auth on D1", () => {
           scope: "read:user,user:email",
         })
       if (url === "https://api.github.com/user")
-        return Response.json({
-          id: 123456,
-          login: "candidate",
-          name: "Candidate",
-          email: null,
-          avatar_url: "https://avatars.githubusercontent.com/u/123456",
-        })
+        return Response.json(githubProfile)
       if (url === "https://api.github.com/user/emails")
         return Response.json([{
           email: "candidate@example.test",
@@ -143,7 +145,57 @@ describe("Better Auth on D1", () => {
       }),
     )
     expect(await session.json()).toMatchObject({
-      user: { githubAccountId: "123456" },
+      user: {
+        githubAccountId: "123456",
+        githubUsername: "candidate",
+        image: "https://avatars.githubusercontent.com/u/123456",
+      },
+    })
+
+    githubProfile = {
+      ...githubProfile,
+      login: "renamed-candidate",
+      avatar_url: "https://avatars.githubusercontent.com/u/123456?v=2",
+    }
+    const secondStart = await auth.handler(
+      new Request(`${productionUrl}/api/auth/sign-in/social`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: productionUrl,
+          "x-forwarded-for": "192.0.2.11",
+        },
+        body: JSON.stringify({
+          provider: "github",
+          callbackURL: `${productionUrl}/account`,
+          errorCallbackURL: `${productionUrl}/account`,
+        }),
+      }),
+    )
+    const secondAuthorization = await secondStart.json<{ url: string }>()
+    const secondCallback = await auth.handler(
+      new Request(
+        `${productionUrl}/api/auth/callback/github?code=second-github-code&state=${new URL(secondAuthorization.url).searchParams.get("state")}`,
+        { headers: { cookie: secondStart.headers.get("set-cookie")?.split(";", 1)[0] ?? "" } },
+      ),
+    )
+    const secondSession = await auth.handler(
+      new Request(`${productionUrl}/api/auth/get-session`, {
+        headers: {
+          cookie: secondCallback.headers.get("set-cookie")
+            ?.split(",")
+            .map((cookie) => cookie.split(";", 1)[0])
+            .join("; ") ?? "",
+        },
+      }),
+    )
+
+    expect(await secondSession.json()).toMatchObject({
+      user: {
+        githubAccountId: "123456",
+        githubUsername: "renamed-candidate",
+        image: "https://avatars.githubusercontent.com/u/123456?v=2",
+      },
     })
   })
 

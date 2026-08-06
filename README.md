@@ -15,7 +15,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - A focused study sequence mapped to the published exam domains
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account required; standalone guest practice remains browser-only and offline-first
-- An Account destination alongside the other top-level pages, with a passive sync indicator, client-generated JSON export, self-service practice-state reset, ordered account deletion, optional GitHub sign-in, safe sign-out, and cross-device practice when the optional full stack is running
+- An Account destination alongside the other top-level pages, with a passive sync indicator that identifies a signed-in user by GitHub avatar and username, client-generated JSON export, self-service practice-state reset, ordered account deletion, optional GitHub sign-in, safe sign-out, and cross-device practice when the optional full stack is running
 
 ## Stack
 
@@ -118,9 +118,10 @@ keeps only an empty, subject-scoped continuation marker; Account stays pinned
 until the candidate retries the unfinished identity step. Successful deletion
 clears that subject's cache and starts a new empty guest practice state.
 
-Better Auth stores the opaque subject, GitHub display name, avatar URL, email,
-and GitHub account ID needed for identity and recovery. The GitHub access token
-is cleared after sign-in because the application does not call the GitHub API.
+Better Auth stores the opaque subject, GitHub display name, username, avatar
+URL, email, and GitHub account ID needed for identity and recovery. The GitHub
+access token is cleared after sign-in because the application does not call the
+GitHub API.
 
 ## Exercise the signed-in full stack
 

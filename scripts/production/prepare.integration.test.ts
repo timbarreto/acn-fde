@@ -82,7 +82,10 @@ function copyMigrationRelease(checkout: string): void {
     "backend/tools/Acn.Fde.Practice.Database/Migrations/20260804-000001-create-practice-schema.pgsql",
     "backend/tools/Acn.Fde.Practice.Database/Migrations/20260804-000002-create-practice-state.pgsql",
   ]
-  const d1Paths = ["worker/migrations/0001_identity.sql"]
+  const d1Paths = [
+    "worker/migrations/0001_identity.sql",
+    "worker/migrations/0002_github_profile.sql",
+  ]
   const entry = (relativePath: string, id: string) => ({
     id,
     path: relativePath,
@@ -465,6 +468,7 @@ describe.sequential("production:prepare disposable databases", () => {
     ) as Array<{ results: Array<{ name: string }> }>
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
+      "0002_github_profile.sql",
     ])
   })
 
@@ -856,7 +860,7 @@ describe.sequential("production:prepare disposable databases", () => {
   it("stops after a D1 migration failure while retaining successful PostgreSQL work", () => {
     const { checkout, target, persistTo } = createCheckout()
     const database = createDatabase()
-    const failedMigrationPath = "worker/migrations/0002_fail.sql"
+    const failedMigrationPath = "worker/migrations/0003_fail.sql"
     const failedMigration = "THIS IS NOT VALID SQL;\n"
     writeFileSync(path.join(checkout, failedMigrationPath), failedMigration)
     const manifestPath = path.join(checkout, "scripts/production/migrations.json")
@@ -864,7 +868,7 @@ describe.sequential("production:prepare disposable databases", () => {
       d1: Array<Record<string, string>>
     }
     manifest.d1.push({
-      id: "0002_fail.sql",
+      id: "0003_fail.sql",
       path: failedMigrationPath,
       sha256: createHash("sha256").update(failedMigration).digest("hex"),
       compatibility: "expand",
@@ -907,13 +911,14 @@ describe.sequential("production:prepare disposable databases", () => {
     ) as Array<{ results: Array<{ name: string }> }>
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
+      "0002_github_profile.sql",
     ])
   })
 
   it("resumes after interruption without repeating completed migrations", () => {
     const { checkout, target, persistTo } = createCheckout()
     const database = createDatabase()
-    const migrationPath = "worker/migrations/0002_resume.sql"
+    const migrationPath = "worker/migrations/0003_resume.sql"
     const brokenMigration = "BROKEN MIGRATION;\n"
     writeFileSync(path.join(checkout, migrationPath), brokenMigration)
     const manifestPath = path.join(checkout, "scripts/production/migrations.json")
@@ -921,7 +926,7 @@ describe.sequential("production:prepare disposable databases", () => {
       d1: Array<Record<string, string>>
     }
     manifest.d1.push({
-      id: "0002_resume.sql",
+      id: "0003_resume.sql",
       path: migrationPath,
       sha256: createHash("sha256").update(brokenMigration).digest("hex"),
       compatibility: "expand",
@@ -940,7 +945,7 @@ describe.sequential("production:prepare disposable databases", () => {
     const repairedManifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
       d1: Array<Record<string, string>>
     }
-    repairedManifest.d1.find(({ id }) => id === "0002_resume.sql")!.sha256 =
+    repairedManifest.d1.find(({ id }) => id === "0003_resume.sql")!.sha256 =
       createHash("sha256").update(repairedMigration).digest("hex")
     writeFileSync(manifestPath, JSON.stringify(repairedManifest))
     git(checkout, "add", ".")
@@ -951,7 +956,7 @@ describe.sequential("production:prepare disposable databases", () => {
 
     expect(resumed.status, `${resumed.stdout}\n${resumed.stderr}`).toBe(0)
     expect(resumed.stdout).toContain("PostgreSQL migrations: current")
-    expect(resumed.stdout).toContain("D1 pending before apply: 0002_resume.sql")
+    expect(resumed.stdout).toContain("D1 pending before apply: 0003_resume.sql")
     const postgresApplied = command("podman", [
       "exec",
       postgresContainer,
@@ -981,7 +986,8 @@ describe.sequential("production:prepare disposable databases", () => {
     ) as Array<{ results: Array<{ name: string }> }>
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
-      "0002_resume.sql",
+      "0002_github_profile.sql",
+      "0003_resume.sql",
     ])
   })
 
@@ -1117,6 +1123,7 @@ fi
     ) as Array<{ results: Array<{ name: string }> }>
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
+      "0002_github_profile.sql",
     ])
     expect(result.stdout.indexOf("PostgreSQL migrations: applied")).toBeLessThan(
       result.stdout.indexOf("D1 migrations: applied"),
@@ -1170,6 +1177,7 @@ fi
     ) as Array<{ results: Array<{ name: string }> }>
     expect(d1LedgerResponse[0].results.map(({ name }) => name)).toEqual([
       "0001_identity.sql",
+      "0002_github_profile.sql",
     ])
   })
 })

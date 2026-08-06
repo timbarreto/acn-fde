@@ -56,7 +56,7 @@ import type {
 } from "@/lib/persistence"
 import { usePracticeState } from "@/lib/use-practice-state"
 import { cn } from "@/lib/utils"
-import type { Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState, Question } from "@/types"
+import type { AccountIdentity, Attempt, AttemptMode, AttemptOutcome, DomainId, FinishedAttempt, PracticeState, Question } from "@/types"
 
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
@@ -77,6 +77,7 @@ function App() {
     syncStatus,
     accountDeletionStage,
     accountAvailable,
+    accountIdentity,
     updatePracticeState: setPracticeState,
     resetPracticeState,
     deleteAccount,
@@ -405,6 +406,7 @@ function App() {
           <AccountView
             mode={practiceMode}
             syncStatus={syncStatus}
+            accountIdentity={accountIdentity}
             accountAvailable={accountAvailable}
             signingIn={accountAction === "sign-in"}
             notice={accountNotice}
@@ -685,6 +687,7 @@ function relativeAcceptanceTime(syncedAt: number | null, now: number) {
 export function AccountView({
   mode,
   syncStatus,
+  accountIdentity,
   accountAvailable,
   signingIn,
   notice,
@@ -703,6 +706,7 @@ export function AccountView({
 }: {
   mode: PracticeStateMode
   syncStatus: PracticeSyncStatus
+  accountIdentity?: AccountIdentity | null
   accountAvailable: boolean
   signingIn: boolean
   notice: { kind: "success" | "error"; message: string } | null
@@ -723,6 +727,9 @@ export function AccountView({
   const needsReauthentication = mode.kind === "reauthenticating"
   const dataControlsReady = isGuest || mode.kind === "account"
   const isSigningOut = syncStatus.kind === "signing-out"
+  const visibleAccountIdentity = mode.kind === "account" || mode.kind === "transitioning"
+    ? accountIdentity
+    : null
 
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
@@ -767,7 +774,27 @@ export function AccountView({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-xl border bg-muted/40 p-4">
+            <div
+              className="rounded-xl border bg-muted/40 p-4"
+              role={visibleAccountIdentity ? "group" : undefined}
+              aria-label={visibleAccountIdentity
+                ? `Sync status for @${visibleAccountIdentity.githubUsername}`
+                : undefined}
+            >
+              {visibleAccountIdentity && (
+                <div className="mb-3 flex min-w-0 items-center gap-3 border-b pb-3">
+                  <img
+                    src={visibleAccountIdentity.avatarUrl}
+                    alt={`@${visibleAccountIdentity.githubUsername} GitHub avatar`}
+                    className="h-10 w-10 shrink-0 rounded-full border bg-background object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    @{visibleAccountIdentity.githubUsername}
+                  </span>
+                </div>
+              )}
               <SyncStatusIndicator status={syncStatus} announce={false} />
             </div>
           </CardContent>

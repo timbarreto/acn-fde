@@ -56,8 +56,10 @@ export function createGithubOptions(
   return {
     clientId: configuration.GITHUB_CLIENT_ID,
     clientSecret: configuration.GITHUB_CLIENT_SECRET,
+    overrideUserInfoOnSignIn: true,
     mapProfileToUser: (profile: GithubProfile) => ({
       githubAccountId: String(profile.id),
+      githubUsername: profile.login,
     }),
   }
 }
@@ -116,6 +118,10 @@ export function createAuthOptions(
         githubAccountId: {
           type: "string",
           required: true,
+        },
+        githubUsername: {
+          type: "string",
+          required: false,
         },
       },
       deleteUser: { enabled: true },

@@ -262,6 +262,53 @@ describe("TopNav", () => {
 })
 
 describe("AccountView", () => {
+  it("shows the signed-in GitHub identity in the Sync status panel", () => {
+    const markup = renderToStaticMarkup(
+      <AccountView
+        mode={{ kind: "account", subject: "subject-1" }}
+        syncStatus={{ kind: "synced", syncedAt: 10_000 }}
+        accountIdentity={{
+          githubUsername: "candidate",
+          avatarUrl: "https://avatars.githubusercontent.com/u/123456",
+        }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain('aria-label="Sync status for @candidate"')
+    expect(markupText(markup)).toContain("@candidateSynced")
+    expect(markup).toContain('src="https://avatars.githubusercontent.com/u/123456"')
+    expect(markup).toContain('alt="@candidate GitHub avatar"')
+  })
+
+  it.each([
+    { kind: "guest" } as PracticeStateMode,
+    { kind: "reauthenticating", subject: "subject-1" } as PracticeStateMode,
+  ])("does not show a GitHub identity outside a signed-in mode", (mode) => {
+    const markup = renderToStaticMarkup(
+      <AccountView
+        mode={mode}
+        syncStatus={mode.kind === "guest" ? { kind: "guest" } : { kind: "attention" }}
+        accountIdentity={{
+          githubUsername: "candidate",
+          avatarUrl: "https://avatars.githubusercontent.com/u/123456",
+        }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+      />,
+    )
+
+    expect(markup).not.toContain("@candidate")
+    expect(markup).not.toContain("avatars.githubusercontent.com")
+  })
+
   for (const [modeName, mode] of accountModes) {
     it.each(syncStatusCases)(`renders every sync state for ${modeName} mode`, (status, label) => {
       const markup = renderToStaticMarkup(

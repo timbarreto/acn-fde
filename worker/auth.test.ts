@@ -59,6 +59,7 @@ describe("GitHub identity", () => {
     expect(result?.user.email).toBe("private@example.com")
     expect(result?.user.emailVerified).toBe(true)
     expect(result?.user.githubAccountId).toBe("123456")
+    expect(result?.user.githubUsername).toBe("candidate")
   })
 
   it("removes provider credentials before an account is persisted", () => {
