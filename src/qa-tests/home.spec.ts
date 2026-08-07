@@ -10,6 +10,10 @@ test("renders the home page", async ({ page }) => {
       name: "Practice the judgment behind agentic systems.",
     }),
   ).toBeVisible()
+  await expect(page.getByRole("link", { name: "View on GitHub" })).toHaveAttribute(
+    "href",
+    "https://github.com/timbarreto/acn-fde",
+  )
   await expect(page.getByRole("button", { name: "Start a practice exam" })).toBeVisible()
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible()
 })
