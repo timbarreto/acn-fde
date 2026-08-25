@@ -42,6 +42,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { AccountLanguagePrototype } from "@/components/account-language.prototype"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { domains, domainMap } from "@/data/domains"
@@ -126,7 +127,14 @@ function App() {
         hasActiveAttempt,
         hasFinishedAttempt,
       })
-      if (window.location.pathname !== resolved.pathname || window.location.search || window.location.hash) {
+      const preservePrototypeVariant =
+        import.meta.env.DEV &&
+        resolved.view === "account" &&
+        new URLSearchParams(window.location.search).has("variant")
+      if (
+        window.location.pathname !== resolved.pathname ||
+        (!preservePrototypeVariant && (window.location.search || window.location.hash))
+      ) {
         window.history.replaceState(null, "", resolved.pathname)
       }
       setView(resolved.view)
@@ -760,6 +768,8 @@ export function AccountView({
           {notice.message}
         </div>
       )}
+
+      <AccountLanguagePrototype />
 
       <div className="mt-8 grid gap-5 lg:grid-cols-2">
         <Card className="shadow-none">
