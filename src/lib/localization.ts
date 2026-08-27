@@ -28,6 +28,10 @@ interface MessageArgs {
   "account.language.helper": undefined
   "account.language.persistenceFailed": undefined
   "practice.setup.questionBankNotice": undefined
+  "sync.status.acceptedAt": { acceptedAt: number; now: number }
+  "sync.status.title": { acceptedAt: number }
+  "review.attempt.finishedAt": { finishedAt: number }
+  "review.attempt.questionCount": { count: number }
 }
 
 export type MessageKey = keyof MessageArgs
@@ -54,6 +58,7 @@ export interface LocalizationEnvironment {
 
 interface Formatters {
   date: (value: number) => string
+  dateTime: (value: number) => string
   integer: (value: number) => string
   relative: (acceptedAt: number, now: number) => string
 }
@@ -73,6 +78,14 @@ const englishCatalog = {
     "The selected language applies for this visit but could not be saved.",
   "practice.setup.questionBankNotice": () =>
     "Practice questions and explanations remain in English.",
+  "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
+    format.relative(acceptedAt, now),
+  "sync.status.title": ({ acceptedAt }, format) =>
+    `Practice state synced ${format.dateTime(acceptedAt)}`,
+  "review.attempt.finishedAt": ({ finishedAt }, format) =>
+    format.date(finishedAt),
+  "review.attempt.questionCount": ({ count }, format) =>
+    `${format.integer(count)} questions`,
 } satisfies Catalog
 
 const spanishCatalog = {
@@ -83,6 +96,14 @@ const spanishCatalog = {
     "El idioma seleccionado se aplica en esta visita, pero no se pudo guardar.",
   "practice.setup.questionBankNotice": () =>
     "Las preguntas de práctica y las explicaciones permanecen en inglés.",
+  "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
+    format.relative(acceptedAt, now),
+  "sync.status.title": ({ acceptedAt }, format) =>
+    `Estado de práctica sincronizado el ${format.dateTime(acceptedAt)}`,
+  "review.attempt.finishedAt": ({ finishedAt }, format) =>
+    format.date(finishedAt),
+  "review.attempt.questionCount": ({ count }, format) =>
+    `${format.integer(count)} preguntas`,
 } satisfies Catalog
 
 const germanCatalog = {
@@ -93,6 +114,14 @@ const germanCatalog = {
     "Die ausgewählte Sprache gilt für diesen Besuch, konnte aber nicht gespeichert werden.",
   "practice.setup.questionBankNotice": () =>
     "Übungsfragen und Erklärungen bleiben auf Englisch.",
+  "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
+    format.relative(acceptedAt, now),
+  "sync.status.title": ({ acceptedAt }, format) =>
+    `Übungsstand synchronisiert am ${format.dateTime(acceptedAt)}`,
+  "review.attempt.finishedAt": ({ finishedAt }, format) =>
+    format.date(finishedAt),
+  "review.attempt.questionCount": ({ count }, format) =>
+    `${format.integer(count)} Fragen`,
 } satisfies Catalog
 
 const catalogs: Record<InterfaceLanguage, Catalog> = {
@@ -310,6 +339,10 @@ function formattersFor(language: InterfaceLanguage): Formatters {
     day: "numeric",
     year: "numeric",
   })
+  const dateTime = new Intl.DateTimeFormat(language, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })
   const integer = new Intl.NumberFormat(language, {
     maximumFractionDigits: 0,
   })
@@ -318,6 +351,7 @@ function formattersFor(language: InterfaceLanguage): Formatters {
   })
   const formatters: Formatters = {
     date: (value) => date.format(value),
+    dateTime: (value) => dateTime.format(value),
     integer: (value) => integer.format(value),
     relative: (acceptedAt, now) => {
       const elapsed = Math.max(0, now - acceptedAt)

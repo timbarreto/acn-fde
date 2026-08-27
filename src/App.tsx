@@ -615,6 +615,7 @@ export function SyncStatusIndicator({
   announce?: boolean
   className?: string
 }) {
+  const { text } = useLocalization()
   const [clock, setClock] = useState(() => now ?? Date.now())
   const syncedAt = status.kind === "synced" ? status.syncedAt : null
 
@@ -625,7 +626,13 @@ export function SyncStatusIndicator({
   }, [now, syncedAt])
 
   const currentTime = now ?? clock
-  const { state, elapsed } = syncStatusCopy(status, currentTime)
+  const state = syncStatusCopy(status)
+  const elapsed = status.kind === "synced" && status.syncedAt !== null
+    ? text("sync.status.acceptedAt", {
+        acceptedAt: status.syncedAt,
+        now: currentTime,
+      })
+    : ""
   const iconAndColor: Record<PracticeSyncStatus["kind"], { icon: typeof Cloud; color: string }> = {
     guest: { icon: HardDrive, color: "text-muted-foreground" },
     syncing: { icon: LoaderCircle, color: "text-brand-bright" },
@@ -636,7 +643,7 @@ export function SyncStatusIndicator({
   }
   const { icon: Icon, color } = iconAndColor[status.kind]
   const title = status.kind === "synced" && status.syncedAt !== null
-    ? `Practice state synced ${new Date(status.syncedAt).toLocaleString()}`
+    ? text("sync.status.title", { acceptedAt: status.syncedAt })
     : undefined
 
   return (
@@ -658,38 +665,26 @@ export function SyncStatusIndicator({
       >
         {state}
       </span>
-      {elapsed && <span>{elapsed}</span>}
+      {elapsed && <span> {elapsed}</span>}
     </div>
   )
 }
 
-export function syncStatusCopy(status: PracticeSyncStatus, now = Date.now()) {
+export function syncStatusCopy(status: PracticeSyncStatus) {
   switch (status.kind) {
     case "guest":
-      return { state: "Saved on this device", elapsed: "" }
+      return "Saved on this device"
     case "syncing":
-      return { state: "Syncing…", elapsed: "" }
+      return "Syncing…"
     case "offline":
-      return { state: "Offline · saved on this device", elapsed: "" }
+      return "Offline · saved on this device"
     case "attention":
-      return { state: "Not synced · saved on this device", elapsed: "" }
+      return "Not synced · saved on this device"
     case "signing-out":
-      return { state: "Signing out…", elapsed: "" }
+      return "Signing out…"
     case "synced":
-      return { state: "Synced", elapsed: relativeAcceptanceTime(status.syncedAt, now) }
+      return "Synced"
   }
-}
-
-function relativeAcceptanceTime(syncedAt: number | null, now: number) {
-  if (syncedAt === null) return ""
-  const elapsed = Math.max(0, now - syncedAt)
-  if (elapsed < 60_000) return " just now"
-  const minutes = Math.floor(elapsed / 60_000)
-  if (minutes < 60) return ` ${minutes} min ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return ` ${hours} hr ago`
-  const days = Math.floor(hours / 24)
-  return ` ${days} ${days === 1 ? "day" : "days"} ago`
 }
 
 function InterfaceLanguageControl() {
@@ -1495,10 +1490,24 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                   key={id}
                   onClick={() => { setIndex(index); setMapOpen(false) }}
                   title={mapQuestion?.prompt}
-                  aria-label={mapQuestion ? `Question ${index + 1}: ${mapQuestion.prompt}` : `Question ${index + 1}`}
+                  aria-labelledby={mapQuestion
+                    ? `question-map-label-${id} question-map-prompt-${id}`
+                    : `question-map-label-${id}`}
                   className={cn("relative grid aspect-square place-items-center rounded-lg border text-xs font-bold transition", isCurrent ? "border-primary ring-2 ring-primary/20" : "hover:bg-muted", isAnswered && !isCurrent && "border-primary/20 bg-primary text-primary-foreground")}
                 >
-                  {index + 1}
+                  <span aria-hidden="true">{index + 1}</span>
+                  <span id={`question-map-label-${id}`} className="sr-only">
+                    Question {index + 1}:
+                  </span>
+                  {mapQuestion && (
+                    <span
+                      id={`question-map-prompt-${id}`}
+                      className="sr-only"
+                      {...questionBankContentProps()}
+                    >
+                      {mapQuestion.prompt}
+                    </span>
+                  )}
                   {attempt.flagged.includes(id) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-danger" />}
                 </button>
               )
@@ -1516,7 +1525,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
   )
 }
 
-function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: FinishedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
+export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: FinishedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const passed = attempt.score >= PASS_SCORE
   const correctCount = attempt.questionIds.filter((id) => answersMatch(attempt.answers[id], questionMap.get(id)!.correctAnswers)).length
@@ -1574,7 +1583,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
               <Card key={id} className="shadow-none">
                 <button onClick={() => setExpanded(open ? null : id)} className="flex w-full items-start gap-4 p-5 text-left">
                   {correct ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />}
-                  <div className="flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Question {index + 1} · {domainMap[question.domain].short}</div><div className="font-semibold leading-6">{question.prompt}</div></div>
+                  <div className="flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Question {index + 1} · {domainMap[question.domain].short}</div><div className="font-semibold leading-6" {...questionBankContentProps()}>{question.prompt}</div></div>
                   <ChevronDown className={cn("h-5 w-5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
                 </button>
                 {open && (
@@ -1583,9 +1592,9 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
                       <AnswerSummary label="Your answer" ids={attempt.answers[id] ?? []} question={question} correct={correct} />
                       <AnswerSummary label="Correct answer" ids={question.correctAnswers} question={question} correct />
                     </div>
-                    <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6">{question.explanation}</p></div>
+                    <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p></div>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                      <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
+                      <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline"><span {...questionBankContentProps()}>{question.source.label}</span> <ExternalLink className="h-3 w-3" /></a>
                       <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? "Bookmarked" : "Bookmark"}</Button>
                     </div>
                   </div>
@@ -1600,7 +1609,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
 }
 
 function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
-  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
+  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")} {...questionBankContentProps()}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
 }
 
 export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome }) {
@@ -1612,7 +1621,8 @@ export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome })
   return <Badge variant="outline" className="capitalize">{labels[outcome]}</Badge>
 }
 
-function Review({ practiceState, onBookmark, onPractice }: { practiceState: PracticeState; onBookmark: (id: string) => void; onPractice: () => void }) {
+export function Review({ practiceState, onBookmark, onPractice }: { practiceState: PracticeState; onBookmark: (id: string) => void; onPractice: () => void }) {
+  const { text } = useLocalization()
   const [filter, setFilter] = useState<"missed" | "bookmarks" | "history">("missed")
   const missedIds = useMemo(() => {
     const found: string[] = []
@@ -1638,7 +1648,7 @@ function Review({ practiceState, onBookmark, onPractice }: { practiceState: Prac
       {filter === "history" ? (
         <div className="mt-7 space-y-3">
           {practiceState.attempts.length ? practiceState.attempts.map((attempt) => (
-            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{new Date(attempt.finishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {attempt.questionIds.length} questions</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></div></CardContent></Card>
+            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{text("review.attempt.finishedAt", { finishedAt: attempt.finishedAt })} · {text("review.attempt.questionCount", { count: attempt.questionIds.length })}</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></div></CardContent></Card>
           )) : <EmptyState title="No finished attempts yet" description="Finish a practice attempt and your scores will appear here." onAction={onPractice} />}
         </div>
       ) : (
@@ -1647,7 +1657,7 @@ function Review({ practiceState, onBookmark, onPractice }: { practiceState: Prac
             const question = questionMap.get(id)
             if (!question) return null
             const domain = domainMap[question.domain]
-            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7">{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> {question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}<p className="mt-2 text-muted-foreground">{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
+            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7" {...questionBankContentProps()}>{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> <span {...questionBankContentProps()}>{question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}</span><p className="mt-2 text-muted-foreground" {...questionBankContentProps()}>{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
           }) : <EmptyState title={filter === "bookmarks" ? "No bookmarks yet" : "No missed questions yet"} description={filter === "bookmarks" ? "Bookmark questions during an attempt or from a finished attempt." : "Start a practice set to build your review queue."} onAction={onPractice} />}
         </div>
       )}

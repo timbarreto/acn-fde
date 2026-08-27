@@ -123,6 +123,36 @@ describe("localization store", () => {
     )
   })
 
+  it("formats semantic application state with the active interface locale", () => {
+    const store = createLocalizationStore(
+      createTestEnvironment({ stored: "de" }),
+    )
+    const acceptedAt = Date.UTC(2025, 0, 2, 12)
+    const now = acceptedAt + 120_000
+    const date = new Intl.DateTimeFormat("de", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(acceptedAt)
+    const dateTime = new Intl.DateTimeFormat("de", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(acceptedAt)
+    const relative = new Intl.RelativeTimeFormat("de", {
+      numeric: "auto",
+    }).format(-2, "minute")
+    const count = new Intl.NumberFormat("de", {
+      maximumFractionDigits: 0,
+    }).format(1_234)
+
+    expect(store.text("sync.status.acceptedAt", { acceptedAt, now })).toBe(relative)
+    expect(store.text("sync.status.title", { acceptedAt })).toContain(dateTime)
+    expect(store.text("review.attempt.finishedAt", { finishedAt: acceptedAt })).toBe(date)
+    expect(store.text("review.attempt.questionCount", { count: 1_234 })).toBe(
+      `${count} Fragen`,
+    )
+  })
+
   it("persists only an explicit language choice", () => {
     const environment = createTestEnvironment({
       languages: ["es"],

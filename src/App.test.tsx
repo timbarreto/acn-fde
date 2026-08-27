@@ -77,7 +77,7 @@ function findInteraction(node: ReactNode, label: string): InteractiveProps {
 const syncStatusCases: Array<[PracticeSyncStatus, string]> = [
   [{ kind: "guest" }, "Saved on this device"],
   [{ kind: "syncing" }, "Syncing…"],
-  [{ kind: "synced", syncedAt: 10_000 }, "Synced just now"],
+  [{ kind: "synced", syncedAt: 10_000 }, "Synced now"],
   [{ kind: "offline" }, "Offline · saved on this device"],
   [{ kind: "attention" }, "Not synced · saved on this device"],
   [{ kind: "signing-out" }, "Signing out…"],
@@ -113,7 +113,7 @@ describe("SyncStatusIndicator", () => {
       />,
     )
 
-    expect(markupText(markup)).toContain("Synced 2 min ago")
+    expect(markupText(markup)).toContain("Synced 2 minutes ago")
   })
 
   it("keeps the elapsed time out of the live region so ticking is not announced", () => {
@@ -126,8 +126,8 @@ describe("SyncStatusIndicator", () => {
       <SyncStatusIndicator status={{ kind: "synced", syncedAt: 10_000 }} now={190_000} />,
     )
 
-    expect(markupText(early)).toContain("Synced 2 min ago")
-    expect(markupText(later)).toContain("Synced 3 min ago")
+    expect(markupText(early)).toContain("Synced 2 minutes ago")
+    expect(markupText(later)).toContain("Synced 3 minutes ago")
     expect(early.match(liveRegion)![1]).toBe("Synced")
     expect(later.match(liveRegion)![1]).toBe("Synced")
   })
@@ -141,7 +141,7 @@ describe("SyncStatusIndicator", () => {
     )
 
     expect(markup.match(/role="status"/g)).toHaveLength(1)
-    expect(markupText(markup)).toContain("Synced just now")
+    expect(markupText(markup)).toContain("Synced now")
   })
 })
 
@@ -712,9 +712,10 @@ describe("ExamRunner", () => {
     )
 
     expect(markup).toContain(`title="${firstPrompt}"`)
-    expect(markup).toContain(`aria-label="Question 1: ${firstPrompt}"`)
+    expect(markup).toContain(`aria-labelledby="question-map-label-${firstQuestion.id} question-map-prompt-${firstQuestion.id}"`)
+    expect(markup).toContain(`id="question-map-prompt-${firstQuestion.id}" class="sr-only" lang="en">${firstQuestion.prompt}</span>`)
     expect(markup).toContain(`title="${secondPrompt}"`)
-    expect(markup).toContain(`aria-label="Question 2: ${secondPrompt}"`)
+    expect(markup).toContain(`aria-labelledby="question-map-label-${secondQuestion.id} question-map-prompt-${secondQuestion.id}"`)
     expect(markup).toContain(`lang="en"`)
     expect(markup).toContain(`>${firstQuestion.prompt}<`)
     for (const [, syncCopy] of syncStatusCases) {

@@ -1,10 +1,18 @@
-import { renderToStaticMarkup } from "react-dom/server"
+// @vitest-environment jsdom
+
+import { act } from "react"
+import { createRoot } from "react-dom/client"
 import { describe, expect, it } from "vitest"
 import {
   createLocalizationStore,
   createMemoryLocalizationEnvironment,
 } from "@/lib/localization"
 import { LocalizationProvider, useLocalization } from "@/lib/use-localization"
+
+const reactTestEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT: boolean
+}
+reactTestEnvironment.IS_REACT_ACT_ENVIRONMENT = true
 
 function Probe() {
   const { language, text } = useLocalization()
@@ -21,21 +29,24 @@ describe("useLocalization", () => {
       createMemoryLocalizationEnvironment({ languages: ["en"] }),
     )
 
-    const before = renderToStaticMarkup(
-      <LocalizationProvider store={store}>
-        <Probe />
-      </LocalizationProvider>,
-    )
-    expect(before).toContain("en:Interface language")
+    const container = document.createElement("div")
+    const root = createRoot(container)
 
-    store.setLanguage("es")
+    act(() => {
+      root.render(
+        <LocalizationProvider store={store}>
+          <Probe />
+        </LocalizationProvider>,
+      )
+    })
+    expect(container.textContent).toBe("en:Interface language")
 
-    const after = renderToStaticMarkup(
-      <LocalizationProvider store={store}>
-        <Probe />
-      </LocalizationProvider>,
-    )
-    expect(after).toContain("es:Idioma de la interfaz")
-    expect(after).not.toContain("Interface language")
+    act(() => {
+      store.setLanguage("es")
+    })
+
+    expect(container.textContent).toBe("es:Idioma de la interfaz")
+
+    act(() => root.unmount())
   })
 })
