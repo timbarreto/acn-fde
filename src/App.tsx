@@ -1489,7 +1489,6 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                 <button
                   key={id}
                   onClick={() => { setIndex(index); setMapOpen(false) }}
-                  title={mapQuestion?.prompt}
                   aria-labelledby={mapQuestion
                     ? `question-map-label-${id} question-map-prompt-${id}`
                     : `question-map-label-${id}`}

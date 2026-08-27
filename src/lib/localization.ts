@@ -85,7 +85,7 @@ const englishCatalog = {
   "review.attempt.finishedAt": ({ finishedAt }, format) =>
     format.date(finishedAt),
   "review.attempt.questionCount": ({ count }, format) =>
-    `${format.integer(count)} questions`,
+    `${format.integer(count)} ${count === 1 ? "question" : "questions"}`,
 } satisfies Catalog
 
 const spanishCatalog = {
@@ -103,7 +103,7 @@ const spanishCatalog = {
   "review.attempt.finishedAt": ({ finishedAt }, format) =>
     format.date(finishedAt),
   "review.attempt.questionCount": ({ count }, format) =>
-    `${format.integer(count)} preguntas`,
+    `${format.integer(count)} ${count === 1 ? "pregunta" : "preguntas"}`,
 } satisfies Catalog
 
 const germanCatalog = {
@@ -121,7 +121,7 @@ const germanCatalog = {
   "review.attempt.finishedAt": ({ finishedAt }, format) =>
     format.date(finishedAt),
   "review.attempt.questionCount": ({ count }, format) =>
-    `${format.integer(count)} Fragen`,
+    `${format.integer(count)} ${count === 1 ? "Frage" : "Fragen"}`,
 } satisfies Catalog
 
 const catalogs: Record<InterfaceLanguage, Catalog> = {

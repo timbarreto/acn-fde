@@ -153,6 +153,27 @@ describe("localization store", () => {
     )
   })
 
+  it("formats singular and plural question counts in each catalog", () => {
+    const expected = {
+      en: ["1 question", "2 questions"],
+      es: ["1 pregunta", "2 preguntas"],
+      de: ["1 Frage", "2 Fragen"],
+    } satisfies Record<InterfaceLanguage, [string, string]>
+
+    for (const language of ["en", "es", "de"] as const) {
+      const store = createLocalizationStore(
+        createTestEnvironment({ stored: language }),
+      )
+
+      expect(store.text("review.attempt.questionCount", { count: 1 })).toBe(
+        expected[language][0],
+      )
+      expect(store.text("review.attempt.questionCount", { count: 2 })).toBe(
+        expected[language][1],
+      )
+    }
+  })
+
   it("persists only an explicit language choice", () => {
     const environment = createTestEnvironment({
       languages: ["es"],

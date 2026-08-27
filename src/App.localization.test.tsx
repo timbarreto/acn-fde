@@ -87,7 +87,7 @@ describe("localized application state", () => {
     act(() => history?.click())
 
     expect(container.textContent).toContain(expectedDate)
-    expect(container.textContent).toContain("1 Fragen")
+    expect(container.textContent).toContain("1 Frage")
 
     act(() => root.unmount())
   })
