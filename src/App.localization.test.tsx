@@ -3,14 +3,14 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it, vi } from "vitest"
-import { Results, Review, SyncStatusIndicator } from "@/App"
+import { ExamRunner, Results, Review, SyncStatusIndicator } from "@/App"
 import questionData from "@/data/questions.json"
 import {
   createLocalizationStore,
   createMemoryLocalizationEnvironment,
 } from "@/lib/localization"
 import { LocalizationProvider } from "@/lib/use-localization"
-import type { FinishedAttempt, Question } from "@/types"
+import type { Attempt, FinishedAttempt, Question } from "@/types"
 
 const reactTestEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT: boolean
@@ -36,6 +36,12 @@ const attempt: FinishedAttempt = {
 function englishContent(container: HTMLElement) {
   return Array.from(container.querySelectorAll<HTMLElement>('[lang="en"]'))
     .map((element) => element.textContent)
+}
+
+function expectEnglishText(container: HTMLElement, expected: string) {
+  expect(
+    englishContent(container).some((content) => content?.trim() === expected),
+  ).toBe(true)
 }
 
 describe("localized application state", () => {
@@ -92,7 +98,7 @@ describe("localized application state", () => {
     act(() => root.unmount())
   })
 
-  it("marks every rendered question-bank field as English", () => {
+  it("marks Results question-bank fields as English", () => {
     const store = createLocalizationStore(
       createMemoryLocalizationEnvironment({ stored: "es" }),
     )
@@ -110,6 +116,37 @@ describe("localized application state", () => {
             onRetry={vi.fn()}
             onReview={vi.fn()}
           />
+        </LocalizationProvider>,
+      )
+    })
+
+    const resultQuestion = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes(question.prompt))
+    act(() => resultQuestion?.click())
+
+    expectEnglishText(container, question.prompt)
+    expectEnglishText(container, question.explanation)
+    expectEnglishText(container, question.source.label)
+    for (const answer of question.correctAnswers) {
+      expectEnglishText(
+        container,
+        question.options.find((option) => option.id === answer)!.text,
+      )
+    }
+
+    act(() => root.unmount())
+  })
+
+  it("marks Review question-bank fields as English", () => {
+    const store = createLocalizationStore(
+      createMemoryLocalizationEnvironment({ stored: "es" }),
+    )
+    const container = document.createElement("div")
+    const root = createRoot(container)
+
+    act(() => {
+      root.render(
+        <LocalizationProvider store={store}>
           <Review
             practiceState={{
               activeAttempt: null,
@@ -124,19 +161,59 @@ describe("localized application state", () => {
       )
     })
 
-    const resultQuestion = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes(question.prompt))
-    act(() => resultQuestion?.click())
+    const bookmarks = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Bookmarks"))
+    act(() => bookmarks?.click())
 
-    const content = englishContent(container)
-    expect(content).toContain(question.prompt)
-    expect(content).toContain(question.explanation)
-    expect(content).toContain(question.source.label)
+    expectEnglishText(container, question.prompt)
+    expectEnglishText(container, question.explanation)
     for (const answer of question.correctAnswers) {
-      expect(content).toContain(
-        question.options.find((option) => option.id === answer)?.text,
+      expectEnglishText(
+        container,
+        question.options.find((option) => option.id === answer)!.text,
       )
     }
+
+    act(() => root.unmount())
+  })
+
+  it("marks ExamRunner question-bank fields as English", () => {
+    const store = createLocalizationStore(
+      createMemoryLocalizationEnvironment({ stored: "es" }),
+    )
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    const activeAttempt: Attempt = {
+      ...attempt,
+      currentIndex: 0,
+    }
+
+    act(() => {
+      root.render(
+        <LocalizationProvider store={store}>
+          <ExamRunner
+            attempt={activeAttempt}
+            bookmarks={[]}
+            onUpdate={vi.fn()}
+            onFinish={vi.fn()}
+            onBookmark={vi.fn()}
+            onExit={vi.fn()}
+          />
+        </LocalizationProvider>,
+      )
+    })
+
+    const checkAnswer = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Check answer"))
+    act(() => checkAnswer?.click())
+
+    expectEnglishText(container, question.objective)
+    expectEnglishText(container, question.prompt)
+    for (const option of question.options) {
+      expectEnglishText(container, option.text)
+    }
+    expectEnglishText(container, question.explanation)
+    expectEnglishText(container, question.source.label)
 
     act(() => root.unmount())
   })
