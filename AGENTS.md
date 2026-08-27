@@ -47,6 +47,8 @@ terms do not yet appear in `src/`.
 - `src/lib/practice-api.ts`: handwritten same-origin practice-state adapter.
 - `src/lib/use-practice-state.ts`: thin React integration for the persistence
   store.
+- `src/lib/localization.ts`: typed interface-language catalogs and store.
+- `src/lib/use-localization.tsx`: thin React adapter for the localization store.
 - `src/lib/utils.ts`: shared UI utilities, including `cn`.
 - `src/data/questions.json`: question bank.
 - `src/data/domains.ts`: domain labels, weights, colors, and icons.
@@ -139,6 +141,12 @@ persist a current-account pointer. D1 owns identity/session/JWKS state,
 PostgreSQL owns canonical account practice state, and the CoreEx filesystem owns
 nothing durable. Keep OAuth credentials and direct migration credentials out of
 browser storage, repository files, command arguments, and logs.
+
+Interface language is a browser-local preference in
+`agentic-ready-gh600-interface-language`, independent of practice state and
+account sync. Keep catalogs, detection, and document language behind
+`src/lib/localization.ts`. Question-bank prompts, options, objectives,
+explanations, and source labels stay in English.
 
 ## Change guidelines
 

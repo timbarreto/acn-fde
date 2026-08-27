@@ -15,7 +15,12 @@ import {
 } from "@/App"
 import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
+import {
+  createLocalizationStore,
+  createMemoryLocalizationEnvironment,
+} from "@/lib/localization"
 import type { PracticeStateMode, PracticeSyncStatus } from "@/lib/persistence"
+import { LocalizationProvider } from "@/lib/use-localization"
 import type { Attempt, AttemptOutcome, PracticeState, Question } from "@/types"
 
 function markupText(markup: string) {
@@ -545,6 +550,105 @@ describe("AccountView", () => {
     expect(markup).toContain("Sign in again with GitHub")
     expect(markup).toContain("same GitHub account")
   })
+
+  it("shows the same interface language control to guests and signed-in candidates", () => {
+    for (const [, mode] of accountModes) {
+      const markup = renderToStaticMarkup(
+        <AccountView
+          mode={mode}
+          syncStatus={mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />,
+      )
+      const text = markupText(markup)
+      const english = markup.indexOf(">English<")
+      const spanish = markup.indexOf(">Español<")
+      const german = markup.indexOf(">Deutsch<")
+
+      expect(markup).toContain('for="interface-language"')
+      expect(markup).toContain('id="interface-language"')
+      expect(markup).toContain('aria-describedby="interface-language-helper"')
+      expect(text).toContain("Interface language")
+      expect(text).toContain("Changes controls, status, and guidance in this browser")
+      expect(text).toContain("Practice question content and explanations remain in English")
+      expect(text).toContain("This preference is not synced")
+      expect(english).toBeGreaterThan(-1)
+      expect(english).toBeLessThan(spanish)
+      expect(spanish).toBeLessThan(german)
+      const controlAt = markup.indexOf('id="interface-language"')
+      const cardsAt = ["Guest practice", "Sync status", "Optional GitHub sign-in", "Sign out safely"]
+        .map((label) => markup.indexOf(`>${label}<`))
+        .filter((index) => index >= 0)
+        .sort((left, right) => left - right)[0]
+      expect(controlAt).toBeGreaterThan(-1)
+      expect(cardsAt).toBeGreaterThan(controlAt)
+    }
+  })
+
+  it("applies a language choice immediately across the Account control", () => {
+    const store = createLocalizationStore(
+      createMemoryLocalizationEnvironment({ languages: ["en"] }),
+    )
+    const view = (mode: PracticeStateMode) => (
+      <LocalizationProvider store={store}>
+        <AccountView
+          mode={mode}
+          syncStatus={mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </LocalizationProvider>
+    )
+
+    expect(markupText(renderToStaticMarkup(view({ kind: "guest" })))).toContain("Interface language")
+
+    store.setLanguage("es")
+
+    const guest = markupText(renderToStaticMarkup(view({ kind: "guest" })))
+    const user = markupText(renderToStaticMarkup(view({ kind: "account", subject: "subject-1" })))
+    for (const text of [guest, user]) {
+      expect(text).toContain("Idioma de la interfaz")
+      expect(text).toContain("Esta preferencia no se sincroniza")
+      expect(text).not.toContain("Interface language")
+    }
+  })
+
+  it("explains when the selected language applies for this visit but could not be saved", () => {
+    const store = createLocalizationStore({
+      ...createMemoryLocalizationEnvironment({ languages: ["en"] }),
+      writePreference() {
+        throw new Error("storage write failed")
+      },
+    })
+    store.setLanguage("es")
+
+    const markup = renderToStaticMarkup(
+      <LocalizationProvider store={store}>
+        <AccountView
+          mode={{ kind: "guest" }}
+          syncStatus={{ kind: "guest" }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </LocalizationProvider>,
+    )
+
+    expect(markup).toContain('role="status"')
+    expect(markup).toContain('aria-live="polite"')
+    expect(markupText(markup)).toContain(
+      "El idioma seleccionado se aplica en esta visita, pero no se pudo guardar.",
+    )
+  })
 })
 
 describe("ExamSetup", () => {
@@ -556,6 +660,24 @@ describe("ExamSetup", () => {
       expect(markup).toContain(`${domain.number} · ${renderedName}`)
       expect(markup).not.toContain(`Domain ${domain.number} · ${renderedName}`)
     }
+  })
+
+  it("places a concise English question-bank notice above attempt-mode choices", () => {
+    const store = createLocalizationStore(
+      createMemoryLocalizationEnvironment({ stored: "de" }),
+    )
+    const markup = renderToStaticMarkup(
+      <LocalizationProvider store={store}>
+        <ExamSetup onStart={vi.fn()} />
+      </LocalizationProvider>,
+    )
+    const text = markupText(markup)
+    const noticeAt = text.indexOf("Übungsfragen und Erklärungen bleiben auf Englisch.")
+    const modesAt = text.indexOf("Full practice exam")
+
+    expect(noticeAt).toBeGreaterThan(-1)
+    expect(modesAt).toBeGreaterThan(noticeAt)
+    expect(markup).not.toContain("role=\"alert\"")
   })
 })
 
@@ -593,6 +715,8 @@ describe("ExamRunner", () => {
     expect(markup).toContain(`aria-label="Question 1: ${firstPrompt}"`)
     expect(markup).toContain(`title="${secondPrompt}"`)
     expect(markup).toContain(`aria-label="Question 2: ${secondPrompt}"`)
+    expect(markup).toContain(`lang="en"`)
+    expect(markup).toContain(`>${firstQuestion.prompt}<`)
     for (const [, syncCopy] of syncStatusCases) {
       expect(markup).not.toContain(syncCopy)
     }

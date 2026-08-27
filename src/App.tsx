@@ -19,6 +19,7 @@ import {
   FileText,
   Flag,
   Github,
+  Globe2,
   HardDrive,
   History,
   Home,
@@ -48,6 +49,12 @@ import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import { signInWithGitHub } from "@/lib/auth-client"
 import { downloadPracticeStateExport } from "@/lib/data-controls"
+import {
+  INTERFACE_LANGUAGE_OPTIONS,
+  isInterfaceLanguage,
+  questionBankContentProps,
+} from "@/lib/localization"
+import { useLocalization } from "@/lib/use-localization"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import type {
@@ -685,6 +692,62 @@ function relativeAcceptanceTime(syncedAt: number | null, now: number) {
   return ` ${days} ${days === 1 ? "day" : "days"} ago`
 }
 
+function InterfaceLanguageControl() {
+  const { language, persistence, setLanguage, text } = useLocalization()
+  const helperId = "interface-language-helper"
+  const statusId = "interface-language-persistence"
+  const describedBy = persistence === "session-only" ? `${helperId} ${statusId}` : helperId
+
+  return (
+    <div className="mt-8">
+      <div className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-center">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+          <Globe2 className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <label htmlFor="interface-language" className="font-display text-base font-bold">
+            {text("account.language.label")}
+          </label>
+          <p id={helperId} className="mt-1 text-xs leading-5 text-muted-foreground">
+            {text("account.language.helper")}
+          </p>
+        </div>
+        <select
+          id="interface-language"
+          value={language}
+          aria-describedby={describedBy}
+          className="h-10 min-w-40 rounded-full border bg-background px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onChange={(event) => {
+            const next = event.currentTarget.value
+            if (isInterfaceLanguage(next)) setLanguage(next)
+          }}
+        >
+          {INTERFACE_LANGUAGE_OPTIONS.map((option) => (
+            <option key={option.language} value={option.language}>
+              {option.endonym}
+            </option>
+          ))}
+        </select>
+      </div>
+      {persistence === "session-only" && (
+        <p id={statusId} className="mt-2 text-xs leading-5 text-muted-foreground" role="status" aria-live="polite">
+          {text("account.language.persistenceFailed")}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function PracticeQuestionBankNotice() {
+  const { text } = useLocalization()
+  return (
+    <div className="mt-8 flex max-w-2xl min-w-0 items-start gap-3 text-sm leading-6 text-muted-foreground">
+      <BookOpen className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      <p>{text("practice.setup.questionBankNotice")}</p>
+    </div>
+  )
+}
+
 export function AccountView({
   mode,
   syncStatus,
@@ -760,6 +823,8 @@ export function AccountView({
           {notice.message}
         </div>
       )}
+
+      <InterfaceLanguageControl />
 
       <div className="mt-8 grid gap-5 lg:grid-cols-2">
         <Card className="shadow-none">
@@ -1199,6 +1264,7 @@ export function ExamSetup({ onStart }: { onStart: (mode: AttemptMode, domains?: 
         <h1 className="section-title text-4xl">Choose the kind of pressure you need.</h1>
         <p className="mt-4 text-lg leading-8 text-muted-foreground">Every mode uses the same local question bank. Answers are recorded automatically, so you can leave and resume.</p>
       </div>
+      <PracticeQuestionBankNotice />
       <div className="mt-10 grid gap-5 lg:grid-cols-3">
         <ModeCard icon={Trophy} eyebrow="Best simulation" title="Full practice exam" description="30 weighted questions across all six domains. Timed and scored after submission." meta="45 min · 30 questions" onClick={() => onStart("full")} accent />
         <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A random set for a fast confidence check between study sessions. Limited to your selected domains when any are chosen." meta={selectedDomains.length ? "15 min · up to 10 questions from selected domains" : "15 min · 10 questions"} onClick={() => onStart("quick", selectedDomains)} />
@@ -1333,7 +1399,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
             <div className="flex flex-wrap items-center gap-2">
               <Badge style={{ color: domain.color, background: domain.soft, borderColor: "transparent" }}>Domain {domain.number} · {domain.short}</Badge>
               <Badge variant="outline" className="capitalize">{question.difficulty}</Badge>
-              <span className="text-xs font-medium text-muted-foreground">{question.objective}</span>
+              <span className="text-xs font-medium text-muted-foreground" {...questionBankContentProps()}>{question.objective}</span>
             </div>
             <Button variant="ghost" size="sm" onClick={toggleFlag} className={cn(attempt.flagged.includes(currentId) && "text-danger")}>
               <Flag className={cn("h-4 w-4", attempt.flagged.includes(currentId) && "fill-current")} /> <span className="hidden sm:inline">Flag</span>
@@ -1344,7 +1410,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
               <div className="flex gap-4">
                 <span className="font-display text-sm font-extrabold text-muted-foreground">{String(attempt.currentIndex + 1).padStart(2, "0")}</span>
                 <div className="flex-1">
-                  <h1 className="font-display text-xl font-bold leading-relaxed tracking-tight sm:text-2xl">{question.prompt}</h1>
+                  <h1 className="font-display text-xl font-bold leading-relaxed tracking-tight sm:text-2xl" {...questionBankContentProps()}>{question.prompt}</h1>
                   <p className="mt-2 text-sm font-medium text-muted-foreground">{question.type === "multiple" ? "Select all that apply." : "Select the best answer."}</p>
                 </div>
               </div>
@@ -1384,7 +1450,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                       )}>
                         {isRevealed ? (correctOption ? <Check className="h-4 w-4" /> : selected ? <X className="h-4 w-4" /> : String.fromCharCode(65 + index)) : selected ? <Check className="h-4 w-4" /> : String.fromCharCode(65 + index)}
                       </span>
-                      <span className="pt-1 text-[15px] font-medium leading-6">{option.text}</span>
+                      <span className="pt-1 text-[15px] font-medium leading-6" {...questionBankContentProps()}>{option.text}</span>
                     </button>
                   )
                 })}
@@ -1395,8 +1461,8 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                     {isCurrentCorrect ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                     {isCurrentCorrect ? "Correct" : "Not quite"}
                   </div>
-                  <p className="mt-2 text-sm leading-6">{question.explanation}</p>
-                  <a href={question.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
+                  <p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p>
+                  <a href={question.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline" {...questionBankContentProps()}>{question.source.label} <ExternalLink className="h-3 w-3" /></a>
                 </div>
               )}
             </CardContent>
