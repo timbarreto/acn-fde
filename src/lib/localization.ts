@@ -70,6 +70,12 @@ type Catalog = {
   ) => string
 }
 
+type CatalogOverrides = {
+  [Language in InterfaceLanguage]?: {
+    [Key in MessageKey]?: Catalog[Key] | null
+  }
+}
+
 const englishCatalog = {
   "account.language.label": () => "Interface language",
   "account.language.helper": () =>
@@ -142,6 +148,7 @@ export function questionBankContentProps() {
 
 export function createLocalizationStore(
   environment: LocalizationEnvironment,
+  catalogOverrides?: CatalogOverrides,
 ): LocalizationStore {
   const listeners = new Set<() => void>()
   let snapshot = resolveSnapshot(environment)
@@ -153,7 +160,12 @@ export function createLocalizationStore(
   })
 
   const text: Text = (key, ...args) =>
-    readMessage(snapshot.language, key, args[0] as MessageArgs[typeof key])
+    readMessage(
+      snapshot.language,
+      key,
+      args[0] as MessageArgs[typeof key],
+      catalogOverrides,
+    )
 
   function publish() {
     for (const listener of listeners) listener()
@@ -309,14 +321,25 @@ function readMessage<Key extends MessageKey>(
   language: InterfaceLanguage,
   key: Key,
   args: MessageArgs[Key],
+  catalogOverrides?: CatalogOverrides,
 ): string {
-  const localized = lookupCatalogEntry(catalogs[language], key)
+  const localized = lookupCatalogEntry(
+    catalogs[language],
+    language,
+    key,
+    catalogOverrides,
+  )
   if (localized) return localized(args, formattersFor(language))
 
   console.error(
     `[localization] Missing message "${String(key)}" for language "${language}"; using English.`,
   )
-  const english = lookupCatalogEntry(catalogs.en, key)
+  const english = lookupCatalogEntry(
+    catalogs.en,
+    "en",
+    key,
+    catalogOverrides,
+  )
   if (english) return english(args, formattersFor("en"))
 
   console.error(`[localization] Missing English message "${String(key)}".`)
@@ -325,8 +348,13 @@ function readMessage<Key extends MessageKey>(
 
 function lookupCatalogEntry<Key extends MessageKey>(
   catalog: Catalog,
+  language: InterfaceLanguage,
   key: Key,
+  catalogOverrides?: CatalogOverrides,
 ): Catalog[Key] | undefined {
+  const override = catalogOverrides?.[language]?.[key]
+  if (override === null) return undefined
+  if (override) return override
   return catalog[key]
 }
 

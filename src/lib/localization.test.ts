@@ -290,6 +290,24 @@ describe("localization store", () => {
 
   it("falls back to the English message and emits a diagnostic when a translation is missing", () => {
     const environment = createTestEnvironment({ stored: "es" })
+    const store = createLocalizationStore(environment, {
+      es: {
+        "account.language.label": null,
+      },
+    })
+    const diagnose = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    const value = store.text("account.language.label")
+
+    expect(value).toBe("Interface language")
+    expect(diagnose).toHaveBeenCalledOnce()
+    expect(String(diagnose.mock.calls[0]?.[0])).toMatch(
+      /account\.language\.label.*"es".*English/,
+    )
+  })
+
+  it("uses an ellipsis and emits diagnostics when the English message is also missing", () => {
+    const environment = createTestEnvironment({ stored: "es" })
     const store = createLocalizationStore(environment)
     const diagnose = vi.spyOn(console, "error").mockImplementation(() => {})
 
@@ -297,8 +315,11 @@ describe("localization store", () => {
 
     expect(value).toBe("…")
     expect(value).not.toBe("missing.message")
-    expect(diagnose).toHaveBeenCalled()
+    expect(diagnose).toHaveBeenCalledTimes(2)
     expect(String(diagnose.mock.calls[0]?.[0])).toMatch(/missing\.message/)
+    expect(String(diagnose.mock.calls[1]?.[0])).toMatch(
+      /Missing English message.*missing\.message/,
+    )
   })
 
   it("keeps the question-bank language boundary in English", () => {

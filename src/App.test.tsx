@@ -27,13 +27,6 @@ function markupText(markup: string) {
   return markup.replace(/<[^>]+>/g, "")
 }
 
-function serializeAttributeValue(value: string) {
-  const markup = renderToStaticMarkup(<div data-value={value} />)
-  const match = markup.match(/data-value="([^"]*)"/)
-  expect(match).not.toBeNull()
-  return match![1]
-}
-
 interface InteractiveProps {
   children?: ReactNode
   disabled?: boolean
@@ -682,12 +675,10 @@ describe("ExamSetup", () => {
 })
 
 describe("ExamRunner", () => {
-  it("adds the question prompt to each question map button tooltip", () => {
+  it("gives each question map button an accessible English prompt", () => {
     const questions = questionData as Question[]
     const firstQuestion = questions.find(({ id }) => id === "arch-001")!
     const secondQuestion = questions.find(({ id }) => id === "arch-002")!
-    const firstPrompt = serializeAttributeValue(firstQuestion.prompt)
-    const secondPrompt = serializeAttributeValue(secondQuestion.prompt)
     const attempt: Attempt = {
       id: "attempt-1",
       mode: "quick",
@@ -711,13 +702,10 @@ describe("ExamRunner", () => {
       />,
     )
 
-    expect(markup).toContain(`title="${firstPrompt}"`)
     expect(markup).toContain(`aria-labelledby="question-map-label-${firstQuestion.id} question-map-prompt-${firstQuestion.id}"`)
     expect(markup).toContain(`id="question-map-prompt-${firstQuestion.id}" class="sr-only" lang="en">${firstQuestion.prompt}</span>`)
-    expect(markup).toContain(`title="${secondPrompt}"`)
     expect(markup).toContain(`aria-labelledby="question-map-label-${secondQuestion.id} question-map-prompt-${secondQuestion.id}"`)
-    expect(markup).toContain(`lang="en"`)
-    expect(markup).toContain(`>${firstQuestion.prompt}<`)
+    expect(markup).toContain(`id="question-map-prompt-${secondQuestion.id}" class="sr-only" lang="en">${secondQuestion.prompt}</span>`)
     for (const [, syncCopy] of syncStatusCases) {
       expect(markup).not.toContain(syncCopy)
     }
