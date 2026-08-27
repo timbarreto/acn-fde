@@ -36,6 +36,8 @@ export function LocalizationProvider({
   )
 }
 
+// The hook shares the provider's stable module-level localization store.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useLocalization() {
   const store = useContext(LocalizationContext) ?? getDefaultLocalizationStore()
   const snapshot = useSyncExternalStore(

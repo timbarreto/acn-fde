@@ -69,6 +69,8 @@ import type { AccountIdentity, Attempt, AttemptMode, AttemptOutcome, DomainId, F
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 
+// Exported as a focused test seam alongside the application component.
+// eslint-disable-next-line react-refresh/only-export-components
 export function readSignInFailureNotice(search: string) {
   const failure = new URLSearchParams(search).get("error")
   if (!failure) return null
@@ -670,6 +672,8 @@ export function SyncStatusIndicator({
   )
 }
 
+// Exported as a focused test seam alongside the status component.
+// eslint-disable-next-line react-refresh/only-export-components
 export function syncStatusCopy(status: PracticeSyncStatus) {
   switch (status.kind) {
     case "guest":
