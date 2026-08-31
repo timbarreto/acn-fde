@@ -53,6 +53,8 @@ import {
   INTERFACE_LANGUAGE_OPTIONS,
   isInterfaceLanguage,
   questionBankContentProps,
+  type MessageKey,
+  type Text,
 } from "@/lib/localization"
 import { useLocalization } from "@/lib/use-localization"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
@@ -628,7 +630,7 @@ export function SyncStatusIndicator({
   }, [now, syncedAt])
 
   const currentTime = now ?? clock
-  const state = syncStatusCopy(status)
+  const state = syncStatusCopy(status, text)
   const elapsed = status.kind === "synced" && status.syncedAt !== null
     ? text("sync.status.acceptedAt", {
         acceptedAt: status.syncedAt,
@@ -674,21 +676,17 @@ export function SyncStatusIndicator({
 
 // Exported as a focused test seam alongside the status component.
 // eslint-disable-next-line react-refresh/only-export-components
-export function syncStatusCopy(status: PracticeSyncStatus) {
-  switch (status.kind) {
-    case "guest":
-      return "Saved on this device"
-    case "syncing":
-      return "Syncing…"
-    case "offline":
-      return "Offline · saved on this device"
-    case "attention":
-      return "Not synced · saved on this device"
-    case "signing-out":
-      return "Signing out…"
-    case "synced":
-      return "Synced"
-  }
+export function syncStatusCopy(status: PracticeSyncStatus, text: Text) {
+  const messageKeys = {
+    guest: "sync.status.guest",
+    syncing: "sync.status.syncing",
+    synced: "sync.status.synced",
+    offline: "sync.status.offline",
+    attention: "sync.status.attention",
+    "signing-out": "sync.status.signingOut",
+  } as const satisfies Record<PracticeSyncStatus["kind"], MessageKey>
+
+  return text(messageKeys[status.kind])
 }
 
 function InterfaceLanguageControl() {
@@ -1616,8 +1614,8 @@ export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, 
   )
 }
 
-function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
-  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")} {...questionBankContentProps()}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
+export function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
+  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id, index) => <span key={`${id}-${index}`}>{index > 0 ? "; " : null}<span {...questionBankContentProps()}>{question.options.find((option) => option.id === id)?.text}</span></span>) : "No answer"}</div></div>
 }
 
 export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome }) {

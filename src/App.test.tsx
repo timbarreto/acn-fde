@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   ACCOUNT_DELETION_NAVIGATION_HINT,
   AccountView,
+  AnswerSummary,
   ExamRunner,
   ExamSetup,
   FinishedAttemptOutcome,
@@ -136,6 +137,29 @@ describe("SyncStatusIndicator", () => {
     expect(markup.match(/role="status"/g)).toHaveLength(1)
     expect(markupText(markup)).toContain("Synced now")
   })
+
+  it.each([
+    [{ kind: "guest" }, "Guardado en este dispositivo"],
+    [{ kind: "syncing" }, "Sincronizando…"],
+    [{ kind: "synced", syncedAt: 10_000 }, "Sincronizado"],
+    [{ kind: "offline" }, "Sin conexión · guardado en este dispositivo"],
+    [{ kind: "attention" }, "No sincronizado · guardado en este dispositivo"],
+    [{ kind: "signing-out" }, "Cerrando sesión…"],
+  ] as Array<[PracticeSyncStatus, string]>)(
+    "renders the %s state in the active interface language",
+    (status, label) => {
+      const store = createLocalizationStore(
+        createMemoryLocalizationEnvironment({ stored: "es" }),
+      )
+      const markup = renderToStaticMarkup(
+        <LocalizationProvider store={store}>
+          <SyncStatusIndicator status={status} now={10_000} />
+        </LocalizationProvider>,
+      )
+
+      expect(markupText(markup)).toContain(label)
+    },
+  )
 })
 
 describe("readSignInFailureNotice", () => {
@@ -726,6 +750,35 @@ describe("FinishedAttemptOutcome", () => {
     const markup = renderToStaticMarkup(<FinishedAttemptOutcome outcome={outcome} />)
 
     expect(markup).toContain(`>${label}</div>`)
+  })
+})
+
+describe("AnswerSummary", () => {
+  it("marks only question-bank option text as English", () => {
+    const question = (questionData as Question[]).find(({ id }) => id === "arch-001")!
+    const selectedOption = question.options[0]
+
+    const optionMarkup = renderToStaticMarkup(
+      <AnswerSummary
+        label="Your answer"
+        ids={[selectedOption.id]}
+        question={question}
+        correct
+      />,
+    )
+    const fallbackMarkup = renderToStaticMarkup(
+      <AnswerSummary
+        label="Your answer"
+        ids={[]}
+        question={question}
+        correct={false}
+      />,
+    )
+
+    expect(optionMarkup).toContain('lang="en"')
+    expect(optionMarkup).toContain(selectedOption.text)
+    expect(fallbackMarkup).toContain("No answer")
+    expect(fallbackMarkup).not.toContain('lang="en"')
   })
 })
 

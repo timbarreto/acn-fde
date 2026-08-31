@@ -28,6 +28,12 @@ interface MessageArgs {
   "account.language.helper": undefined
   "account.language.persistenceFailed": undefined
   "practice.setup.questionBankNotice": undefined
+  "sync.status.guest": undefined
+  "sync.status.syncing": undefined
+  "sync.status.synced": undefined
+  "sync.status.offline": undefined
+  "sync.status.attention": undefined
+  "sync.status.signingOut": undefined
   "sync.status.acceptedAt": { acceptedAt: number; now: number }
   "sync.status.title": { acceptedAt: number }
   "review.attempt.finishedAt": { finishedAt: number }
@@ -84,6 +90,12 @@ const englishCatalog = {
     "The selected language applies for this visit but could not be saved.",
   "practice.setup.questionBankNotice": () =>
     "Practice questions and explanations remain in English.",
+  "sync.status.guest": () => "Saved on this device",
+  "sync.status.syncing": () => "Syncing…",
+  "sync.status.synced": () => "Synced",
+  "sync.status.offline": () => "Offline · saved on this device",
+  "sync.status.attention": () => "Not synced · saved on this device",
+  "sync.status.signingOut": () => "Signing out…",
   "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
     format.relative(acceptedAt, now),
   "sync.status.title": ({ acceptedAt }, format) =>
@@ -102,6 +114,12 @@ const spanishCatalog = {
     "El idioma seleccionado se aplica en esta visita, pero no se pudo guardar.",
   "practice.setup.questionBankNotice": () =>
     "Las preguntas de práctica y las explicaciones permanecen en inglés.",
+  "sync.status.guest": () => "Guardado en este dispositivo",
+  "sync.status.syncing": () => "Sincronizando…",
+  "sync.status.synced": () => "Sincronizado",
+  "sync.status.offline": () => "Sin conexión · guardado en este dispositivo",
+  "sync.status.attention": () => "No sincronizado · guardado en este dispositivo",
+  "sync.status.signingOut": () => "Cerrando sesión…",
   "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
     format.relative(acceptedAt, now),
   "sync.status.title": ({ acceptedAt }, format) =>
@@ -120,6 +138,12 @@ const germanCatalog = {
     "Die ausgewählte Sprache gilt für diesen Besuch, konnte aber nicht gespeichert werden.",
   "practice.setup.questionBankNotice": () =>
     "Übungsfragen und Erklärungen bleiben auf Englisch.",
+  "sync.status.guest": () => "Auf diesem Gerät gespeichert",
+  "sync.status.syncing": () => "Wird synchronisiert…",
+  "sync.status.synced": () => "Synchronisiert",
+  "sync.status.offline": () => "Offline · auf diesem Gerät gespeichert",
+  "sync.status.attention": () => "Nicht synchronisiert · auf diesem Gerät gespeichert",
+  "sync.status.signingOut": () => "Abmeldung läuft…",
   "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
     format.relative(acceptedAt, now),
   "sync.status.title": ({ acceptedAt }, format) =>
