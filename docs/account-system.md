@@ -14,22 +14,6 @@ The Account page remains useful to a guest: it shows that state is saved on the
 device, downloads an export, resets the visible guest practice state, and offers
 GitHub sign-in without prompting anywhere else in the application.
 
-## Interface language
-
-Account provides the same interface-language control to guests and signed-in
-candidates. On first use, the app follows the first English, Spanish, or German
-language in the browser's ordered preferences and otherwise uses English.
-Choosing English, Español, or Deutsch applies immediately and updates other
-open tabs.
-
-An explicit choice is stored only in this browser and is independent of
-practice state, sign-in, and account sync. If it cannot be saved, it remains
-active for the current visit. The current localized coverage is the language
-control, the Practice question-bank notice, and selected sync and review
-date/count text; the rest of the interface remains English during the staged
-catalog rollout. Question-bank prompts, options, objectives, explanations, and
-source labels always remain in English.
-
 ## Account practice
 
 GitHub sign-in adds cross-device sync and recovery after browser data is

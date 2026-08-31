@@ -15,7 +15,6 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - A focused study sequence mapped to the published exam domains
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account required; standalone guest practice remains browser-only and offline-first
-- A browser-local English, Español, and Deutsch interface-language foundation and Account control; see the [candidate account guide](docs/account-system.md#interface-language) for current localized coverage
 - An Account destination alongside the other top-level pages, with a passive sync indicator that identifies a signed-in user by GitHub avatar and username, client-generated JSON export, self-service practice-state reset, ordered account deletion, optional GitHub sign-in, safe sign-out, and cross-device practice when the optional full stack is running
 
 ## Stack

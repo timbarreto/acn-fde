@@ -565,6 +565,9 @@ describe("AccountView", () => {
       expect(markup).toContain('for="interface-language"')
       expect(markup).toContain('id="interface-language"')
       expect(markup).toContain('aria-describedby="interface-language-helper"')
+      expect(markup).toMatch(/<option value="en" lang="en"(?: selected="")?>English<\/option>/)
+      expect(markup).toMatch(/<option value="es" lang="es"(?: selected="")?>Español<\/option>/)
+      expect(markup).toMatch(/<option value="de" lang="de"(?: selected="")?>Deutsch<\/option>/)
       expect(text).toContain("Interface language")
       expect(text).toContain("Changes controls, status, and guidance in this browser")
       expect(text).toContain("Practice question content and explanations remain in English")
@@ -703,8 +706,10 @@ describe("ExamRunner", () => {
     )
 
     expect(markup).toContain(`aria-labelledby="question-map-label-${firstQuestion.id} question-map-prompt-${firstQuestion.id}"`)
+    expect(markup).toContain(`title="${firstQuestion.prompt}"`)
     expect(markup).toContain(`id="question-map-prompt-${firstQuestion.id}" class="sr-only" lang="en">${firstQuestion.prompt}</span>`)
     expect(markup).toContain(`aria-labelledby="question-map-label-${secondQuestion.id} question-map-prompt-${secondQuestion.id}"`)
+    expect(markup).toContain(`title="${secondQuestion.prompt}"`)
     expect(markup).toContain(`id="question-map-prompt-${secondQuestion.id}" class="sr-only" lang="en">${secondQuestion.prompt}</span>`)
     for (const [, syncCopy] of syncStatusCases) {
       expect(markup).not.toContain(syncCopy)

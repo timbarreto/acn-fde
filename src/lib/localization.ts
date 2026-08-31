@@ -340,7 +340,7 @@ function readMessage<Key extends MessageKey>(
     key,
     catalogOverrides,
   )
-  if (english) return english(args, formattersFor("en"))
+  if (english) return english(args, formattersFor(language))
 
   console.error(`[localization] Missing English message "${String(key)}".`)
   return "…"

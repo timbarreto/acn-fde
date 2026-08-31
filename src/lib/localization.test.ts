@@ -306,6 +306,25 @@ describe("localization store", () => {
     )
   })
 
+  it("formats an English fallback with the active interface locale", () => {
+    const acceptedAt = Date.UTC(2026, 7, 31, 17, 25)
+    const environment = createTestEnvironment({ stored: "es" })
+    const store = createLocalizationStore(environment, {
+      es: {
+        "sync.status.title": null,
+      },
+    })
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const dateTime = new Intl.DateTimeFormat("es", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(acceptedAt)
+
+    expect(store.text("sync.status.title", { acceptedAt })).toBe(
+      `Practice state synced ${dateTime}`,
+    )
+  })
+
   it("uses an ellipsis and emits diagnostics when the English message is also missing", () => {
     const environment = createTestEnvironment({ stored: "es" })
     const store = createLocalizationStore(environment)

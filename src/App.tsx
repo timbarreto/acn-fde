@@ -722,7 +722,11 @@ function InterfaceLanguageControl() {
           }}
         >
           {INTERFACE_LANGUAGE_OPTIONS.map((option) => (
-            <option key={option.language} value={option.language}>
+            <option
+              key={option.language}
+              value={option.language}
+              lang={option.language}
+            >
               {option.endonym}
             </option>
           ))}
@@ -1493,6 +1497,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                 <button
                   key={id}
                   onClick={() => { setIndex(index); setMapOpen(false) }}
+                  title={mapQuestion?.prompt}
                   aria-labelledby={mapQuestion
                     ? `question-map-label-${id} question-map-prompt-${id}`
                     : `question-map-label-${id}`}
