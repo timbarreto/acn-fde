@@ -19,6 +19,7 @@ import {
   FileText,
   Flag,
   Github,
+  Globe2,
   HardDrive,
   History,
   Home,
@@ -48,6 +49,14 @@ import { domains, domainMap } from "@/data/domains"
 import questionData from "@/data/questions.json"
 import { signInWithGitHub } from "@/lib/auth-client"
 import { downloadPracticeStateExport } from "@/lib/data-controls"
+import {
+  INTERFACE_LANGUAGE_OPTIONS,
+  isInterfaceLanguage,
+  questionBankContentProps,
+  type MessageKey,
+  type Text,
+} from "@/lib/localization"
+import { useLocalization } from "@/lib/use-localization"
 import { answersMatch, calculateScore, countAnswered, domainProgress, formatDuration, getAttemptRemainingSeconds, isAttemptPaused, PASS_SCORE, pauseAttemptTimer, readinessScore, resumeAttemptTimer, selectDomain, selectQuestions, unselectDomain } from "@/lib/exam"
 import { getPathForView, resolveNavigation, type AppView } from "@/lib/navigation"
 import type {
@@ -62,6 +71,8 @@ import type { AccountIdentity, Attempt, AttemptMode, AttemptOutcome, DomainId, F
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 
+// Exported as a focused test seam alongside the application component.
+// eslint-disable-next-line react-refresh/only-export-components
 export function readSignInFailureNotice(search: string) {
   const failure = new URLSearchParams(search).get("error")
   if (!failure) return null
@@ -608,6 +619,7 @@ export function SyncStatusIndicator({
   announce?: boolean
   className?: string
 }) {
+  const { text } = useLocalization()
   const [clock, setClock] = useState(() => now ?? Date.now())
   const syncedAt = status.kind === "synced" ? status.syncedAt : null
 
@@ -618,7 +630,13 @@ export function SyncStatusIndicator({
   }, [now, syncedAt])
 
   const currentTime = now ?? clock
-  const { state, elapsed } = syncStatusCopy(status, currentTime)
+  const state = syncStatusCopy(status, text)
+  const elapsed = status.kind === "synced" && status.syncedAt !== null
+    ? text("sync.status.acceptedAt", {
+        acceptedAt: status.syncedAt,
+        now: currentTime,
+      })
+    : ""
   const iconAndColor: Record<PracticeSyncStatus["kind"], { icon: typeof Cloud; color: string }> = {
     guest: { icon: HardDrive, color: "text-muted-foreground" },
     syncing: { icon: LoaderCircle, color: "text-brand-bright" },
@@ -629,7 +647,7 @@ export function SyncStatusIndicator({
   }
   const { icon: Icon, color } = iconAndColor[status.kind]
   const title = status.kind === "synced" && status.syncedAt !== null
-    ? `Practice state synced ${new Date(status.syncedAt).toLocaleString()}`
+    ? text("sync.status.title", { acceptedAt: status.syncedAt })
     : undefined
 
   return (
@@ -651,38 +669,84 @@ export function SyncStatusIndicator({
       >
         {state}
       </span>
-      {elapsed && <span>{elapsed}</span>}
+      {elapsed && <span> {elapsed}</span>}
     </div>
   )
 }
 
-export function syncStatusCopy(status: PracticeSyncStatus, now = Date.now()) {
-  switch (status.kind) {
-    case "guest":
-      return { state: "Saved on this device", elapsed: "" }
-    case "syncing":
-      return { state: "Syncing…", elapsed: "" }
-    case "offline":
-      return { state: "Offline · saved on this device", elapsed: "" }
-    case "attention":
-      return { state: "Not synced · saved on this device", elapsed: "" }
-    case "signing-out":
-      return { state: "Signing out…", elapsed: "" }
-    case "synced":
-      return { state: "Synced", elapsed: relativeAcceptanceTime(status.syncedAt, now) }
-  }
+// Exported as a focused test seam alongside the status component.
+// eslint-disable-next-line react-refresh/only-export-components
+export function syncStatusCopy(status: PracticeSyncStatus, text: Text) {
+  const messageKeys = {
+    guest: "sync.status.guest",
+    syncing: "sync.status.syncing",
+    synced: "sync.status.synced",
+    offline: "sync.status.offline",
+    attention: "sync.status.attention",
+    "signing-out": "sync.status.signingOut",
+  } as const satisfies Record<PracticeSyncStatus["kind"], MessageKey>
+
+  return text(messageKeys[status.kind])
 }
 
-function relativeAcceptanceTime(syncedAt: number | null, now: number) {
-  if (syncedAt === null) return ""
-  const elapsed = Math.max(0, now - syncedAt)
-  if (elapsed < 60_000) return " just now"
-  const minutes = Math.floor(elapsed / 60_000)
-  if (minutes < 60) return ` ${minutes} min ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return ` ${hours} hr ago`
-  const days = Math.floor(hours / 24)
-  return ` ${days} ${days === 1 ? "day" : "days"} ago`
+function InterfaceLanguageControl() {
+  const { language, persistence, setLanguage, text } = useLocalization()
+  const helperId = "interface-language-helper"
+  const statusId = "interface-language-persistence"
+  const describedBy = persistence === "session-only" ? `${helperId} ${statusId}` : helperId
+
+  return (
+    <div className="mt-8">
+      <div className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-center">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+          <Globe2 className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <label htmlFor="interface-language" className="font-display text-base font-bold">
+            {text("account.language.label")}
+          </label>
+          <p id={helperId} className="mt-1 text-xs leading-5 text-muted-foreground">
+            {text("account.language.helper")}
+          </p>
+        </div>
+        <select
+          id="interface-language"
+          value={language}
+          aria-describedby={describedBy}
+          className="h-10 min-w-40 rounded-full border bg-background px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onChange={(event) => {
+            const next = event.currentTarget.value
+            if (isInterfaceLanguage(next)) setLanguage(next)
+          }}
+        >
+          {INTERFACE_LANGUAGE_OPTIONS.map((option) => (
+            <option
+              key={option.language}
+              value={option.language}
+              lang={option.language}
+            >
+              {option.endonym}
+            </option>
+          ))}
+        </select>
+      </div>
+      {persistence === "session-only" && (
+        <p id={statusId} className="mt-2 text-xs leading-5 text-muted-foreground" role="status" aria-live="polite">
+          {text("account.language.persistenceFailed")}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function PracticeQuestionBankNotice() {
+  const { text } = useLocalization()
+  return (
+    <div className="mt-8 flex max-w-2xl min-w-0 items-start gap-3 text-sm leading-6 text-muted-foreground">
+      <BookOpen className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      <p>{text("practice.setup.questionBankNotice")}</p>
+    </div>
+  )
 }
 
 export function AccountView({
@@ -760,6 +824,8 @@ export function AccountView({
           {notice.message}
         </div>
       )}
+
+      <InterfaceLanguageControl />
 
       <div className="mt-8 grid gap-5 lg:grid-cols-2">
         <Card className="shadow-none">
@@ -1199,6 +1265,7 @@ export function ExamSetup({ onStart }: { onStart: (mode: AttemptMode, domains?: 
         <h1 className="section-title text-4xl">Choose the kind of pressure you need.</h1>
         <p className="mt-4 text-lg leading-8 text-muted-foreground">Every mode uses the same local question bank. Answers are recorded automatically, so you can leave and resume.</p>
       </div>
+      <PracticeQuestionBankNotice />
       <div className="mt-10 grid gap-5 lg:grid-cols-3">
         <ModeCard icon={Trophy} eyebrow="Best simulation" title="Full practice exam" description="30 weighted questions across all six domains. Timed and scored after submission." meta="45 min · 30 questions" onClick={() => onStart("full")} accent />
         <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A random set for a fast confidence check between study sessions. Limited to your selected domains when any are chosen." meta={selectedDomains.length ? "15 min · up to 10 questions from selected domains" : "15 min · 10 questions"} onClick={() => onStart("quick", selectedDomains)} />
@@ -1333,7 +1400,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
             <div className="flex flex-wrap items-center gap-2">
               <Badge style={{ color: domain.color, background: domain.soft, borderColor: "transparent" }}>Domain {domain.number} · {domain.short}</Badge>
               <Badge variant="outline" className="capitalize">{question.difficulty}</Badge>
-              <span className="text-xs font-medium text-muted-foreground">{question.objective}</span>
+              <span className="text-xs font-medium text-muted-foreground" {...questionBankContentProps()}>{question.objective}</span>
             </div>
             <Button variant="ghost" size="sm" onClick={toggleFlag} className={cn(attempt.flagged.includes(currentId) && "text-danger")}>
               <Flag className={cn("h-4 w-4", attempt.flagged.includes(currentId) && "fill-current")} /> <span className="hidden sm:inline">Flag</span>
@@ -1344,7 +1411,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
               <div className="flex gap-4">
                 <span className="font-display text-sm font-extrabold text-muted-foreground">{String(attempt.currentIndex + 1).padStart(2, "0")}</span>
                 <div className="flex-1">
-                  <h1 className="font-display text-xl font-bold leading-relaxed tracking-tight sm:text-2xl">{question.prompt}</h1>
+                  <h1 className="font-display text-xl font-bold leading-relaxed tracking-tight sm:text-2xl" {...questionBankContentProps()}>{question.prompt}</h1>
                   <p className="mt-2 text-sm font-medium text-muted-foreground">{question.type === "multiple" ? "Select all that apply." : "Select the best answer."}</p>
                 </div>
               </div>
@@ -1384,7 +1451,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                       )}>
                         {isRevealed ? (correctOption ? <Check className="h-4 w-4" /> : selected ? <X className="h-4 w-4" /> : String.fromCharCode(65 + index)) : selected ? <Check className="h-4 w-4" /> : String.fromCharCode(65 + index)}
                       </span>
-                      <span className="pt-1 text-[15px] font-medium leading-6">{option.text}</span>
+                      <span className="pt-1 text-[15px] font-medium leading-6" {...questionBankContentProps()}>{option.text}</span>
                     </button>
                   )
                 })}
@@ -1395,8 +1462,8 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                     {isCurrentCorrect ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                     {isCurrentCorrect ? "Correct" : "Not quite"}
                   </div>
-                  <p className="mt-2 text-sm leading-6">{question.explanation}</p>
-                  <a href={question.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
+                  <p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p>
+                  <a href={question.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline" {...questionBankContentProps()}>{question.source.label} <ExternalLink className="h-3 w-3" /></a>
                 </div>
               )}
             </CardContent>
@@ -1429,10 +1496,24 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                   key={id}
                   onClick={() => { setIndex(index); setMapOpen(false) }}
                   title={mapQuestion?.prompt}
-                  aria-label={mapQuestion ? `Question ${index + 1}: ${mapQuestion.prompt}` : `Question ${index + 1}`}
+                  aria-labelledby={mapQuestion
+                    ? `question-map-label-${id} question-map-prompt-${id}`
+                    : `question-map-label-${id}`}
                   className={cn("relative grid aspect-square place-items-center rounded-lg border text-xs font-bold transition", isCurrent ? "border-primary ring-2 ring-primary/20" : "hover:bg-muted", isAnswered && !isCurrent && "border-primary/20 bg-primary text-primary-foreground")}
                 >
-                  {index + 1}
+                  <span aria-hidden="true">{index + 1}</span>
+                  <span id={`question-map-label-${id}`} className="sr-only">
+                    Question {index + 1}:
+                  </span>
+                  {mapQuestion && (
+                    <span
+                      id={`question-map-prompt-${id}`}
+                      className="sr-only"
+                      {...questionBankContentProps()}
+                    >
+                      {mapQuestion.prompt}
+                    </span>
+                  )}
                   {attempt.flagged.includes(id) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-danger" />}
                 </button>
               )
@@ -1450,7 +1531,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
   )
 }
 
-function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: FinishedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
+export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: FinishedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const passed = attempt.score >= PASS_SCORE
   const correctCount = attempt.questionIds.filter((id) => answersMatch(attempt.answers[id], questionMap.get(id)!.correctAnswers)).length
@@ -1508,7 +1589,7 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
               <Card key={id} className="shadow-none">
                 <button onClick={() => setExpanded(open ? null : id)} className="flex w-full items-start gap-4 p-5 text-left">
                   {correct ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />}
-                  <div className="flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Question {index + 1} · {domainMap[question.domain].short}</div><div className="font-semibold leading-6">{question.prompt}</div></div>
+                  <div className="flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Question {index + 1} · {domainMap[question.domain].short}</div><div className="font-semibold leading-6" {...questionBankContentProps()}>{question.prompt}</div></div>
                   <ChevronDown className={cn("h-5 w-5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
                 </button>
                 {open && (
@@ -1517,9 +1598,9 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
                       <AnswerSummary label="Your answer" ids={attempt.answers[id] ?? []} question={question} correct={correct} />
                       <AnswerSummary label="Correct answer" ids={question.correctAnswers} question={question} correct />
                     </div>
-                    <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6">{question.explanation}</p></div>
+                    <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p></div>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                      <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline">{question.source.label} <ExternalLink className="h-3 w-3" /></a>
+                      <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline"><span {...questionBankContentProps()}>{question.source.label}</span> <ExternalLink className="h-3 w-3" /></a>
                       <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? "Bookmarked" : "Bookmark"}</Button>
                     </div>
                   </div>
@@ -1533,8 +1614,8 @@ function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onRevie
   )
 }
 
-function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
-  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id) => question.options.find((option) => option.id === id)?.text).join("; ") : "No answer"}</div></div>
+export function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
+  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id, index) => <span key={`${id}-${index}`}>{index > 0 ? "; " : null}<span {...questionBankContentProps()}>{question.options.find((option) => option.id === id)?.text}</span></span>) : "No answer"}</div></div>
 }
 
 export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome }) {
@@ -1546,7 +1627,8 @@ export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome })
   return <Badge variant="outline" className="capitalize">{labels[outcome]}</Badge>
 }
 
-function Review({ practiceState, onBookmark, onPractice }: { practiceState: PracticeState; onBookmark: (id: string) => void; onPractice: () => void }) {
+export function Review({ practiceState, onBookmark, onPractice }: { practiceState: PracticeState; onBookmark: (id: string) => void; onPractice: () => void }) {
+  const { text } = useLocalization()
   const [filter, setFilter] = useState<"missed" | "bookmarks" | "history">("missed")
   const missedIds = useMemo(() => {
     const found: string[] = []
@@ -1572,7 +1654,7 @@ function Review({ practiceState, onBookmark, onPractice }: { practiceState: Prac
       {filter === "history" ? (
         <div className="mt-7 space-y-3">
           {practiceState.attempts.length ? practiceState.attempts.map((attempt) => (
-            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{new Date(attempt.finishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {attempt.questionIds.length} questions</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></div></CardContent></Card>
+            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{text("review.attempt.finishedAt", { finishedAt: attempt.finishedAt })} · {text("review.attempt.questionCount", { count: attempt.questionIds.length })}</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></div></CardContent></Card>
           )) : <EmptyState title="No finished attempts yet" description="Finish a practice attempt and your scores will appear here." onAction={onPractice} />}
         </div>
       ) : (
@@ -1581,7 +1663,7 @@ function Review({ practiceState, onBookmark, onPractice }: { practiceState: Prac
             const question = questionMap.get(id)
             if (!question) return null
             const domain = domainMap[question.domain]
-            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7">{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> {question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}<p className="mt-2 text-muted-foreground">{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
+            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7" {...questionBankContentProps()}>{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> <span {...questionBankContentProps()}>{question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}</span><p className="mt-2 text-muted-foreground" {...questionBankContentProps()}>{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
           }) : <EmptyState title={filter === "bookmarks" ? "No bookmarks yet" : "No missed questions yet"} description={filter === "bookmarks" ? "Bookmark questions during an attempt or from a finished attempt." : "Start a practice set to build your review queue."} onAction={onPractice} />}
         </div>
       )}

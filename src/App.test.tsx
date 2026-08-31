@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   ACCOUNT_DELETION_NAVIGATION_HINT,
   AccountView,
+  AnswerSummary,
   ExamRunner,
   ExamSetup,
   FinishedAttemptOutcome,
@@ -15,18 +16,16 @@ import {
 } from "@/App"
 import { domains } from "@/data/domains"
 import questionData from "@/data/questions.json"
+import {
+  createLocalizationStore,
+  createMemoryLocalizationEnvironment,
+} from "@/lib/localization"
 import type { PracticeStateMode, PracticeSyncStatus } from "@/lib/persistence"
+import { LocalizationProvider } from "@/lib/use-localization"
 import type { Attempt, AttemptOutcome, PracticeState, Question } from "@/types"
 
 function markupText(markup: string) {
   return markup.replace(/<[^>]+>/g, "")
-}
-
-function serializeAttributeValue(value: string) {
-  const markup = renderToStaticMarkup(<div data-value={value} />)
-  const match = markup.match(/data-value="([^"]*)"/)
-  expect(match).not.toBeNull()
-  return match![1]
 }
 
 interface InteractiveProps {
@@ -72,7 +71,7 @@ function findInteraction(node: ReactNode, label: string): InteractiveProps {
 const syncStatusCases: Array<[PracticeSyncStatus, string]> = [
   [{ kind: "guest" }, "Saved on this device"],
   [{ kind: "syncing" }, "Syncing…"],
-  [{ kind: "synced", syncedAt: 10_000 }, "Synced just now"],
+  [{ kind: "synced", syncedAt: 10_000 }, "Synced now"],
   [{ kind: "offline" }, "Offline · saved on this device"],
   [{ kind: "attention" }, "Not synced · saved on this device"],
   [{ kind: "signing-out" }, "Signing out…"],
@@ -108,7 +107,7 @@ describe("SyncStatusIndicator", () => {
       />,
     )
 
-    expect(markupText(markup)).toContain("Synced 2 min ago")
+    expect(markupText(markup)).toContain("Synced 2 minutes ago")
   })
 
   it("keeps the elapsed time out of the live region so ticking is not announced", () => {
@@ -121,8 +120,8 @@ describe("SyncStatusIndicator", () => {
       <SyncStatusIndicator status={{ kind: "synced", syncedAt: 10_000 }} now={190_000} />,
     )
 
-    expect(markupText(early)).toContain("Synced 2 min ago")
-    expect(markupText(later)).toContain("Synced 3 min ago")
+    expect(markupText(early)).toContain("Synced 2 minutes ago")
+    expect(markupText(later)).toContain("Synced 3 minutes ago")
     expect(early.match(liveRegion)![1]).toBe("Synced")
     expect(later.match(liveRegion)![1]).toBe("Synced")
   })
@@ -136,8 +135,31 @@ describe("SyncStatusIndicator", () => {
     )
 
     expect(markup.match(/role="status"/g)).toHaveLength(1)
-    expect(markupText(markup)).toContain("Synced just now")
+    expect(markupText(markup)).toContain("Synced now")
   })
+
+  it.each([
+    [{ kind: "guest" }, "Guardado en este dispositivo"],
+    [{ kind: "syncing" }, "Sincronizando…"],
+    [{ kind: "synced", syncedAt: 10_000 }, "Sincronizado"],
+    [{ kind: "offline" }, "Sin conexión · guardado en este dispositivo"],
+    [{ kind: "attention" }, "No sincronizado · guardado en este dispositivo"],
+    [{ kind: "signing-out" }, "Cerrando sesión…"],
+  ] as Array<[PracticeSyncStatus, string]>)(
+    "renders the %s state in the active interface language",
+    (status, label) => {
+      const store = createLocalizationStore(
+        createMemoryLocalizationEnvironment({ stored: "es" }),
+      )
+      const markup = renderToStaticMarkup(
+        <LocalizationProvider store={store}>
+          <SyncStatusIndicator status={status} now={10_000} />
+        </LocalizationProvider>,
+      )
+
+      expect(markupText(markup)).toContain(label)
+    },
+  )
 })
 
 describe("readSignInFailureNotice", () => {
@@ -545,6 +567,108 @@ describe("AccountView", () => {
     expect(markup).toContain("Sign in again with GitHub")
     expect(markup).toContain("same GitHub account")
   })
+
+  it("shows the same interface language control to guests and signed-in candidates", () => {
+    for (const [, mode] of accountModes) {
+      const markup = renderToStaticMarkup(
+        <AccountView
+          mode={mode}
+          syncStatus={mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />,
+      )
+      const text = markupText(markup)
+      const english = markup.indexOf(">English<")
+      const spanish = markup.indexOf(">Español<")
+      const german = markup.indexOf(">Deutsch<")
+
+      expect(markup).toContain('for="interface-language"')
+      expect(markup).toContain('id="interface-language"')
+      expect(markup).toContain('aria-describedby="interface-language-helper"')
+      expect(markup).toMatch(/<option value="en" lang="en"(?: selected="")?>English<\/option>/)
+      expect(markup).toMatch(/<option value="es" lang="es"(?: selected="")?>Español<\/option>/)
+      expect(markup).toMatch(/<option value="de" lang="de"(?: selected="")?>Deutsch<\/option>/)
+      expect(text).toContain("Interface language")
+      expect(text).toContain("Changes controls, status, and guidance in this browser")
+      expect(text).toContain("Practice question content and explanations remain in English")
+      expect(text).toContain("This preference is not synced")
+      expect(english).toBeGreaterThan(-1)
+      expect(english).toBeLessThan(spanish)
+      expect(spanish).toBeLessThan(german)
+      const controlAt = markup.indexOf('id="interface-language"')
+      const cardsAt = ["Guest practice", "Sync status", "Optional GitHub sign-in", "Sign out safely"]
+        .map((label) => markup.indexOf(`>${label}<`))
+        .filter((index) => index >= 0)
+        .sort((left, right) => left - right)[0]
+      expect(controlAt).toBeGreaterThan(-1)
+      expect(cardsAt).toBeGreaterThan(controlAt)
+    }
+  })
+
+  it("applies a language choice immediately across the Account control", () => {
+    const store = createLocalizationStore(
+      createMemoryLocalizationEnvironment({ languages: ["en"] }),
+    )
+    const view = (mode: PracticeStateMode) => (
+      <LocalizationProvider store={store}>
+        <AccountView
+          mode={mode}
+          syncStatus={mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </LocalizationProvider>
+    )
+
+    expect(markupText(renderToStaticMarkup(view({ kind: "guest" })))).toContain("Interface language")
+
+    store.setLanguage("es")
+
+    const guest = markupText(renderToStaticMarkup(view({ kind: "guest" })))
+    const user = markupText(renderToStaticMarkup(view({ kind: "account", subject: "subject-1" })))
+    for (const text of [guest, user]) {
+      expect(text).toContain("Idioma de la interfaz")
+      expect(text).toContain("Esta preferencia no se sincroniza")
+      expect(text).not.toContain("Interface language")
+    }
+  })
+
+  it("explains when the selected language applies for this visit but could not be saved", () => {
+    const store = createLocalizationStore({
+      ...createMemoryLocalizationEnvironment({ languages: ["en"] }),
+      writePreference() {
+        throw new Error("storage write failed")
+      },
+    })
+    store.setLanguage("es")
+
+    const markup = renderToStaticMarkup(
+      <LocalizationProvider store={store}>
+        <AccountView
+          mode={{ kind: "guest" }}
+          syncStatus={{ kind: "guest" }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </LocalizationProvider>,
+    )
+
+    expect(markup).toContain('role="status"')
+    expect(markup).toContain('aria-live="polite"')
+    expect(markupText(markup)).toContain(
+      "El idioma seleccionado se aplica en esta visita, pero no se pudo guardar.",
+    )
+  })
 })
 
 describe("ExamSetup", () => {
@@ -557,15 +681,31 @@ describe("ExamSetup", () => {
       expect(markup).not.toContain(`Domain ${domain.number} · ${renderedName}`)
     }
   })
+
+  it("places a concise English question-bank notice above attempt-mode choices", () => {
+    const store = createLocalizationStore(
+      createMemoryLocalizationEnvironment({ stored: "de" }),
+    )
+    const markup = renderToStaticMarkup(
+      <LocalizationProvider store={store}>
+        <ExamSetup onStart={vi.fn()} />
+      </LocalizationProvider>,
+    )
+    const text = markupText(markup)
+    const noticeAt = text.indexOf("Übungsfragen und Erklärungen bleiben auf Englisch.")
+    const modesAt = text.indexOf("Full practice exam")
+
+    expect(noticeAt).toBeGreaterThan(-1)
+    expect(modesAt).toBeGreaterThan(noticeAt)
+    expect(markup).not.toContain("role=\"alert\"")
+  })
 })
 
 describe("ExamRunner", () => {
-  it("adds the question prompt to each question map button tooltip", () => {
+  it("gives each question map button an accessible English prompt", () => {
     const questions = questionData as Question[]
     const firstQuestion = questions.find(({ id }) => id === "arch-001")!
     const secondQuestion = questions.find(({ id }) => id === "arch-002")!
-    const firstPrompt = serializeAttributeValue(firstQuestion.prompt)
-    const secondPrompt = serializeAttributeValue(secondQuestion.prompt)
     const attempt: Attempt = {
       id: "attempt-1",
       mode: "quick",
@@ -589,10 +729,12 @@ describe("ExamRunner", () => {
       />,
     )
 
-    expect(markup).toContain(`title="${firstPrompt}"`)
-    expect(markup).toContain(`aria-label="Question 1: ${firstPrompt}"`)
-    expect(markup).toContain(`title="${secondPrompt}"`)
-    expect(markup).toContain(`aria-label="Question 2: ${secondPrompt}"`)
+    expect(markup).toContain(`aria-labelledby="question-map-label-${firstQuestion.id} question-map-prompt-${firstQuestion.id}"`)
+    expect(markup).toContain(`title="${firstQuestion.prompt}"`)
+    expect(markup).toContain(`id="question-map-prompt-${firstQuestion.id}" class="sr-only" lang="en">${firstQuestion.prompt}</span>`)
+    expect(markup).toContain(`aria-labelledby="question-map-label-${secondQuestion.id} question-map-prompt-${secondQuestion.id}"`)
+    expect(markup).toContain(`title="${secondQuestion.prompt}"`)
+    expect(markup).toContain(`id="question-map-prompt-${secondQuestion.id}" class="sr-only" lang="en">${secondQuestion.prompt}</span>`)
     for (const [, syncCopy] of syncStatusCases) {
       expect(markup).not.toContain(syncCopy)
     }
@@ -608,6 +750,35 @@ describe("FinishedAttemptOutcome", () => {
     const markup = renderToStaticMarkup(<FinishedAttemptOutcome outcome={outcome} />)
 
     expect(markup).toContain(`>${label}</div>`)
+  })
+})
+
+describe("AnswerSummary", () => {
+  it("marks only question-bank option text as English", () => {
+    const question = (questionData as Question[]).find(({ id }) => id === "arch-001")!
+    const selectedOption = question.options[0]
+
+    const optionMarkup = renderToStaticMarkup(
+      <AnswerSummary
+        label="Your answer"
+        ids={[selectedOption.id]}
+        question={question}
+        correct
+      />,
+    )
+    const fallbackMarkup = renderToStaticMarkup(
+      <AnswerSummary
+        label="Your answer"
+        ids={[]}
+        question={question}
+        correct={false}
+      />,
+    )
+
+    expect(optionMarkup).toContain('lang="en"')
+    expect(optionMarkup).toContain(selectedOption.text)
+    expect(fallbackMarkup).toContain("No answer")
+    expect(fallbackMarkup).not.toContain('lang="en"')
   })
 })
 
