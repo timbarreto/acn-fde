@@ -65,6 +65,7 @@ import type {
   PracticeStateMode,
   PracticeSyncNotification,
   PracticeSyncStatus,
+  SyncRejectionReason,
 } from "@/lib/persistence"
 import { usePracticeState } from "@/lib/use-practice-state"
 import { cn } from "@/lib/utils"
@@ -114,7 +115,7 @@ const SYNC_REJECTION_KEYS = {
   malformed_json: "sync.notification.malformedJson",
   invalid_practice_state: "sync.notification.invalidState",
   generic: "sync.notification.generic",
-} as const satisfies Record<string, MessageKey>
+} as const satisfies Record<SyncRejectionReason, MessageKey>
 
 // Exported as a focused test seam alongside the application component.
 // eslint-disable-next-line react-refresh/only-export-components

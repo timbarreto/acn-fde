@@ -902,9 +902,9 @@ export const spanishCatalog = {
   "resources.step2.description": () =>
     "Practica planes estructurados, niveles de autonomía, gobernanza de PR, observabilidad, entregas de Actions y rutas de recuperación.",
   "resources.step2.domains": () => "Dominios 1, 4 y 5",
-  "resources.step3.title": () => "Configura tools, MCP y la ejecución",
+  "resources.step3.title": () => "Configura herramientas, MCP y la ejecución",
   "resources.step3.description": () =>
-    "Trabaja con agentes personalizados, el alcance de las tools, servidores MCP, listas de permitidos, configuración en la nube, automatización CLI, credenciales y firewalls.",
+    "Trabaja con agentes personalizados, el alcance de las herramientas, servidores MCP, listas de permitidos, configuración en la nube, automatización CLI, credenciales y firewalls.",
   "resources.step3.domains": () => "Dominio 2",
   "resources.step4.title": () => "Evalúa, gobierna y recupera",
   "resources.step4.description": () =>
