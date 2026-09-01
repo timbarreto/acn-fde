@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   INTERFACE_LANGUAGE_STORAGE_KEY,
+  MESSAGE_KEYS,
   QUESTION_BANK_LANG,
+  attemptTitle,
   createLocalizationStore,
+  englishCatalog,
+  germanCatalog,
+  spanishCatalog,
   type InterfaceLanguage,
   type LocalizationEnvironment,
 } from "@/lib/localization"
+import type { Formatters } from "@/lib/localization-messages"
 
 function createTestEnvironment(options?: {
   stored?: unknown
@@ -14,6 +20,8 @@ function createTestEnvironment(options?: {
   failRead?: boolean
 }): LocalizationEnvironment & {
   documentLanguage: InterfaceLanguage | null
+  documentTitle: string | null
+  documentDescription: string | null
   storedValue: unknown
   emitPreference: (value: unknown) => void
 } {
@@ -21,6 +29,8 @@ function createTestEnvironment(options?: {
   const preferenceListeners = new Set<(value: unknown) => void>()
   const environment = {
     documentLanguage: null as InterfaceLanguage | null,
+    documentTitle: null as string | null,
+    documentDescription: null as string | null,
     get storedValue() {
       return storedValue
     },
@@ -44,6 +54,10 @@ function createTestEnvironment(options?: {
     },
     applyDocumentLanguage(language: InterfaceLanguage) {
       environment.documentLanguage = language
+    },
+    applyDocumentMetadata(metadata: { title: string; description: string }) {
+      environment.documentTitle = metadata.title
+      environment.documentDescription = metadata.description
     },
     subscribeToPreference(listener: (value: unknown) => void) {
       preferenceListeners.add(listener)
@@ -347,4 +361,73 @@ describe("localization store", () => {
       "agentic-ready-gh600-interface-language",
     )
   })
+
+  it("applies document title and description for the active language", () => {
+    const environment = createTestEnvironment({ stored: "es" })
+    createLocalizationStore(environment)
+
+    expect(environment.documentTitle).toBe(spanishCatalog["document.title"]())
+    expect(environment.documentDescription).toBe(
+      spanishCatalog["document.description"](),
+    )
+  })
+
+  it("renders every catalog message without falling back to the missing-message ellipsis", () => {
+    const catalogs = {
+      en: englishCatalog,
+      es: spanishCatalog,
+      de: germanCatalog,
+    } as const
+
+    for (const language of ["en", "es", "de"] as const) {
+      const catalog = catalogs[language]
+      expect(new Set(Object.keys(catalog))).toEqual(new Set(MESSAGE_KEYS))
+      for (const key of MESSAGE_KEYS) {
+        const message = (
+          catalog[key] as (args: typeof catalogArgs, format: Formatters) => string
+        )(catalogArgs, unusedFormatters)
+        expect(message.length, `${language}:${key}`).toBeGreaterThan(0)
+        expect(message, `${language}:${key}`).not.toBe("…")
+      }
+    }
+  })
+
+  it("derives attempt titles from the active catalog", () => {
+    const store = createLocalizationStore(createTestEnvironment({ stored: "de" }))
+
+    expect(attemptTitle(store.text, "full")).toBe("Vollständige Übungsprüfung")
+    expect(attemptTitle(store.text, "quick")).toBe("Schneller Wissenscheck")
+    expect(attemptTitle(store.text, "domain", ["architecture"])).toBe(
+      "Architektur & SDLC-Übung",
+    )
+    expect(attemptTitle(store.text, "domain", ["architecture", "tools"])).toBe(
+      "Fokussierte Übung · 2 Prüfungsbereiche",
+    )
+  })
 })
+
+const unusedFormatters: Formatters = {
+  date: () => "d",
+  dateTime: () => "dt",
+  integer: (value) => String(value),
+  percent: (value) => `${value}%`,
+  relative: () => "r",
+}
+
+const catalogArgs = {
+  acceptedAt: Date.UTC(2025, 0, 2),
+  now: Date.UTC(2025, 0, 2, 0, 2),
+  username: "octocat",
+  score: 70,
+  title: "title",
+  number: "01",
+  count: 2,
+  current: 1,
+  total: 2,
+  remaining: "1:00",
+  short: "short",
+  answered: 1,
+  correct: 1,
+  minutes: 3,
+  finishedAt: Date.UTC(2025, 0, 2),
+}

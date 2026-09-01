@@ -16,6 +16,7 @@ An unofficial, offline-first practice exam for the **GitHub Certified: Agentic A
 - Refresh-stable, deep-linkable pages with browser Back and Forward navigation
 - No account required; standalone guest practice remains browser-only and offline-first
 - An Account destination alongside the other top-level pages, with a passive sync indicator that identifies a signed-in user by GitHub avatar and username, client-generated JSON export, self-service practice-state reset, ordered account deletion, optional GitHub sign-in, safe sign-out, and cross-device practice when the optional full stack is running
+- Candidate-interface language support for English, Spanish, and German. The choice is saved in this browser only, is never synced with an account, and does not require sign-in. Question-bank prompts, options, objectives, explanations, and source labels stay in English.
 
 ## Stack
 
@@ -52,7 +53,9 @@ Practice edits are saved locally before syncing. Each signed-in device therefore
 holds a practical backup, but server loss plus loss of every browser cache is
 total loss; Neon Free provides only a six-hour recovery window. Account offers
 client-side export, subject-isolated reset, safe sign-out, and practice-first
-account deletion. See the [candidate account guide](docs/account-system.md) for
+account deletion. Interface language is chosen on Account for guests and signed-in
+candidates alike; it stays in this browser and is independent of practice-state
+sync. See the [candidate account guide](docs/account-system.md) for
 what is stored, recovery behavior, data controls, and preview-auth limitations.
 
 ## Run the full stack locally

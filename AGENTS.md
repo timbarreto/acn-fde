@@ -47,7 +47,8 @@ terms do not yet appear in `src/`.
 - `src/lib/practice-api.ts`: handwritten same-origin practice-state adapter.
 - `src/lib/use-practice-state.ts`: thin React integration for the persistence
   store.
-- `src/lib/localization.ts`: typed interface-language catalogs and store.
+- `src/lib/localization-messages.ts`: eager English, Spanish, and German catalogs.
+- `src/lib/localization.ts`: interface-language store, detection, persistence, and Intl formatting.
 - `src/lib/use-localization.tsx`: thin React adapter for the localization store.
 - `src/lib/utils.ts`: shared UI utilities, including `cn`.
 - `src/data/questions.json`: question bank.
@@ -144,9 +145,10 @@ browser storage, repository files, command arguments, and logs.
 
 Interface language is a browser-local preference in
 `agentic-ready-gh600-interface-language`, independent of practice state and
-account sync. Keep catalogs, detection, and document language behind
-`src/lib/localization.ts`. Question-bank prompts, options, objectives,
-explanations, and source labels stay in English.
+account sync. Keep catalogs in `src/lib/localization-messages.ts` and detection,
+persistence, and document language behind `src/lib/localization.ts`.
+Question-bank prompts, options, objectives, explanations, and source labels
+stay in English.
 
 ## Change guidelines
 

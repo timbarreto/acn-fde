@@ -404,13 +404,13 @@ describe("account recovery", () => {
   })
 
   it.each([
-    [400, "invalid_practice_state", "not valid"],
-    [400, "unsupported_schema_version", "app version"],
-    [413, "practice_state_too_large", "too large"],
-    [415, "unsupported_media_type", "format"],
-  ])(
+    [400, "invalid_practice_state"],
+    [400, "unsupported_schema_version"],
+    [413, "practice_state_too_large"],
+    [415, "unsupported_media_type"],
+  ] as const)(
     "rolls back %s %s and exposes a dismissible explanation",
-    async (status, code, expectedCopy) => {
+    async (status, code) => {
       const storage = new MemoryStorage()
       const auth = new FakeAuth({ subject })
       storage.seed(accountPracticeStateKey(subject), envelope(["base"]))
@@ -433,7 +433,7 @@ describe("account recovery", () => {
         envelope: { state: { bookmarks: ["base"] } },
         notification: {
           kind: "sync-rejected",
-          message: expect.stringContaining(expectedCopy),
+          reason: code,
         },
       })
       expect(storedAccount(storage).sync.journal).toEqual([])
@@ -608,7 +608,7 @@ describe("account recovery", () => {
       envelope: { state: { bookmarks: ["guest"] } },
       firstSyncRejected: true,
       notification: {
-        message: expect.stringContaining("sign-out could not finish"),
+        kind: "sign-out-sync-rejected",
       },
     })
     expect(JSON.parse(storage.getItem(GUEST_PRACTICE_STATE_KEY)!))
@@ -622,7 +622,7 @@ describe("account recovery", () => {
       mode: { kind: "guest" },
       envelope: { state: { bookmarks: ["guest"] } },
       notification: {
-        message: expect.stringContaining("guest practice remains saved"),
+        kind: "first-sync-rejected",
       },
     })
     expect(JSON.parse(storage.getItem(GUEST_PRACTICE_STATE_KEY)!))
