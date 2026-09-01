@@ -1,4 +1,7 @@
-import { isValidElement, type ReactNode } from "react"
+// @vitest-environment jsdom
+
+import { act, type ReactNode } from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import {
@@ -24,48 +27,44 @@ import type { PracticeStateMode, PracticeSyncStatus } from "@/lib/persistence"
 import { LocalizationProvider } from "@/lib/use-localization"
 import type { Attempt, AttemptOutcome, PracticeState, Question } from "@/types"
 
+const reactTestEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT: boolean
+}
+reactTestEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+
 function markupText(markup: string) {
   return markup.replace(/<[^>]+>/g, "")
 }
 
-interface InteractiveProps {
-  children?: ReactNode
-  disabled?: boolean
-  onClick?: () => void
+function renderTree(node: ReactNode) {
+  const container = document.createElement("div")
+  const root = createRoot(container)
+  act(() => {
+    root.render(node)
+  })
+  return {
+    container,
+    unmount() {
+      act(() => {
+        root.unmount()
+      })
+    },
+  }
 }
 
-function nodeText(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node)
-  if (Array.isArray(node)) return node.map(nodeText).join("")
-  if (!isValidElement(node)) return ""
-  return nodeText((node.props as InteractiveProps).children)
+function labeledButton(container: HTMLElement, label: string) {
+  const button = Array.from(container.querySelectorAll("button"))
+    .find((element) => element.textContent?.includes(label))
+  if (!button) throw new Error(`Could not find button: ${label}`)
+  return button
 }
 
-function findInteraction(node: ReactNode, label: string): InteractiveProps {
-  if (!isValidElement(node)) {
-    if (Array.isArray(node)) {
-      for (const child of node) {
-        try {
-          return findInteraction(child, label)
-        } catch {
-          // Continue through sibling elements.
-        }
-      }
-    }
-    throw new Error(`Could not find interaction: ${label}`)
-  }
-
-  const props = node.props as InteractiveProps
-  if (props.onClick && nodeText(props.children).includes(label)) return props
-  const children = Array.isArray(props.children) ? props.children : [props.children]
-  for (const child of children) {
-    try {
-      return findInteraction(child, label)
-    } catch {
-      // Continue through sibling elements.
-    }
-  }
-  throw new Error(`Could not find interaction: ${label}`)
+function clickLabeledButton(container: HTMLElement, label: string) {
+  const button = labeledButton(container, label)
+  act(() => {
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+  })
+  return button
 }
 
 const syncStatusCases: Array<[PracticeSyncStatus, string]> = [
@@ -167,7 +166,7 @@ describe("readSignInFailureNotice", () => {
     const notice = readSignInFailureNotice("?error=access_denied")
 
     expect(notice?.kind).toBe("error")
-    expect(notice?.message).toContain("GitHub sign-in did not finish")
+    expect(notice?.code).toBe("signInCallbackFailed")
   })
 
   it("stays silent when the callback carries no error", () => {
@@ -196,17 +195,20 @@ describe("TopNav", () => {
 
   it("navigates to Account from its primary action", () => {
     const onNavigate = vi.fn()
-    const tree = TopNav({
-      view: "dashboard",
-      syncStatus: { kind: "guest" },
-      onNavigate,
-      mobileOpen: false,
-      onMobileOpen: vi.fn(),
-    })
+    const { container, unmount } = renderTree(
+      <TopNav
+        view="dashboard"
+        syncStatus={{ kind: "guest" }}
+        onNavigate={onNavigate}
+        mobileOpen={false}
+        onMobileOpen={vi.fn()}
+      />,
+    )
 
-    findInteraction(tree, "Account").onClick?.()
+    clickLabeledButton(container, "Account")
 
     expect(onNavigate).toHaveBeenCalledWith("account")
+    unmount()
   })
 
   it("keeps the inline destinations and header practice action from the medium breakpoint", () => {
@@ -235,14 +237,15 @@ describe("TopNav", () => {
       mobileOpen: false,
       onMobileOpen: vi.fn(),
     }
-    const tree = TopNav(props)
+    const { container, unmount } = renderTree(<TopNav {...props} />)
     const markup = renderToStaticMarkup(<TopNav {...props} />)
 
-    expect(findInteraction(tree, "Dashboard").disabled).toBe(true)
-    expect(findInteraction(tree, "Start practice").disabled).toBe(true)
-    expect(findInteraction(tree, "Account").disabled).toBeUndefined()
+    expect(labeledButton(container, "Dashboard")).toHaveProperty("disabled", true)
+    expect(labeledButton(container, "Start practice")).toHaveProperty("disabled", true)
+    expect(labeledButton(container, "Account")).toHaveProperty("disabled", false)
     expect(markup).toContain('id="recovery-navigation-hint"')
     expect(markupText(markup)).toContain(RECOVERY_NAVIGATION_HINT)
+    unmount()
   })
 
   it("explains navigation locking while account deletion is unfinished", () => {
@@ -354,29 +357,32 @@ describe("AccountView", () => {
   it("lets guests and users export exactly the practice state they can see", () => {
     for (const [, mode] of accountModes) {
       const onExport = vi.fn()
-      const tree = AccountView({
-        mode,
-        syncStatus: mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 },
-        accountAvailable: true,
-        signingIn: false,
-        notice: null,
-        practiceState: dataControlPracticeState,
-        dataAction: null,
-        confirmation: null,
-        accountDeletionStage: null,
-        onSignIn: vi.fn(),
-        onSignOut: vi.fn(),
-        onExport,
-        onRequestReset: vi.fn(),
-        onRequestAccountDeletion: vi.fn(),
-        onCancelConfirmation: vi.fn(),
-        onConfirmReset: vi.fn(),
-        onConfirmAccountDeletion: vi.fn(),
-      })
+      const { container, unmount } = renderTree(
+        <AccountView
+          mode={mode}
+          syncStatus={mode.kind === "guest" ? { kind: "guest" } : { kind: "synced", syncedAt: 10_000 }}
+          accountAvailable
+          signingIn={false}
+          notice={null}
+          practiceState={dataControlPracticeState}
+          dataAction={null}
+          confirmation={null}
+          accountDeletionStage={null}
+          onSignIn={vi.fn()}
+          onSignOut={vi.fn()}
+          onExport={onExport}
+          onRequestReset={vi.fn()}
+          onRequestAccountDeletion={vi.fn()}
+          onCancelConfirmation={vi.fn()}
+          onConfirmReset={vi.fn()}
+          onConfirmAccountDeletion={vi.fn()}
+        />,
+      )
 
-      findInteraction(tree, "Download JSON").onClick?.()
+      clickLabeledButton(container, "Download JSON")
 
       expect(onExport).toHaveBeenCalledWith(dataControlPracticeState)
+      unmount()
     }
   })
 
@@ -403,9 +409,9 @@ describe("AccountView", () => {
         onConfirmReset: vi.fn(),
         onConfirmAccountDeletion: vi.fn(),
       }
-      const tree = AccountView({ ...common, confirmation: null })
+      const { container, unmount } = renderTree(<AccountView {...common} confirmation={null} />)
 
-      findInteraction(tree, "Reset practice state").onClick?.()
+      clickLabeledButton(container, "Reset practice state")
       const confirmation = renderToStaticMarkup(
         <AccountView {...common} confirmation="reset" />,
       )
@@ -416,6 +422,7 @@ describe("AccountView", () => {
       expect(markupText(confirmation)).toContain(
         mode.kind === "guest" ? "only from this browser" : "keeps your sign-in",
       )
+      unmount()
     }
   })
 
@@ -439,9 +446,9 @@ describe("AccountView", () => {
       onConfirmReset: vi.fn(),
       onConfirmAccountDeletion: vi.fn(),
     }
-    const tree = AccountView({ ...common, confirmation: null })
+    const { container, unmount } = renderTree(<AccountView {...common} confirmation={null} />)
 
-    findInteraction(tree, "Delete account").onClick?.()
+    clickLabeledButton(container, "Delete account")
     const confirmation = renderToStaticMarkup(
       <AccountView {...common} confirmation="delete-account" />,
     )
@@ -452,6 +459,7 @@ describe("AccountView", () => {
     expect(text.indexOf("Practice state is deleted first"))
       .toBeLessThan(text.indexOf("account for this practice app is deleted"))
     expect(text).toContain("Your GitHub account itself is not changed")
+    unmount()
   })
 
   it("offers the unfinished identity step as a retry without restoring practice data", () => {
@@ -501,53 +509,63 @@ describe("AccountView", () => {
 
   it("starts GitHub sign-in only from the guest Account action", () => {
     const onSignIn = vi.fn()
-    const tree = AccountView({
-      mode: { kind: "guest" },
-      syncStatus: { kind: "guest" },
-      accountAvailable: true,
-      signingIn: false,
-      notice: null,
-      onSignIn,
-      onSignOut: vi.fn(),
-    })
+    const { container, unmount } = renderTree(
+      <AccountView
+        mode={{ kind: "guest" }}
+        syncStatus={{ kind: "guest" }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        onSignIn={onSignIn}
+        onSignOut={vi.fn()}
+      />,
+    )
 
-    findInteraction(tree, "Sign in with GitHub").onClick?.()
+    clickLabeledButton(container, "Sign in with GitHub")
 
     expect(onSignIn).toHaveBeenCalledOnce()
+    unmount()
   })
 
   it("starts safe sign-out and explains why it can remain blocked", () => {
     const onSignOut = vi.fn()
-    const tree = AccountView({
-      mode: { kind: "account", subject: "subject-1" },
-      syncStatus: { kind: "synced", syncedAt: 10_000 },
-      accountAvailable: true,
-      signingIn: false,
-      notice: null,
-      onSignIn: vi.fn(),
-      onSignOut,
-    })
+    const view = (
+      <AccountView
+        mode={{ kind: "account", subject: "subject-1" }}
+        syncStatus={{ kind: "synced", syncedAt: 10_000 }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        onSignIn={vi.fn()}
+        onSignOut={onSignOut}
+      />
+    )
+    const { container, unmount } = renderTree(view)
 
-    findInteraction(tree, "Sign out").onClick?.()
-    const markup = renderToStaticMarkup(tree)
+    clickLabeledButton(container, "Sign out")
+    const markup = renderToStaticMarkup(view)
 
     expect(onSignOut).toHaveBeenCalledOnce()
     expect(markup).toContain("sign-out stays blocked")
     expect(markup).toContain("never offers a discard shortcut")
+    unmount()
   })
 
   it("disables sign-out while safe completion is in progress", () => {
-    const tree = AccountView({
-      mode: { kind: "account", subject: "subject-1" },
-      syncStatus: { kind: "signing-out" },
-      accountAvailable: true,
-      signingIn: false,
-      notice: null,
-      onSignIn: vi.fn(),
-      onSignOut: vi.fn(),
-    })
+    const { container, unmount } = renderTree(
+      <AccountView
+        mode={{ kind: "account", subject: "subject-1" }}
+        syncStatus={{ kind: "signing-out" }}
+        accountAvailable
+        signingIn={false}
+        notice={null}
+        onSignIn={vi.fn()}
+        onSignOut={vi.fn()}
+      />,
+    )
 
-    expect(findInteraction(tree, "Signing out…").disabled).toBe(true)
+    expect(labeledButton(container, "Signing out…")).toHaveProperty("disabled", true)
+    unmount()
   })
 
   it("offers same-subject recovery from Account", () => {
@@ -693,7 +711,7 @@ describe("ExamSetup", () => {
     )
     const text = markupText(markup)
     const noticeAt = text.indexOf("Übungsfragen und Erklärungen bleiben auf Englisch.")
-    const modesAt = text.indexOf("Full practice exam")
+    const modesAt = text.indexOf("Vollständige Übungsprüfung")
 
     expect(noticeAt).toBeGreaterThan(-1)
     expect(modesAt).toBeGreaterThan(noticeAt)
@@ -788,7 +806,7 @@ describe("SyncNotificationBanner", () => {
       <SyncNotificationBanner
         notification={{
           kind: "sync-rejected",
-          message: "The latest changes were not valid. The last synced practice state has been restored.",
+          reason: "invalid_practice_state",
         }}
         onDismiss={vi.fn()}
       />,

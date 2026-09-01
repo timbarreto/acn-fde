@@ -89,11 +89,13 @@ describe("localized application state", () => {
     expect(container.querySelector("[title]")?.getAttribute("title")).toContain(expectedDateTime)
 
     const history = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("History"))
+      .find((button) => button.textContent?.includes("Verlauf"))
     act(() => history?.click())
 
     expect(container.textContent).toContain(expectedDate)
     expect(container.textContent).toContain("1 Frage")
+    expect(container.textContent).toContain("Schneller Wissenscheck")
+    expect(container.textContent).not.toContain("Quick practice")
 
     act(() => root.unmount())
   })
@@ -162,7 +164,7 @@ describe("localized application state", () => {
     })
 
     const bookmarks = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("Bookmarks"))
+      .find((button) => button.textContent?.includes("Marcadores"))
     act(() => bookmarks?.click())
 
     expectEnglishText(container, question.prompt)
@@ -204,7 +206,7 @@ describe("localized application state", () => {
     })
 
     const checkAnswer = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("Check answer"))
+      .find((button) => button.textContent?.includes("Comprobar respuesta"))
     act(() => checkAnswer?.click())
 
     expectEnglishText(container, question.objective)

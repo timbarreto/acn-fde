@@ -1,3 +1,21 @@
+import type { AttemptMode, DomainId } from "@/types"
+import {
+  englishCatalog,
+  germanCatalog,
+  spanishCatalog,
+  type Catalog,
+  type Formatters,
+  type MessageArgs,
+  type MessageKey,
+} from "@/lib/localization-messages"
+
+export type { MessageKey }
+export {
+  englishCatalog,
+  germanCatalog,
+  spanishCatalog,
+} from "@/lib/localization-messages"
+
 export const SUPPORTED_INTERFACE_LANGUAGES = ["en", "es", "de"] as const
 
 export type InterfaceLanguage = (typeof SUPPORTED_INTERFACE_LANGUAGES)[number]
@@ -23,29 +41,19 @@ export type LanguageSelectionResult =
   | { status: "persisted" }
   | { status: "session-only" }
 
-interface MessageArgs {
-  "account.language.label": undefined
-  "account.language.helper": undefined
-  "account.language.persistenceFailed": undefined
-  "practice.setup.questionBankNotice": undefined
-  "sync.status.guest": undefined
-  "sync.status.syncing": undefined
-  "sync.status.synced": undefined
-  "sync.status.offline": undefined
-  "sync.status.attention": undefined
-  "sync.status.signingOut": undefined
-  "sync.status.acceptedAt": { acceptedAt: number; now: number }
-  "sync.status.title": { acceptedAt: number }
-  "review.attempt.finishedAt": { finishedAt: number }
-  "review.attempt.questionCount": { count: number }
-}
-
-export type MessageKey = keyof MessageArgs
-
 export type Text = <Key extends MessageKey>(
   key: Key,
   ...args: MessageArgs[Key] extends undefined ? [] : [args: MessageArgs[Key]]
 ) => string
+
+export const DOMAIN_SHORT_KEYS = {
+  architecture: "domain.architecture.short",
+  tools: "domain.tools.short",
+  memory: "domain.memory.short",
+  evaluation: "domain.evaluation.short",
+  orchestration: "domain.orchestration.short",
+  guardrails: "domain.guardrails.short",
+} as const satisfies Record<DomainId, MessageKey>
 
 export interface LocalizationStore {
   getSnapshot: () => LocalizationSnapshot
@@ -59,21 +67,8 @@ export interface LocalizationEnvironment {
   writePreference: (language: InterfaceLanguage) => void
   requestedLanguages: () => readonly string[]
   applyDocumentLanguage: (language: InterfaceLanguage) => void
+  applyDocumentMetadata?: (metadata: { title: string; description: string }) => void
   subscribeToPreference?: (listener: (value: unknown) => void) => () => void
-}
-
-interface Formatters {
-  date: (value: number) => string
-  dateTime: (value: number) => string
-  integer: (value: number) => string
-  relative: (acceptedAt: number, now: number) => string
-}
-
-type Catalog = {
-  [Key in MessageKey]: (
-    args: MessageArgs[Key],
-    format: Formatters,
-  ) => string
 }
 
 type CatalogOverrides = {
@@ -82,82 +77,29 @@ type CatalogOverrides = {
   }
 }
 
-const englishCatalog = {
-  "account.language.label": () => "Interface language",
-  "account.language.helper": () =>
-    "Changes controls, status, and guidance in this browser. Practice question content and explanations remain in English. This preference is not synced.",
-  "account.language.persistenceFailed": () =>
-    "The selected language applies for this visit but could not be saved.",
-  "practice.setup.questionBankNotice": () =>
-    "Practice questions and explanations remain in English.",
-  "sync.status.guest": () => "Saved on this device",
-  "sync.status.syncing": () => "Syncing…",
-  "sync.status.synced": () => "Synced",
-  "sync.status.offline": () => "Offline · saved on this device",
-  "sync.status.attention": () => "Not synced · saved on this device",
-  "sync.status.signingOut": () => "Signing out…",
-  "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
-    format.relative(acceptedAt, now),
-  "sync.status.title": ({ acceptedAt }, format) =>
-    `Practice state synced ${format.dateTime(acceptedAt)}`,
-  "review.attempt.finishedAt": ({ finishedAt }, format) =>
-    format.date(finishedAt),
-  "review.attempt.questionCount": ({ count }, format) =>
-    `${format.integer(count)} ${count === 1 ? "question" : "questions"}`,
-} satisfies Catalog
-
-const spanishCatalog = {
-  "account.language.label": () => "Idioma de la interfaz",
-  "account.language.helper": () =>
-    "Cambia los controles, el estado y la orientación en este navegador. El contenido y las explicaciones de las preguntas de práctica permanecen en inglés. Esta preferencia no se sincroniza.",
-  "account.language.persistenceFailed": () =>
-    "El idioma seleccionado se aplica en esta visita, pero no se pudo guardar.",
-  "practice.setup.questionBankNotice": () =>
-    "Las preguntas de práctica y las explicaciones permanecen en inglés.",
-  "sync.status.guest": () => "Guardado en este dispositivo",
-  "sync.status.syncing": () => "Sincronizando…",
-  "sync.status.synced": () => "Sincronizado",
-  "sync.status.offline": () => "Sin conexión · guardado en este dispositivo",
-  "sync.status.attention": () => "No sincronizado · guardado en este dispositivo",
-  "sync.status.signingOut": () => "Cerrando sesión…",
-  "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
-    format.relative(acceptedAt, now),
-  "sync.status.title": ({ acceptedAt }, format) =>
-    `Estado de práctica sincronizado el ${format.dateTime(acceptedAt)}`,
-  "review.attempt.finishedAt": ({ finishedAt }, format) =>
-    format.date(finishedAt),
-  "review.attempt.questionCount": ({ count }, format) =>
-    `${format.integer(count)} ${count === 1 ? "pregunta" : "preguntas"}`,
-} satisfies Catalog
-
-const germanCatalog = {
-  "account.language.label": () => "Sprache der Oberfläche",
-  "account.language.helper": () =>
-    "Steuerelemente, Status und Hinweise ändern sich in diesem Browser. Übungsfragen und Erklärungen bleiben auf Englisch. Diese Einstellung wird nicht synchronisiert.",
-  "account.language.persistenceFailed": () =>
-    "Die ausgewählte Sprache gilt für diesen Besuch, konnte aber nicht gespeichert werden.",
-  "practice.setup.questionBankNotice": () =>
-    "Übungsfragen und Erklärungen bleiben auf Englisch.",
-  "sync.status.guest": () => "Auf diesem Gerät gespeichert",
-  "sync.status.syncing": () => "Wird synchronisiert…",
-  "sync.status.synced": () => "Synchronisiert",
-  "sync.status.offline": () => "Offline · auf diesem Gerät gespeichert",
-  "sync.status.attention": () => "Nicht synchronisiert · auf diesem Gerät gespeichert",
-  "sync.status.signingOut": () => "Abmeldung läuft…",
-  "sync.status.acceptedAt": ({ acceptedAt, now }, format) =>
-    format.relative(acceptedAt, now),
-  "sync.status.title": ({ acceptedAt }, format) =>
-    `Übungsstand synchronisiert am ${format.dateTime(acceptedAt)}`,
-  "review.attempt.finishedAt": ({ finishedAt }, format) =>
-    format.date(finishedAt),
-  "review.attempt.questionCount": ({ count }, format) =>
-    `${format.integer(count)} ${count === 1 ? "Frage" : "Fragen"}`,
-} satisfies Catalog
-
 const catalogs: Record<InterfaceLanguage, Catalog> = {
   en: englishCatalog,
   es: spanishCatalog,
   de: germanCatalog,
+}
+
+export const MESSAGE_KEYS = Object.keys(englishCatalog) as MessageKey[]
+
+export function domainShortLabel(text: Text, domain: DomainId) {
+  return text(DOMAIN_SHORT_KEYS[domain])
+}
+
+export function attemptTitle(
+  text: Text,
+  mode: AttemptMode,
+  domainIds?: readonly DomainId[],
+) {
+  if (mode === "full") return text("attempt.full")
+  if (mode === "quick") return text("attempt.quick")
+  if (domainIds?.length === 1) {
+    return text("attempt.domain", { short: domainShortLabel(text, domainIds[0]) })
+  }
+  return text("attempt.focused", { count: domainIds?.length ?? 0 })
 }
 
 const formatterCache = new Map<InterfaceLanguage, Formatters>()
@@ -176,10 +118,11 @@ export function createLocalizationStore(
 ): LocalizationStore {
   const listeners = new Set<() => void>()
   let snapshot = resolveSnapshot(environment)
-  environment.applyDocumentLanguage(snapshot.language)
+  applyDocument(snapshot.language)
+
   environment.subscribeToPreference?.((value) => {
     snapshot = snapshotFromPreference(environment, value)
-    environment.applyDocumentLanguage(snapshot.language)
+    applyDocument(snapshot.language)
     publish()
   })
 
@@ -190,6 +133,14 @@ export function createLocalizationStore(
       args[0] as MessageArgs[typeof key],
       catalogOverrides,
     )
+
+  function applyDocument(language: InterfaceLanguage) {
+    environment.applyDocumentLanguage(language)
+    environment.applyDocumentMetadata?.({
+      title: readMessage(language, "document.title", undefined, catalogOverrides),
+      description: readMessage(language, "document.description", undefined, catalogOverrides),
+    })
+  }
 
   function publish() {
     for (const listener of listeners) listener()
@@ -208,7 +159,7 @@ export function createLocalizationStore(
         throw new Error("Unsupported interface language")
       }
 
-      environment.applyDocumentLanguage(language)
+      applyDocument(language)
 
       let persistence: LocalizationSnapshot["persistence"] = "ready"
       try {
@@ -245,6 +196,11 @@ export function createBrowserLocalizationEnvironment(): LocalizationEnvironment 
     },
     applyDocumentLanguage(language) {
       document.documentElement.lang = language
+    },
+    applyDocumentMetadata({ title, description }) {
+      document.title = title
+      const meta = document.querySelector('meta[name="description"]')
+      meta?.setAttribute("content", description)
     },
     subscribeToPreference(listener) {
       const onStorage = (event: StorageEvent) => {
@@ -398,6 +354,10 @@ function formattersFor(language: InterfaceLanguage): Formatters {
   const integer = new Intl.NumberFormat(language, {
     maximumFractionDigits: 0,
   })
+  const percent = new Intl.NumberFormat(language, {
+    style: "percent",
+    maximumFractionDigits: 0,
+  })
   const relative = new Intl.RelativeTimeFormat(language, {
     numeric: "auto",
   })
@@ -405,6 +365,7 @@ function formattersFor(language: InterfaceLanguage): Formatters {
     date: (value) => date.format(value),
     dateTime: (value) => dateTime.format(value),
     integer: (value) => integer.format(value),
+    percent: (value) => percent.format(value / 100),
     relative: (acceptedAt, now) => {
       const elapsed = Math.max(0, now - acceptedAt)
       if (elapsed < 60_000) return relative.format(0, "second")

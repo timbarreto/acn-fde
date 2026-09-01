@@ -51,6 +51,8 @@ import { signInWithGitHub } from "@/lib/auth-client"
 import { downloadPracticeStateExport } from "@/lib/data-controls"
 import {
   INTERFACE_LANGUAGE_OPTIONS,
+  attemptTitle,
+  domainShortLabel,
   isInterfaceLanguage,
   questionBankContentProps,
   type MessageKey,
@@ -71,14 +73,57 @@ import type { AccountIdentity, Attempt, AttemptMode, AttemptOutcome, DomainId, F
 const questions = questionData as Question[]
 const questionMap = new Map(questions.map((question) => [question.id, question]))
 
+export type AccountNoticeCode =
+  | "signInCallbackFailed"
+  | "signInStartFailed"
+  | "signedOut"
+  | "signOutBlocked"
+  | "signOutFailed"
+  | "resetGuestCompleted"
+  | "resetAccountCompleted"
+  | "resetFailed"
+  | "deleteCompleted"
+  | "deleteIdentityUnfinished"
+  | "deletePracticeUnfinished"
+  | "deleteFailed"
+
+export type AccountNotice = {
+  kind: "success" | "error"
+  code: AccountNoticeCode
+}
+
+const ACCOUNT_NOTICE_KEYS = {
+  signInCallbackFailed: "account.notice.signInCallbackFailed",
+  signInStartFailed: "account.notice.signInStartFailed",
+  signedOut: "account.notice.signedOut",
+  signOutBlocked: "account.notice.signOutBlocked",
+  signOutFailed: "account.notice.signOutFailed",
+  resetGuestCompleted: "account.notice.resetGuestCompleted",
+  resetAccountCompleted: "account.notice.resetAccountCompleted",
+  resetFailed: "account.notice.resetFailed",
+  deleteCompleted: "account.notice.deleteCompleted",
+  deleteIdentityUnfinished: "account.notice.deleteIdentityUnfinished",
+  deletePracticeUnfinished: "account.notice.deletePracticeUnfinished",
+  deleteFailed: "account.notice.deleteFailed",
+} as const satisfies Record<AccountNoticeCode, MessageKey>
+
+const SYNC_REJECTION_KEYS = {
+  unsupported_schema_version: "sync.notification.unsupportedSchema",
+  practice_state_too_large: "sync.notification.tooLarge",
+  unsupported_media_type: "sync.notification.unsupportedMedia",
+  malformed_json: "sync.notification.malformedJson",
+  invalid_practice_state: "sync.notification.invalidState",
+  generic: "sync.notification.generic",
+} as const satisfies Record<string, MessageKey>
+
 // Exported as a focused test seam alongside the application component.
 // eslint-disable-next-line react-refresh/only-export-components
-export function readSignInFailureNotice(search: string) {
+export function readSignInFailureNotice(search: string): AccountNotice | null {
   const failure = new URLSearchParams(search).get("error")
   if (!failure) return null
   return {
-    kind: "error" as const,
-    message: "GitHub sign-in did not finish, so you are still practicing as a guest. Your practice state on this device is unchanged.",
+    kind: "error",
+    code: "signInCallbackFailed",
   }
 }
 
@@ -105,7 +150,8 @@ function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [accountAction, setAccountAction] = useState<"sign-in" | "sign-out" | "reset" | "delete-account" | null>(null)
   const [accountConfirmation, setAccountConfirmation] = useState<"reset" | "delete-account" | null>(null)
-  const [accountNotice, setAccountNotice] = useState<{ kind: "success" | "error"; message: string } | null>(
+  const { text } = useLocalization()
+  const [accountNotice, setAccountNotice] = useState<AccountNotice | null>(
     () => readSignInFailureNotice(window.location.search),
   )
   const hasActiveAttempt = Boolean(practiceState.activeAttempt)
@@ -113,8 +159,8 @@ function App() {
   const latestFinishedAttempt = practiceState.attempts[0] ?? null
   const pinnedToAccount = practiceMode.kind === "reauthenticating" || accountDeletionStage === "identity"
   const navigationLockMessage = accountDeletionStage === "identity"
-    ? ACCOUNT_DELETION_NAVIGATION_HINT
-    : RECOVERY_NAVIGATION_HINT
+    ? text("nav.deletionHint")
+    : text("nav.recoveryHint")
   const displayedView = pinnedToAccount ? "account" : view
   const hasAccount = practiceMode.kind === "account" || practiceMode.kind === "transitioning"
 
@@ -165,10 +211,7 @@ function App() {
     try {
       await signInWithGitHub(new URL(getPathForView("account"), window.location.origin).toString())
     } catch {
-      setAccountNotice({
-        kind: "error",
-        message: "GitHub sign-in could not start. Your guest practice is unchanged. Try again when the service is available.",
-      })
+      setAccountNotice({ kind: "error", code: "signInStartFailed" })
     } finally {
       setAccountAction(null)
     }
@@ -181,19 +224,10 @@ function App() {
     try {
       const result = await signOutSafely()
       setAccountNotice(result.status === "signed-out"
-        ? {
-            kind: "success",
-            message: "You are signed out. This device now has a new empty guest practice state.",
-          }
-        : {
-            kind: "error",
-            message: "Sign-out is blocked until your practice state can be secured. You remain signed in and no work was discarded.",
-          })
+        ? { kind: "success", code: "signedOut" }
+        : { kind: "error", code: "signOutBlocked" })
     } catch {
-      setAccountNotice({
-        kind: "error",
-        message: "Sign-out could not finish safely. You remain signed in and no work was discarded.",
-      })
+      setAccountNotice({ kind: "error", code: "signOutFailed" })
     } finally {
       setAccountAction(null)
     }
@@ -209,19 +243,11 @@ function App() {
       setAccountNotice(result.status === "completed"
         ? {
             kind: "success",
-            message: resettingGuest
-              ? "Practice state was deleted from this browser. You now have a new empty guest practice state."
-              : "Practice state was deleted from the server and this device. Your account remains signed in with a new empty practice state.",
+            code: resettingGuest ? "resetGuestCompleted" : "resetAccountCompleted",
           }
-        : {
-            kind: "error",
-            message: "Practice state could not be deleted. Try again; no other subject’s state was changed.",
-          })
+        : { kind: "error", code: "resetFailed" })
     } catch {
-      setAccountNotice({
-        kind: "error",
-        message: "Practice state could not be deleted. Try again; no other subject’s state was changed.",
-      })
+      setAccountNotice({ kind: "error", code: "resetFailed" })
     } finally {
       setAccountAction(null)
       setAccountConfirmation(null)
@@ -235,26 +261,14 @@ function App() {
     try {
       const result = await deleteAccount()
       if (result.status === "completed") {
-        setAccountNotice({
-          kind: "success",
-          message: "Your practice data and account were deleted. This device now has a new empty guest practice state.",
-        })
+        setAccountNotice({ kind: "success", code: "deleteCompleted" })
       } else if (result.step === "identity") {
-        setAccountNotice({
-          kind: "error",
-          message: "Your practice data is deleted, but the account identity step did not finish. Retry account deletion to continue from that step.",
-        })
+        setAccountNotice({ kind: "error", code: "deleteIdentityUnfinished" })
       } else {
-        setAccountNotice({
-          kind: "error",
-          message: "Account deletion stopped before your identity was changed. Your practice state remains available so you can retry safely.",
-        })
+        setAccountNotice({ kind: "error", code: "deletePracticeUnfinished" })
       }
     } catch {
-      setAccountNotice({
-        kind: "error",
-        message: "Account deletion could not finish. Retry from Account; completed steps will not restore deleted practice data.",
-      })
+      setAccountNotice({ kind: "error", code: "deleteFailed" })
     } finally {
       setAccountAction(null)
       setAccountConfirmation(null)
@@ -349,7 +363,7 @@ function App() {
       <main className="grid min-h-screen place-items-center bg-background px-6 text-foreground">
         <div className="text-center" role="status">
           <Sparkles className="mx-auto h-6 w-6 text-primary" />
-          <p className="mt-3 font-display text-lg font-bold">Starting practice…</p>
+          <p className="mt-3 font-display text-lg font-bold">{text("app.starting")}</p>
         </div>
       </main>
     )
@@ -442,6 +456,16 @@ function App() {
   )
 }
 
+function syncNotificationCopy(notification: PracticeSyncNotification, text: Text) {
+  if (notification.kind === "first-sync-rejected") {
+    return text("sync.notification.firstSyncRejected")
+  }
+  if (notification.kind === "sign-out-sync-rejected") {
+    return text("sync.notification.signOutBlocked")
+  }
+  return text(SYNC_REJECTION_KEYS[notification.reason])
+}
+
 export function SyncNotificationBanner({
   notification,
   onDismiss,
@@ -449,19 +473,20 @@ export function SyncNotificationBanner({
   notification: PracticeSyncNotification | null
   onDismiss: () => void
 }) {
+  const { text } = useLocalization()
   if (!notification) return null
 
   return (
-    <div className="fixed inset-x-4 top-4 z-50 mx-auto flex max-w-2xl items-start gap-3 rounded-xl border border-destructive/30 bg-card p-4 text-card-foreground shadow-lg" role="alert">
+    <div className="fixed inset-x-4 top-4 z-50 mx-auto flex max-w-2xl min-w-0 items-start gap-3 rounded-xl border border-destructive/30 bg-card p-4 text-card-foreground shadow-lg" role="alert">
       <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
-      <p className="min-w-0 flex-1 text-sm leading-6">{notification.message}</p>
+      <p className="min-w-0 flex-1 text-sm leading-6">{syncNotificationCopy(notification, text)}</p>
       <Button
         type="button"
         variant="ghost"
         size="icon"
         className="-mr-2 -mt-2 h-9 w-9 shrink-0"
         onClick={onDismiss}
-        aria-label="Dismiss sync explanation"
+        aria-label={text("sync.notification.dismiss")}
       >
         <X className="h-4 w-4" />
       </Button>
@@ -470,14 +495,15 @@ export function SyncNotificationBanner({
 }
 
 function Brand() {
+  const { text } = useLocalization()
   return (
-    <div className="flex items-center gap-3">
-      <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-white">
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-gradient text-white">
         <Waymark />
       </div>
-      <div>
+      <div className="min-w-0">
         <div className="font-display text-[15px] font-extrabold leading-tight tracking-tight">Agentic Ready</div>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">GH-600 practice</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{text("brand.tagline")}</div>
       </div>
     </div>
   )
@@ -491,14 +517,22 @@ function Waymark() {
   )
 }
 
-export const RECOVERY_NAVIGATION_HINT = "Sign in again from Account to unlock the rest of the practice tool. Your practice state is protected on this device."
-export const ACCOUNT_DELETION_NAVIGATION_HINT = "Finish account deletion from Account to unlock the rest of the practice tool. Deleted practice data will not be restored."
+export const RECOVERY_NAVIGATION_HINT = englishRecoveryHint()
+export const ACCOUNT_DELETION_NAVIGATION_HINT = englishDeletionHint()
+
+function englishRecoveryHint() {
+  return "Sign in again from Account to unlock the rest of the practice tool. Your practice state is protected on this device."
+}
+
+function englishDeletionHint() {
+  return "Finish account deletion from Account to unlock the rest of the practice tool. Deleted practice data will not be restored."
+}
 
 export function TopNav({
   view,
   syncStatus,
   pinnedToAccount = false,
-  navigationLockMessage = RECOVERY_NAVIGATION_HINT,
+  navigationLockMessage,
   onNavigate,
   mobileOpen,
   onMobileOpen,
@@ -511,12 +545,14 @@ export function TopNav({
   mobileOpen: boolean
   onMobileOpen: (open: boolean) => void
 }) {
+  const { text } = useLocalization()
+  const lockMessage = navigationLockMessage ?? text("nav.recoveryHint")
   const items: { view: AppView; label: string; icon: typeof Home }[] = [
-    { view: "dashboard", label: "Dashboard", icon: Home },
-    { view: "setup", label: "Practice", icon: CircleHelp },
-    { view: "review", label: "Review", icon: History },
-    { view: "resources", label: "Study path", icon: BookOpen },
-    { view: "account", label: "Account", icon: UserRound },
+    { view: "dashboard", label: text("nav.dashboard"), icon: Home },
+    { view: "setup", label: text("nav.practice"), icon: CircleHelp },
+    { view: "review", label: text("nav.review"), icon: History },
+    { view: "resources", label: text("nav.studyPath"), icon: BookOpen },
+    { view: "account", label: text("nav.account"), icon: UserRound },
   ]
   const isLocked = (destination: AppView) => pinnedToAccount && destination !== "account"
   const lockProps = (destination: AppView): {
@@ -526,7 +562,7 @@ export function TopNav({
   } => isLocked(destination)
     ? {
         disabled: true,
-        title: navigationLockMessage,
+        title: lockMessage,
         "aria-describedby": "recovery-navigation-hint",
       }
     : {}
@@ -536,13 +572,13 @@ export function TopNav({
         <button
           type="button"
           onClick={() => onNavigate("dashboard")}
-          aria-label="Agentic Ready dashboard"
+          aria-label={text("nav.brandHome")}
           {...lockProps("dashboard")}
-          className="my-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="my-3 min-w-0 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Brand />
         </button>
-        <nav className="ml-auto hidden items-center gap-1 md:flex" aria-label="Primary navigation">
+        <nav className="ml-auto hidden min-w-0 flex-wrap items-center gap-1 md:flex" aria-label={text("nav.primary")}>
           {items.map((item) => (
             <button
               type="button"
@@ -564,29 +600,29 @@ export function TopNav({
           size="icon"
           className="ml-auto md:hidden"
           onClick={() => onMobileOpen(!mobileOpen)}
-          aria-label="Toggle navigation"
+          aria-label={text("nav.toggle")}
           aria-expanded={mobileOpen}
           aria-controls="mobile-primary-navigation"
         >
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
-        <div className="order-last flex w-full items-center justify-between gap-3 border-t border-border/70 py-2.5 lg:order-none lg:ml-4 lg:w-auto lg:border-0 lg:py-0">
+        <div className="order-last flex w-full min-w-0 items-center justify-between gap-3 border-t border-border/70 py-2.5 lg:order-none lg:ml-4 lg:w-auto lg:border-0 lg:py-0">
           <SyncStatusIndicator status={syncStatus} />
           <Button
             size="sm"
-            className="hidden md:flex"
+            className="hidden shrink-0 md:flex"
             onClick={() => onNavigate("setup")}
             {...lockProps("setup")}
           >
-            <Play className="h-4 w-4 fill-current" /> Start practice
+            <Play className="h-4 w-4 fill-current" /> {text("nav.startPractice")}
           </Button>
         </div>
         {pinnedToAccount && (
-          <p id="recovery-navigation-hint" className="sr-only">{navigationLockMessage}</p>
+          <p id="recovery-navigation-hint" className="sr-only">{lockMessage}</p>
         )}
       </div>
       {mobileOpen && (
-        <nav id="mobile-primary-navigation" className="container grid gap-1 border-t py-3 md:hidden" aria-label="Mobile navigation">
+        <nav id="mobile-primary-navigation" className="container grid gap-1 border-t py-3 md:hidden" aria-label={text("nav.mobile")}>
           {items.map((item) => (
             <button
               type="button"
@@ -713,7 +749,7 @@ function InterfaceLanguageControl() {
           id="interface-language"
           value={language}
           aria-describedby={describedBy}
-          className="h-10 min-w-40 rounded-full border bg-background px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-10 w-full min-w-0 rounded-full border bg-background px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto sm:min-w-40"
           onChange={(event) => {
             const next = event.currentTarget.value
             if (isInterfaceLanguage(next)) setLanguage(next)
@@ -774,7 +810,7 @@ export function AccountView({
   accountIdentity?: AccountIdentity | null
   accountAvailable: boolean
   signingIn: boolean
-  notice: { kind: "success" | "error"; message: string } | null
+  notice: AccountNotice | null
   practiceState?: PracticeState
   dataAction?: "reset" | "delete-account" | null
   confirmation?: "reset" | "delete-account" | null
@@ -788,6 +824,7 @@ export function AccountView({
   onConfirmReset?: () => void
   onConfirmAccountDeletion?: () => void
 }) {
+  const { text } = useLocalization()
   const isGuest = mode.kind === "guest"
   const needsReauthentication = mode.kind === "reauthenticating"
   const dataControlsReady = isGuest || mode.kind === "account"
@@ -798,16 +835,16 @@ export function AccountView({
 
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
-      <Eyebrow>Account</Eyebrow>
+      <Eyebrow>{text("account.eyebrow")}</Eyebrow>
       <h1 className="section-title text-4xl">
-        {isGuest ? "Practice your way." : needsReauthentication ? "Reconnect safely." : "Practice across devices."}
+        {isGuest ? text("account.title.guest") : needsReauthentication ? text("account.title.reconnect") : text("account.title.signedIn")}
       </h1>
       <p className="mt-4 max-w-2xl text-lg leading-8 text-muted-foreground">
         {isGuest
-          ? "Guest practice is permanent and complete. A GitHub account is optional and adds only cross-device sync and recovery after browser data is cleared."
+          ? text("account.intro.guest")
           : needsReauthentication
-            ? "Your account practice state is protected on this device. Sign in to the same GitHub account to make it available again."
-            : "Your account keeps the practice state on this device and synchronizes it when the service is available."}
+            ? text("account.intro.reconnect")
+            : text("account.intro.signedIn")}
       </p>
 
       {notice && (
@@ -821,7 +858,7 @@ export function AccountView({
           role={notice.kind === "error" ? "alert" : "status"}
           aria-live="polite"
         >
-          {notice.message}
+          {text(ACCOUNT_NOTICE_KEYS[notice.code])}
         </div>
       )}
 
@@ -833,11 +870,11 @@ export function AccountView({
             <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
               {isGuest ? <HardDrive className="h-5 w-5" /> : <Cloud className="h-5 w-5" />}
             </div>
-            <CardTitle>{isGuest ? "Guest practice" : "Sync status"}</CardTitle>
+            <CardTitle>{isGuest ? text("account.guest.title") : text("account.sync.title")}</CardTitle>
             <CardDescription>
               {isGuest
-                ? "Your practice state is saved only in this browser and remains fully usable offline."
-                : "Edits are saved locally first, then synchronized without blocking practice."}
+                ? text("account.guest.description")
+                : text("account.sync.description")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -845,14 +882,14 @@ export function AccountView({
               className="rounded-xl border bg-muted/40 p-4"
               role={visibleAccountIdentity ? "group" : undefined}
               aria-label={visibleAccountIdentity
-                ? `Sync status for @${visibleAccountIdentity.githubUsername}`
+                ? text("account.sync.statusFor", { username: visibleAccountIdentity.githubUsername })
                 : undefined}
             >
               {visibleAccountIdentity && (
                 <div className="mb-3 flex min-w-0 items-center gap-3 border-b pb-3">
                   <img
                     src={visibleAccountIdentity.avatarUrl}
-                    alt={`@${visibleAccountIdentity.githubUsername} GitHub avatar`}
+                    alt={text("account.sync.avatarAlt", { username: visibleAccountIdentity.githubUsername })}
                     className="h-10 w-10 shrink-0 rounded-full border bg-background object-cover"
                     loading="lazy"
                     referrerPolicy="no-referrer"
@@ -873,11 +910,11 @@ export function AccountView({
               <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-brand-bright">
                 <Github className="h-5 w-5" />
               </div>
-              <CardTitle>{needsReauthentication ? "Sign in again with GitHub" : "Optional GitHub sign-in"}</CardTitle>
+              <CardTitle>{needsReauthentication ? text("account.signIn.againTitle") : text("account.signIn.title")}</CardTitle>
               <CardDescription>
                 {needsReauthentication
-                  ? "Use the same GitHub account so no other subject can see the protected cache."
-                  : "Use GitHub to continue on another device and recover practice after clearing this browser."}
+                  ? text("account.signIn.againDescription")
+                  : text("account.signIn.description")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -888,11 +925,11 @@ export function AccountView({
                 disabled={!accountAvailable || signingIn}
               >
                 {signingIn ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Github className="h-4 w-4" />}
-                {signingIn ? "Opening GitHub…" : needsReauthentication ? "Sign in again with GitHub" : "Sign in with GitHub"}
+                {signingIn ? text("account.signIn.opening") : needsReauthentication ? text("account.signIn.againButton") : text("account.signIn.button")}
               </Button>
               {!accountAvailable && (
                 <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                  GitHub sign-in is available when the optional full-stack application is running. Guest practice remains available here.
+                  {text("account.signIn.unavailable")}
                 </p>
               )}
             </CardContent>
@@ -903,18 +940,18 @@ export function AccountView({
               <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
                 <LogOut className="h-5 w-5" />
               </div>
-              <CardTitle>Sign out safely</CardTitle>
+              <CardTitle>{text("account.signOut.title")}</CardTitle>
               <CardDescription>
-                Pending practice state must be accepted before sign-out can finish. If syncing is unavailable, sign-out stays blocked and never offers a discard shortcut.
+                {text("account.signOut.description")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <p className="mb-5 text-sm leading-6 text-muted-foreground">
-                After sign-out, this account’s cache is removed from this device and a new empty guest practice state begins.
+                {text("account.signOut.after")}
               </p>
               <Button type="button" variant="outline" onClick={onSignOut} disabled={isSigningOut || Boolean(dataAction) || accountDeletionStage === "identity"}>
                 {isSigningOut && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
-                {isSigningOut ? "Signing out…" : "Sign out"}
+                {isSigningOut ? text("sync.status.signingOut") : text("account.signOut.button")}
               </Button>
             </CardContent>
           </Card>
@@ -927,9 +964,9 @@ export function AccountView({
             <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
               <FileText className="h-5 w-5" />
             </div>
-            <CardTitle>Export practice state</CardTitle>
+            <CardTitle>{text("account.export.title")}</CardTitle>
             <CardDescription>
-              Download a client-generated JSON copy of the practice state currently visible here.
+              {text("account.export.description")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -940,7 +977,7 @@ export function AccountView({
               disabled={!practiceState || !onExport || Boolean(dataAction)}
             >
               <Download className="h-4 w-4" />
-              Download JSON
+              {text("account.export.button")}
             </Button>
           </CardContent>
         </Card>
@@ -950,14 +987,14 @@ export function AccountView({
             <div className="mb-2 grid h-11 w-11 place-items-center rounded-xl bg-warning-soft text-warning">
               <RotateCcw className="h-5 w-5" />
             </div>
-            <CardTitle>Reset practice state</CardTitle>
+            <CardTitle>{text("account.reset.title")}</CardTitle>
             <CardDescription>
-              Start fresh without changing your sign-in choice.
+              {text("account.reset.description")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="mb-5 text-sm leading-6 text-muted-foreground">
-              Deletes finished attempts, bookmarks, and latest answers. This cannot be undone.
+              {text("account.reset.detail")}
             </p>
             <Button
               type="button"
@@ -966,7 +1003,7 @@ export function AccountView({
               disabled={!dataControlsReady || Boolean(dataAction) || accountDeletionStage === "identity"}
             >
               <RotateCcw className="h-4 w-4" />
-              Reset practice state
+              {text("account.reset.button")}
             </Button>
           </CardContent>
         </Card>
@@ -979,18 +1016,18 @@ export function AccountView({
               <XCircle className="h-5 w-5" />
             </div>
             <CardTitle>
-              {accountDeletionStage === "identity" ? "Finish deleting account" : "Delete account"}
+              {accountDeletionStage === "identity" ? text("account.delete.finishTitle") : text("account.delete.title")}
             </CardTitle>
             <CardDescription>
               {accountDeletionStage === "identity"
-                ? "Practice data is deleted. The unfinished identity step can be retried safely without restoring it."
-                : "Permanently remove both your practice state and signed-in identity."}
+                ? text("account.delete.finishDescription")
+                : text("account.delete.description")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {accountDeletionStage !== "identity" && (
               <p className="mb-5 text-sm leading-6 text-muted-foreground">
-                Practice state is deleted first. Your account for this practice app is deleted only after that succeeds. Your GitHub account itself is not changed.
+                {text("account.delete.detail")}
               </p>
             )}
             <div className="flex flex-wrap gap-3">
@@ -1002,10 +1039,10 @@ export function AccountView({
               >
                 {dataAction === "delete-account" && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
                 {dataAction === "delete-account"
-                  ? "Deleting…"
+                  ? text("account.delete.deleting")
                   : accountDeletionStage === "identity"
-                    ? "Retry account deletion"
-                    : "Delete account"}
+                    ? text("account.delete.retry")
+                    : text("account.delete.button")}
               </Button>
               {accountDeletionStage === "identity" && (
                 <Button
@@ -1015,7 +1052,7 @@ export function AccountView({
                   disabled={!accountAvailable || signingIn || Boolean(dataAction)}
                 >
                   {signingIn ? <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Github className="h-4 w-4" />}
-                  {signingIn ? "Opening GitHub…" : "Sign in again with GitHub"}
+                  {signingIn ? text("account.signIn.opening") : text("account.signIn.againButton")}
                 </Button>
               )}
             </div>
@@ -1025,11 +1062,13 @@ export function AccountView({
 
       {confirmation === "reset" && (
         <AccountConfirmationDialog
-          title="Delete practice state and start fresh?"
+          title={text("account.confirm.resetTitle")}
           description={isGuest
-            ? "This permanently deletes your finished attempts, bookmarks, and latest answers only from this browser."
-            : "This permanently deletes your finished attempts, bookmarks, and latest answers from the server and this device. It keeps your sign-in and your account for this practice app."}
-          confirmLabel="Delete practice data"
+            ? text("account.confirm.resetGuest")
+            : text("account.confirm.resetAccount")}
+          confirmLabel={text("account.confirm.resetConfirm")}
+          pendingLabel={text("account.delete.deleting")}
+          cancelLabel={text("account.confirm.cancel")}
           pending={dataAction === "reset"}
           onCancel={onCancelConfirmation ?? (() => {})}
           onConfirm={onConfirmReset ?? (() => {})}
@@ -1037,11 +1076,13 @@ export function AccountView({
       )}
       {confirmation === "delete-account" && (
         <AccountConfirmationDialog
-          title={accountDeletionStage === "identity" ? "Finish deleting your account?" : "Permanently delete your account?"}
+          title={accountDeletionStage === "identity" ? text("account.confirm.deleteFinishTitle") : text("account.confirm.deleteTitle")}
           description={accountDeletionStage === "identity"
-            ? "Your finished attempts, bookmarks, and latest answers are already deleted. Retrying now deletes only the unfinished account identity for this practice app. Your GitHub account itself is not changed."
-            : "This permanently deletes your finished attempts, bookmarks, and latest answers. Practice state is deleted first. Your account for this practice app is deleted only after that succeeds. Your GitHub account itself is not changed."}
-          confirmLabel={accountDeletionStage === "identity" ? "Finish deleting account" : "Delete practice data and account"}
+            ? text("account.confirm.deleteFinish")
+            : text("account.confirm.delete")}
+          confirmLabel={accountDeletionStage === "identity" ? text("account.confirm.deleteFinishConfirm") : text("account.confirm.deleteConfirm")}
+          pendingLabel={text("account.delete.deleting")}
+          cancelLabel={text("account.confirm.cancel")}
           pending={dataAction === "delete-account"}
           onCancel={onCancelConfirmation ?? (() => {})}
           onConfirm={onConfirmAccountDeletion ?? (() => {})}
@@ -1055,6 +1096,8 @@ function AccountConfirmationDialog({
   title,
   description,
   confirmLabel,
+  pendingLabel,
+  cancelLabel,
   pending,
   onCancel,
   onConfirm,
@@ -1062,6 +1105,8 @@ function AccountConfirmationDialog({
   title: string
   description: string
   confirmLabel: string
+  pendingLabel: string
+  cancelLabel: string
   pending: boolean
   onCancel: () => void
   onConfirm: () => void
@@ -1105,11 +1150,11 @@ function AccountConfirmationDialog({
         </p>
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onCancel} disabled={pending} autoFocus>
-            Cancel
+            {cancelLabel}
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm} disabled={pending}>
             {pending && <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
-            {pending ? "Deleting…" : confirmLabel}
+            {pending ? pendingLabel : confirmLabel}
           </Button>
         </div>
       </div>
@@ -1134,44 +1179,48 @@ function Dashboard({
   onReview: () => void
   onResources: () => void
 }) {
+  const { text } = useLocalization()
   const finishedAttempts = practiceState.attempts
   const readiness = readinessScore(practiceState.latestAnswers, questions)
   const answered = countAnswered(practiceState.latestAnswers, questions)
   const best = finishedAttempts.length ? Math.max(...finishedAttempts.map((attempt) => attempt.score)) : 0
+  const activeTitle = practiceState.activeAttempt
+    ? attemptTitle(text, practiceState.activeAttempt.mode, practiceState.activeAttempt.domains)
+    : ""
 
   return (
     <>
       <section className="hero-grid border-b border-border/80 bg-surface">
         <div className="container grid gap-10 py-14 lg:grid-cols-[1.35fr_0.65fr] lg:items-center lg:py-20">
-          <div className="max-w-3xl">
+          <div className="max-w-3xl min-w-0">
             <div className="mb-5 flex flex-wrap gap-2">
               <a href="https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600" target="_blank" rel="noreferrer" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <Badge variant="outline" className="border-primary/40 bg-primary/10 text-brand-bright transition hover:border-primary hover:bg-primary/20">
-                  <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Built for the current GH-600 blueprint
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" /> {text("dashboard.badge.blueprint")}
                 </Badge>
               </a>
               <a href="https://github.com/timbarreto/acn-fde" target="_blank" rel="noreferrer" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <Badge variant="outline" className="transition hover:border-primary/60 hover:bg-primary/10">
-                  View on GitHub <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+                  {text("dashboard.badge.github")} <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
                 </Badge>
               </a>
             </div>
             <h1 className="font-display text-4xl font-extrabold leading-[1.05] tracking-[-0.045em] sm:text-5xl lg:text-6xl">
-              Practice the judgment behind <span className="text-brand-gradient">agentic systems.</span>
+              {text("dashboard.hero.lead")} <span className="text-brand-gradient">{text("dashboard.hero.emphasis")}</span>
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-              Scenario-based drills for operating, supervising, evaluating, and governing AI agents with GitHub as the control plane.
+              {text("dashboard.hero.body")}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               {practiceState.activeAttempt ? (
-                <Button size="lg" onClick={onResume}><Play className="h-4 w-4 fill-current" /> Resume {practiceState.activeAttempt.label}</Button>
+                <Button size="lg" onClick={onResume}><Play className="h-4 w-4 fill-current" /> {text("dashboard.resume", { title: activeTitle })}</Button>
               ) : (
-                <Button size="lg" onClick={onStart}><Play className="h-4 w-4 fill-current" /> Start a practice exam</Button>
+                <Button size="lg" onClick={onStart}><Play className="h-4 w-4 fill-current" /> {text("dashboard.start")}</Button>
               )}
-              <Button size="lg" variant="outline" onClick={onResources}>View study path <ArrowRight className="h-4 w-4" /></Button>
+              <Button size="lg" variant="outline" onClick={onResources}>{text("dashboard.studyPath")} <ArrowRight className="h-4 w-4" /></Button>
             </div>
-            <p className="mt-4 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <ShieldCheck className="h-4 w-4 text-success" /> Unofficial practice tool · {hasAccount ? "saved locally first and synced when connected" : "your practice state stays in this browser"}
+            <p className="mt-4 flex min-w-0 items-start gap-2 text-xs font-medium text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" /> {hasAccount ? text("dashboard.saved.account") : text("dashboard.saved.guest")}
             </p>
           </div>
           <ReadinessCard score={readiness} answered={answered} best={best} />
@@ -1180,36 +1229,37 @@ function Dashboard({
 
       <section className="container py-14 lg:py-20">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-          <div>
-            <Eyebrow>Exam blueprint</Eyebrow>
-            <h2 className="section-title">Know where you stand in every domain.</h2>
+          <div className="min-w-0">
+            <Eyebrow>{text("dashboard.blueprint.eyebrow")}</Eyebrow>
+            <h2 className="section-title">{text("dashboard.blueprint.title")}</h2>
           </div>
-          <Button variant="ghost" onClick={onReview}>Review past answers <ArrowRight className="h-4 w-4" /></Button>
+          <Button variant="ghost" onClick={onReview}>{text("dashboard.reviewAnswers")} <ArrowRight className="h-4 w-4" /></Button>
         </div>
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {domains.map((domain) => {
             const { score, answered: domainAnswered } = domainProgress(practiceState.latestAnswers, questions, domain.id)
             const tested = domainAnswered > 0
             return (
-              <button key={domain.id} onClick={() => onDomain(domain.id)} className="group rounded-xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <button key={domain.id} onClick={() => onDomain(domain.id)} className="group min-w-0 rounded-xl border bg-card p-5 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="grid h-11 w-11 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}>
+                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}>
                     <domain.icon className="h-5 w-5" />
                   </div>
-                  <div className="text-right">
+                  <div className="min-w-0 text-right">
                     <div className="text-xs font-bold text-muted-foreground">{domain.weight}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">exam weight</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{text("dashboard.examWeight")}</div>
                   </div>
                 </div>
-                <div className="mt-5 text-xs font-bold uppercase tracking-[0.18em]" style={{ color: domain.color }}>Domain {domain.number}</div>
-                <h3 className="mt-2 font-display text-lg font-bold leading-snug">{domain.short}</h3>
-                <div className="mt-5 flex items-center gap-3">
-                  <Progress value={score} className="h-1.5" style={{ "--primary": hexToHsl(domain.color) } as CSSProperties} />
-                  <span className="w-10 text-right text-sm font-bold">{tested ? `${score}%` : "—"}</span>
+                <div className="mt-5 text-xs font-bold uppercase tracking-[0.18em]" style={{ color: domain.color }}>{text("dashboard.domainLabel", { number: domain.number })}</div>
+                <h3 className="mt-2 font-display text-lg font-bold leading-snug">{domainShortLabel(text, domain.id)}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground" {...questionBankContentProps()}>{domain.title}</p>
+                <div className="mt-5 flex min-w-0 items-center gap-3">
+                  <Progress value={score} className="h-1.5 min-w-0" style={{ "--primary": hexToHsl(domain.color) } as CSSProperties} />
+                  <span className="w-12 shrink-0 text-right text-sm font-bold">{tested ? `${score}%` : "—"}</span>
                 </div>
-                <div className="mt-4 flex items-center justify-between border-t pt-4 text-sm font-semibold text-muted-foreground">
-                  <span>{questions.filter((question) => question.domain === domain.id).length} questions</span>
-                  <span className="flex items-center gap-1 text-brand-bright opacity-0 transition group-hover:opacity-100">Practice <ChevronRight className="h-4 w-4" /></span>
+                <div className="mt-4 flex min-w-0 items-center justify-between gap-2 border-t pt-4 text-sm font-semibold text-muted-foreground">
+                  <span className="min-w-0">{text("dashboard.questions", { count: questions.filter((question) => question.domain === domain.id).length })}</span>
+                  <span className="flex shrink-0 items-center gap-1 text-brand-bright opacity-0 transition group-hover:opacity-100">{text("dashboard.practice")} <ChevronRight className="h-4 w-4" /></span>
                 </div>
               </button>
             )
@@ -1222,33 +1272,34 @@ function Dashboard({
 }
 
 function ReadinessCard({ score, answered, best }: { score: number; answered: number; best: number }) {
+  const { text } = useLocalization()
   const circumference = 2 * Math.PI * 54
   const offset = circumference - (score / 100) * circumference
   return (
     <Card className="relative overflow-hidden border-border bg-card shadow-soft">
       <div className="absolute right-0 top-0 h-24 w-24 rounded-bl-[70px] bg-primary/10" />
       <CardContent className="relative p-7">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Readiness signal</div>
-            <div className="mt-1 text-sm text-muted-foreground">Across the full question bank</div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{text("dashboard.readiness.eyebrow")}</div>
+            <div className="mt-1 text-sm text-muted-foreground">{text("dashboard.readiness.subtitle")}</div>
           </div>
-          <BarChart3 className="h-5 w-5 text-success" />
+          <BarChart3 className="h-5 w-5 shrink-0 text-success" />
         </div>
         <div className="my-7 flex justify-center">
           <div className="relative h-36 w-36">
-            <svg className="h-36 w-36 -rotate-90" viewBox="0 0 128 128" aria-label={`${score}% readiness`}>
+            <svg className="h-36 w-36 -rotate-90" viewBox="0 0 128 128" aria-label={text("dashboard.readiness.aria", { score })}>
               <circle cx="64" cy="64" r="54" fill="none" stroke="#232a37" strokeWidth="10" />
               <circle cx="64" cy="64" r="54" fill="none" stroke="#ec008c" strokeWidth="10" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} />
             </svg>
             <div className="absolute inset-0 grid place-items-center text-center">
-              <div><span className="font-display text-4xl font-extrabold">{score}</span><span className="text-sm font-bold text-muted-foreground">%</span><div className="text-[11px] font-semibold text-muted-foreground">overall</div></div>
+              <div><span className="font-display text-4xl font-extrabold">{score}</span><span className="text-sm font-bold text-muted-foreground">%</span><div className="text-[11px] font-semibold text-muted-foreground">{text("dashboard.readiness.overall")}</div></div>
             </div>
           </div>
         </div>
         <div className="grid grid-cols-2 divide-x border-t pt-5 text-center">
-          <div><div className="font-display text-2xl font-bold">{answered}</div><div className="text-xs text-muted-foreground">questions answered</div></div>
-          <div><div className="font-display text-2xl font-bold">{best}%</div><div className="text-xs text-muted-foreground">best exam</div></div>
+          <div className="min-w-0 px-2"><div className="font-display text-2xl font-bold">{answered}</div><div className="text-xs text-muted-foreground">{text("dashboard.readiness.answered")}</div></div>
+          <div className="min-w-0 px-2"><div className="font-display text-2xl font-bold">{best}%</div><div className="text-xs text-muted-foreground">{text("dashboard.readiness.best")}</div></div>
         </div>
       </CardContent>
     </Card>
@@ -1256,25 +1307,26 @@ function ReadinessCard({ score, answered, best }: { score: number; answered: num
 }
 
 export function ExamSetup({ onStart }: { onStart: (mode: AttemptMode, domains?: DomainId[]) => void }) {
+  const { text } = useLocalization()
   const [selectedDomains, setSelectedDomains] = useState<DomainId[]>([])
   const selectedCount = questions.filter((question) => selectedDomains.includes(question.domain)).length
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
       <div className="max-w-2xl">
-        <Eyebrow>Practice modes</Eyebrow>
-        <h1 className="section-title text-4xl">Choose the kind of pressure you need.</h1>
-        <p className="mt-4 text-lg leading-8 text-muted-foreground">Every mode uses the same local question bank. Answers are recorded automatically, so you can leave and resume.</p>
+        <Eyebrow>{text("setup.eyebrow")}</Eyebrow>
+        <h1 className="section-title text-4xl">{text("setup.title")}</h1>
+        <p className="mt-4 text-lg leading-8 text-muted-foreground">{text("setup.body")}</p>
       </div>
       <PracticeQuestionBankNotice />
       <div className="mt-10 grid gap-5 lg:grid-cols-3">
-        <ModeCard icon={Trophy} eyebrow="Best simulation" title="Full practice exam" description="30 weighted questions across all six domains. Timed and scored after submission." meta="45 min · 30 questions" onClick={() => onStart("full")} accent />
-        <ModeCard icon={Zap} eyebrow="Build momentum" title="Quick knowledge check" description="A random set for a fast confidence check between study sessions. Limited to your selected domains when any are chosen." meta={selectedDomains.length ? "15 min · up to 10 questions from selected domains" : "15 min · 10 questions"} onClick={() => onStart("quick", selectedDomains)} />
-        <ModeCard icon={Target} eyebrow="Close a gap" title="Focused domain drill" description="Practice every question available in the blueprint domains you select." meta={selectedDomains.length ? `${selectedCount} questions · adaptive time` : "Select at least one domain below"} onClick={() => onStart("domain", selectedDomains)} disabled={!selectedDomains.length} />
+        <ModeCard icon={Trophy} eyebrow={text("setup.full.eyebrow")} title={text("setup.full.title")} description={text("setup.full.description")} meta={text("setup.full.meta")} onClick={() => onStart("full")} accent />
+        <ModeCard icon={Zap} eyebrow={text("setup.quick.eyebrow")} title={text("setup.quick.title")} description={text("setup.quick.description")} meta={selectedDomains.length ? text("setup.quick.metaSelected") : text("setup.quick.meta")} onClick={() => onStart("quick", selectedDomains)} />
+        <ModeCard icon={Target} eyebrow={text("setup.domain.eyebrow")} title={text("setup.domain.title")} description={text("setup.domain.description")} meta={selectedDomains.length ? text("setup.domain.meta", { count: selectedCount }) : text("setup.domain.select")} onClick={() => onStart("domain", selectedDomains)} disabled={!selectedDomains.length} />
       </div>
       <Card className="mt-6 shadow-none">
         <CardHeader>
-          <CardTitle className="text-lg">Domains for focused practice</CardTitle>
-          <CardDescription>Click to select one or more areas. Double-click to unselect.</CardDescription>
+          <CardTitle className="text-lg">{text("setup.domains.title")}</CardTitle>
+          <CardDescription>{text("setup.domains.description")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {domains.map((domain) => {
@@ -1285,26 +1337,27 @@ export function ExamSetup({ onStart }: { onStart: (mode: AttemptMode, domains?: 
                 onClick={() => setSelectedDomains((current) => selectDomain(current, domain.id))}
                 onDoubleClick={() => setSelectedDomains((current) => unselectDomain(current, domain.id))}
                 aria-pressed={selected}
-                className={cn("flex items-center gap-3 rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected ? "border-primary bg-primary/10 ring-1 ring-primary" : "hover:bg-muted")}
+                className={cn("flex min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected ? "border-primary bg-primary/10 ring-1 ring-primary" : "hover:bg-muted")}
               >
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ color: domain.color, background: domain.soft }}><domain.icon className="h-4 w-4" /></div>
-                <div className="min-w-0"><div className="truncate text-sm font-bold">{domain.number} · {domain.short}</div><div className="text-xs text-muted-foreground">{domain.weight}</div></div>
-                {selected && <Check className="ml-auto h-4 w-4 text-primary" />}
+                <div className="min-w-0"><div className="truncate text-sm font-bold">{domain.number} · {domainShortLabel(text, domain.id)}</div><div className="text-xs text-muted-foreground">{domain.weight}</div></div>
+                {selected && <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />}
               </button>
             )
           })}
         </CardContent>
       </Card>
       <div className="mt-6 rounded-xl border border-warning-border bg-warning-soft p-4 text-sm leading-6 text-warning">
-        <strong>Exam note:</strong> This is an original, unofficial question bank based on the published skills outline and linked documentation—not Microsoft exam content or a prediction of exact questions.
+        <strong>{text("setup.examNote.label")}</strong> {text("setup.examNote.body")}
       </div>
     </div>
   )
 }
 
 function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, accent = false, disabled = false }: { icon: typeof Trophy; eyebrow: string; title: string; description: string; meta: string; onClick: () => void; accent?: boolean; disabled?: boolean }) {
+  const { text } = useLocalization()
   return (
-    <Card className={cn("flex flex-col overflow-hidden shadow-none transition hover:-translate-y-0.5 hover:shadow-soft", accent && "border-transparent bg-brand-gradient text-white")}>
+    <Card className={cn("flex min-w-0 flex-col overflow-hidden shadow-none transition hover:-translate-y-0.5 hover:shadow-soft", accent && "border-transparent bg-brand-gradient text-white")}>
       <CardHeader className="flex-1">
         <div className={cn("mb-4 grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-brand-bright", accent && "bg-white/10 text-white")}><Icon className="h-5 w-5" /></div>
         <div className={cn("text-xs font-bold uppercase tracking-[0.17em] text-brand-bright", accent && "text-white/75")}>{eyebrow}</div>
@@ -1313,13 +1366,14 @@ function ModeCard({ icon: Icon, eyebrow, title, description, meta, onClick, acce
       </CardHeader>
       <CardContent>
         <div className={cn("mb-5 flex items-center gap-2 text-xs font-semibold text-muted-foreground", accent && "text-white/65")}><Clock3 className="h-4 w-4" />{meta}</div>
-        <Button variant="secondary" className={cn("w-full", accent && "bg-white font-bold text-[#b3007a] hover:bg-white/90")} onClick={onClick} disabled={disabled}>Begin <ArrowRight className="h-4 w-4" /></Button>
+        <Button variant="secondary" className={cn("w-full", accent && "bg-white font-bold text-[#b3007a] hover:bg-white/90")} onClick={onClick} disabled={disabled}>{text("setup.begin")} <ArrowRight className="h-4 w-4" /></Button>
       </CardContent>
     </Card>
   )
 }
 
 export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark, onExit }: { attempt: Attempt; bookmarks: string[]; onUpdate: (attempt: Attempt) => void; onFinish: (attempt: Attempt, outcome: AttemptOutcome) => void; onBookmark: (id: string) => void; onExit: (attempt: Attempt) => void }) {
+  const { text } = useLocalization()
   const [now, setNow] = useState(Date.now())
   const [mapOpen, setMapOpen] = useState(false)
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
@@ -1367,17 +1421,17 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
         <div className="container flex h-[72px] items-center justify-between gap-4">
           <button onClick={pauseAndExit} className="hidden rounded-xl text-left focus-visible:ring-2 sm:block"><Brand /></button>
           <div className="min-w-0 flex-1 sm:flex-none">
-            <div className="truncate text-sm font-bold">{attempt.label}</div>
-            <div className="text-xs text-muted-foreground">Question {attempt.currentIndex + 1} of {attempt.questionIds.length}</div>
+            <div className="truncate text-sm font-bold">{attemptTitle(text, attempt.mode, attempt.domains)}</div>
+            <div className="text-xs text-muted-foreground">{text("exam.questionProgress", { current: attempt.currentIndex + 1, total: attempt.questionIds.length })}</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
               onClick={toggleTimer}
               disabled={remaining === 0}
-              aria-label={`${timerPaused ? "Resume" : "Pause"} timer, ${formatDuration(remaining)} remaining`}
+              aria-label={`${timerPaused ? text("exam.resumeTimer") : text("exam.pauseTimer")}, ${text("exam.timerRemaining", { remaining: formatDuration(remaining) })}`}
               aria-pressed={timerPaused}
-              title={timerPaused ? "Resume timer" : "Pause timer"}
+              title={timerPaused ? text("exam.resumeTimer") : text("exam.pauseTimer")}
               className={cn(
                 "flex h-10 items-center gap-2 rounded-lg border bg-background px-3 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
                 timerPaused ? "border-primary/40 bg-primary/10 text-primary" : remaining < 300 && "border-danger-border bg-danger-soft text-danger",
@@ -1385,10 +1439,10 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
             >
               {timerPaused ? <Play className="h-4 w-4 fill-current" /> : <Pause className="h-4 w-4" />}
               <span className="font-mono">{formatDuration(remaining)}</span>
-              {timerPaused && <span className="hidden text-xs sm:inline">Paused</span>}
+              {timerPaused && <span className="hidden text-xs sm:inline">{text("exam.paused")}</span>}
             </button>
-            <Button variant="outline" className="hidden sm:flex" onClick={pauseAndExit}>Pause & exit</Button>
-            <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMapOpen(!mapOpen)} aria-label="Toggle question map"><Layers3 className="h-4 w-4" /></Button>
+            <Button variant="outline" className="hidden sm:flex" onClick={pauseAndExit}>{text("exam.pauseExit")}</Button>
+            <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMapOpen(!mapOpen)} aria-label={text("exam.toggleMap")}><Layers3 className="h-4 w-4" /></Button>
           </div>
         </div>
         <Progress value={((attempt.currentIndex + 1) / attempt.questionIds.length) * 100} className="h-1 rounded-none" />
@@ -1398,12 +1452,12 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
         <main>
           <div className="mb-5 flex items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge style={{ color: domain.color, background: domain.soft, borderColor: "transparent" }}>Domain {domain.number} · {domain.short}</Badge>
-              <Badge variant="outline" className="capitalize">{question.difficulty}</Badge>
-              <span className="text-xs font-medium text-muted-foreground" {...questionBankContentProps()}>{question.objective}</span>
+              <Badge style={{ color: domain.color, background: domain.soft, borderColor: "transparent" }}>{text("exam.domainBadge", { number: domain.number, short: domainShortLabel(text, domain.id) })}</Badge>
+              <Badge variant="outline" className="capitalize" {...questionBankContentProps()}>{question.difficulty}</Badge>
+              <span className="min-w-0 text-xs font-medium text-muted-foreground" {...questionBankContentProps()}>{question.objective}</span>
             </div>
             <Button variant="ghost" size="sm" onClick={toggleFlag} className={cn(attempt.flagged.includes(currentId) && "text-danger")}>
-              <Flag className={cn("h-4 w-4", attempt.flagged.includes(currentId) && "fill-current")} /> <span className="hidden sm:inline">Flag</span>
+              <Flag className={cn("h-4 w-4", attempt.flagged.includes(currentId) && "fill-current")} /> <span className="hidden sm:inline">{text("exam.flag")}</span>
             </Button>
           </div>
           <Card className="shadow-none">
@@ -1412,7 +1466,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                 <span className="font-display text-sm font-extrabold text-muted-foreground">{String(attempt.currentIndex + 1).padStart(2, "0")}</span>
                 <div className="flex-1">
                   <h1 className="font-display text-xl font-bold leading-relaxed tracking-tight sm:text-2xl" {...questionBankContentProps()}>{question.prompt}</h1>
-                  <p className="mt-2 text-sm font-medium text-muted-foreground">{question.type === "multiple" ? "Select all that apply." : "Select the best answer."}</p>
+                  <p className="mt-2 text-sm font-medium text-muted-foreground">{question.type === "multiple" ? text("exam.selectMultiple") : text("exam.selectSingle")}</p>
                 </div>
               </div>
               <div className="mt-8 grid gap-3">
@@ -1460,7 +1514,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                 <div className="mt-6 rounded-xl border bg-muted/60 p-5">
                   <div className={cn("flex items-center gap-2 text-sm font-bold", isCurrentCorrect ? "text-success" : "text-danger")}>
                     {isCurrentCorrect ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                    {isCurrentCorrect ? "Correct" : "Not quite"}
+                    {isCurrentCorrect ? text("exam.correct") : text("exam.incorrect")}
                   </div>
                   <p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p>
                   <a href={question.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline" {...questionBankContentProps()}>{question.source.label} <ExternalLink className="h-3 w-3" /></a>
@@ -1469,20 +1523,20 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
             </CardContent>
           </Card>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <Button variant="outline" disabled={attempt.currentIndex === 0} onClick={() => setIndex(attempt.currentIndex - 1)}><ArrowLeft className="h-4 w-4" /> Previous</Button>
+            <Button variant="outline" disabled={attempt.currentIndex === 0} onClick={() => setIndex(attempt.currentIndex - 1)}><ArrowLeft className="h-4 w-4" /> {text("exam.previous")}</Button>
             {!isRevealed && (
-              <Button variant="secondary" disabled={!answer.length} onClick={() => setRevealed((current) => ({ ...current, [currentId]: true }))}>Check answer <CheckCircle2 className="h-4 w-4" /></Button>
+              <Button variant="secondary" disabled={!answer.length} onClick={() => setRevealed((current) => ({ ...current, [currentId]: true }))}>{text("exam.checkAnswer")} <CheckCircle2 className="h-4 w-4" /></Button>
             )}
             {attempt.currentIndex === attempt.questionIds.length - 1 ? (
-              <Button onClick={() => onFinish(attempt, "submitted")}>Submit attempt <CheckCircle2 className="h-4 w-4" /></Button>
+              <Button onClick={() => onFinish(attempt, "submitted")}>{text("exam.submit")} <CheckCircle2 className="h-4 w-4" /></Button>
             ) : (
-              <Button onClick={() => setIndex(attempt.currentIndex + 1)}>Next question <ArrowRight className="h-4 w-4" /></Button>
+              <Button onClick={() => setIndex(attempt.currentIndex + 1)}>{text("exam.next")} <ArrowRight className="h-4 w-4" /></Button>
             )}
           </div>
         </main>
         <aside className={cn("h-fit rounded-xl border bg-card p-5 shadow-soft lg:sticky lg:top-28 lg:block", mapOpen ? "block" : "hidden")}>
           <div className="flex items-center justify-between">
-            <div><h2 className="font-display text-sm font-bold">Question map</h2><p className="mt-1 text-xs text-muted-foreground">{answeredCount} of {attempt.questionIds.length} answered</p></div>
+            <div className="min-w-0"><h2 className="font-display text-sm font-bold">{text("exam.map.title")}</h2><p className="mt-1 text-xs text-muted-foreground">{text("exam.map.answered", { answered: answeredCount, total: attempt.questionIds.length })}</p></div>
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMapOpen(false)}><X className="h-4 w-4" /></Button>
           </div>
           <Progress value={(answeredCount / attempt.questionIds.length) * 100} className="mt-4" />
@@ -1503,7 +1557,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
                 >
                   <span aria-hidden="true">{index + 1}</span>
                   <span id={`question-map-label-${id}`} className="sr-only">
-                    Question {index + 1}:
+                    {text("exam.map.question", { number: index + 1 })}
                   </span>
                   {mapQuestion && (
                     <span
@@ -1522,9 +1576,9 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
           <Separator className="my-5" />
           <button onClick={() => onBookmark(currentId)} className="flex w-full items-center gap-3 rounded-lg p-2 text-left text-sm font-semibold hover:bg-muted">
             <Bookmark className={cn("h-4 w-4", bookmarks.includes(currentId) && "fill-primary text-primary")} />
-            {bookmarks.includes(currentId) ? "Bookmarked" : "Bookmark this question"}
+            {bookmarks.includes(currentId) ? text("exam.bookmarked") : text("exam.bookmark")}
           </button>
-          <div className="mt-4 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">Select an answer, then check it to see the correct answer and explanation.</div>
+          <div className="mt-4 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">{text("exam.checkHint")}</div>
         </aside>
       </div>
     </div>
@@ -1532,6 +1586,7 @@ export function ExamRunner({ attempt, bookmarks, onUpdate, onFinish, onBookmark,
 }
 
 export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, onReview }: { attempt: FinishedAttempt; bookmarks: string[]; onBookmark: (id: string) => void; onDashboard: () => void; onRetry: () => void; onReview: () => void }) {
+  const { text } = useLocalization()
   const [expanded, setExpanded] = useState<string | null>(null)
   const passed = attempt.score >= PASS_SCORE
   const correctCount = attempt.questionIds.filter((id) => answersMatch(attempt.answers[id], questionMap.get(id)!.correctAnswers)).length
@@ -1545,26 +1600,26 @@ export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, 
             <div className={cn("mx-auto grid h-16 w-16 place-items-center rounded-xl", passed ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
               {passed ? <Trophy className="h-8 w-8" /> : <Target className="h-8 w-8" />}
             </div>
-            <div className="mt-5 text-sm font-bold uppercase tracking-[0.16em] text-muted-foreground">{passed ? "Passing signal" : "Keep building"}</div>
+            <div className="mt-5 text-sm font-bold uppercase tracking-[0.16em] text-muted-foreground">{passed ? text("results.passingSignal") : text("results.keepBuilding")}</div>
             <div className="mt-2 font-display text-6xl font-extrabold tracking-tight">{attempt.score}<span className="text-2xl text-muted-foreground">%</span></div>
-            <p className="mt-3 text-sm text-muted-foreground">{correctCount} of {attempt.questionIds.length} correct · {duration} min</p>
+            <p className="mt-3 text-sm text-muted-foreground">{text("results.correctOf", { correct: correctCount, total: attempt.questionIds.length, minutes: duration })}</p>
           </CardContent>
         </Card>
-        <div>
-          <div className="mb-3 flex items-center gap-3"><Eyebrow>Attempt finished</Eyebrow><FinishedAttemptOutcome outcome={attempt.outcome} /></div>
-          <h1 className="section-title text-4xl">{passed ? "Strong work. Your controls held." : "You found the edges. Now tune them."}</h1>
-          <p className="mt-4 text-lg leading-8 text-muted-foreground">{passed ? "You cleared the 70% practice threshold. Review domain signals before the next full simulation." : "Use the explanations below to separate guidance, evidence, and enforceable controls—the distinction behind many scenarios."}</p>
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-3"><Eyebrow>{text("results.eyebrow")}</Eyebrow><FinishedAttemptOutcome outcome={attempt.outcome} /></div>
+          <h1 className="section-title text-4xl">{passed ? text("results.title.pass") : text("results.title.fail")}</h1>
+          <p className="mt-4 text-lg leading-8 text-muted-foreground">{passed ? text("results.body.pass") : text("results.body.fail")}</p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Button onClick={onRetry}><RotateCcw className="h-4 w-4" /> Try another set</Button>
-            <Button variant="outline" onClick={onDashboard}>Back to dashboard</Button>
+            <Button onClick={onRetry}><RotateCcw className="h-4 w-4" /> {text("results.retry")}</Button>
+            <Button variant="outline" onClick={onDashboard}>{text("results.dashboard")}</Button>
           </div>
         </div>
       </div>
 
       <section className="mt-14">
-        <div className="flex items-end justify-between gap-3">
-          <div><Eyebrow>Performance</Eyebrow><h2 className="section-title text-3xl">Domain breakdown</h2></div>
-          <Button variant="ghost" onClick={onReview}>Open review queue <ArrowRight className="h-4 w-4" /></Button>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0"><Eyebrow>{text("results.performance.eyebrow")}</Eyebrow><h2 className="section-title text-3xl">{text("results.performance.title")}</h2></div>
+          <Button variant="ghost" onClick={onReview}>{text("results.openReview")} <ArrowRight className="h-4 w-4" /></Button>
         </div>
         <Card className="mt-6 shadow-none"><CardContent className="grid gap-5 p-6 sm:grid-cols-2">
           {domains.map((domain) => {
@@ -1572,14 +1627,14 @@ export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, 
             if (!ids.length) return null
             const correct = ids.filter((id) => answersMatch(attempt.answers[id], questionMap.get(id)!.correctAnswers)).length
             const score = Math.round((correct / ids.length) * 100)
-            return <div key={domain.id} className="rounded-xl border p-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div><div className="text-sm font-bold">{domain.short}</div><div className="text-xs text-muted-foreground">{correct}/{ids.length} correct</div></div></div><div className="font-display text-xl font-bold">{score}%</div></div><Progress className="mt-4 h-1.5" value={score} /></div>
+            return <div key={domain.id} className="min-w-0 rounded-xl border p-4"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="min-w-0"><div className="truncate text-sm font-bold">{domainShortLabel(text, domain.id)}</div><div className="text-xs text-muted-foreground">{text("results.correctCount", { correct, total: ids.length })}</div></div></div><div className="font-display text-xl font-bold">{score}%</div></div><Progress className="mt-4 h-1.5" value={score} /></div>
           })}
         </CardContent></Card>
       </section>
 
       <section className="mt-14">
-        <Eyebrow>Answer review</Eyebrow>
-        <h2 className="section-title text-3xl">Learn from every decision.</h2>
+        <Eyebrow>{text("results.answerReview.eyebrow")}</Eyebrow>
+        <h2 className="section-title text-3xl">{text("results.answerReview.title")}</h2>
         <div className="mt-6 space-y-3">
           {attempt.questionIds.map((id, index) => {
             const question = questionMap.get(id)!
@@ -1589,19 +1644,19 @@ export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, 
               <Card key={id} className="shadow-none">
                 <button onClick={() => setExpanded(open ? null : id)} className="flex w-full items-start gap-4 p-5 text-left">
                   {correct ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />}
-                  <div className="flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Question {index + 1} · {domainMap[question.domain].short}</div><div className="font-semibold leading-6" {...questionBankContentProps()}>{question.prompt}</div></div>
+                  <div className="min-w-0 flex-1"><div className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{text("results.questionHeading", { number: index + 1, short: domainShortLabel(text, question.domain) })}</div><div className="font-semibold leading-6" {...questionBankContentProps()}>{question.prompt}</div></div>
                   <ChevronDown className={cn("h-5 w-5 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
                 </button>
                 {open && (
                   <div className="border-t px-5 pb-5 pt-4 sm:pl-14">
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <AnswerSummary label="Your answer" ids={attempt.answers[id] ?? []} question={question} correct={correct} />
-                      <AnswerSummary label="Correct answer" ids={question.correctAnswers} question={question} correct />
+                      <AnswerSummary label={text("results.yourAnswer")} ids={attempt.answers[id] ?? []} question={question} correct={correct} />
+                      <AnswerSummary label={text("results.correctAnswer")} ids={question.correctAnswers} question={question} correct />
                     </div>
-                    <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Why</div><p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p></div>
+                    <div className="mt-4 rounded-xl bg-muted p-4"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{text("results.why")}</div><p className="mt-2 text-sm leading-6" {...questionBankContentProps()}>{question.explanation}</p></div>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                       <a href={question.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-bright hover:underline"><span {...questionBankContentProps()}>{question.source.label}</span> <ExternalLink className="h-3 w-3" /></a>
-                      <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? "Bookmarked" : "Bookmark"}</Button>
+                      <Button variant="ghost" size="sm" onClick={() => onBookmark(id)}><Bookmark className={cn("h-4 w-4", bookmarks.includes(id) && "fill-current")} />{bookmarks.includes(id) ? text("results.bookmarked") : text("results.bookmark")}</Button>
                     </div>
                   </div>
                 )}
@@ -1615,16 +1670,18 @@ export function Results({ attempt, bookmarks, onBookmark, onDashboard, onRetry, 
 }
 
 export function AnswerSummary({ label, ids, question, correct }: { label: string; ids: string[]; question: Question; correct: boolean }) {
-  return <div><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id, index) => <span key={`${id}-${index}`}>{index > 0 ? "; " : null}<span {...questionBankContentProps()}>{question.options.find((option) => option.id === id)?.text}</span></span>) : "No answer"}</div></div>
+  const { text } = useLocalization()
+  return <div className="min-w-0"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div><div className={cn("mt-2 rounded-lg border p-3 text-sm font-medium", correct ? "border-success-border bg-success-soft" : "border-danger-border bg-danger-soft")}>{ids.length ? ids.map((id, index) => <span key={`${id}-${index}`}>{index > 0 ? "; " : null}<span {...questionBankContentProps()}>{question.options.find((option) => option.id === id)?.text}</span></span>) : text("results.noAnswer")}</div></div>
 }
 
 export function FinishedAttemptOutcome({ outcome }: { outcome: AttemptOutcome }) {
+  const { text } = useLocalization()
   const labels: Record<AttemptOutcome, string> = {
-    submitted: "Submitted",
-    expired: "Expired",
-    abandoned: "Abandoned",
+    submitted: text("outcome.submitted"),
+    expired: text("outcome.expired"),
+    abandoned: text("outcome.abandoned"),
   }
-  return <Badge variant="outline" className="capitalize">{labels[outcome]}</Badge>
+  return <Badge variant="outline">{labels[outcome]}</Badge>
 }
 
 export function Review({ practiceState, onBookmark, onPractice }: { practiceState: PracticeState; onBookmark: (id: string) => void; onPractice: () => void }) {
@@ -1641,21 +1698,21 @@ export function Review({ practiceState, onBookmark, onPractice }: { practiceStat
   const visible = filter === "bookmarks" ? practiceState.bookmarks : missedIds
   return (
     <div className="container max-w-5xl py-12 lg:py-16">
-      <Eyebrow>Review center</Eyebrow>
-      <h1 className="section-title text-4xl">Turn misses into durable knowledge.</h1>
-      <p className="mt-4 max-w-2xl text-lg leading-8 text-muted-foreground">Revisit incorrect and bookmarked scenarios, or inspect your recent finished attempts. The queue is assembled from this browser's practice history.</p>
+      <Eyebrow>{text("review.eyebrow")}</Eyebrow>
+      <h1 className="section-title text-4xl">{text("review.title")}</h1>
+      <p className="mt-4 max-w-2xl text-lg leading-8 text-muted-foreground">{text("review.body")}</p>
       <div className="mt-8 flex flex-wrap gap-2 rounded-xl border bg-card p-1.5 sm:w-fit">
         {([[
-          "missed", `Missed (${missedIds.length})`, XCircle,
-        ], ["bookmarks", `Bookmarks (${practiceState.bookmarks.length})`, Bookmark], ["history", `History (${practiceState.attempts.length})`, History]] as const).map(([value, label, Icon]) => (
-          <button key={value} onClick={() => setFilter(value)} className={cn("flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition", filter === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}><Icon className="h-4 w-4" />{label}</button>
+          "missed", text("review.filter.missed", { count: missedIds.length }), XCircle,
+        ], ["bookmarks", text("review.filter.bookmarks", { count: practiceState.bookmarks.length }), Bookmark], ["history", text("review.filter.history", { count: practiceState.attempts.length }), History]] as const).map(([value, label, Icon]) => (
+          <button key={value} onClick={() => setFilter(value)} className={cn("flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition", filter === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}><Icon className="h-4 w-4 shrink-0" />{label}</button>
         ))}
       </div>
       {filter === "history" ? (
         <div className="mt-7 space-y-3">
           {practiceState.attempts.length ? practiceState.attempts.map((attempt) => (
-            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className={cn("grid h-12 w-12 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div><div className="font-bold">{attempt.label}</div><div className="mt-1 text-xs text-muted-foreground">{text("review.attempt.finishedAt", { finishedAt: attempt.finishedAt })} · {text("review.attempt.questionCount", { count: attempt.questionIds.length })}</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? "Passing" : "Review"}</Badge></div></CardContent></Card>
-          )) : <EmptyState title="No finished attempts yet" description="Finish a practice attempt and your scores will appear here." onAction={onPractice} />}
+            <Card key={attempt.id} className="shadow-none"><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-4"><div className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-xl font-display text-sm font-bold", attempt.score >= PASS_SCORE ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>{attempt.score}%</div><div className="min-w-0"><div className="truncate font-bold">{attemptTitle(text, attempt.mode, attempt.domains)}</div><div className="mt-1 text-xs text-muted-foreground">{text("review.attempt.finishedAt", { finishedAt: attempt.finishedAt })} · {text("review.attempt.questionCount", { count: attempt.questionIds.length })}</div></div></div><div className="flex flex-wrap gap-2"><FinishedAttemptOutcome outcome={attempt.outcome} /><Badge variant="outline">{attempt.score >= PASS_SCORE ? text("review.passing") : text("review.needsReview")}</Badge></div></CardContent></Card>
+          )) : <EmptyState title={text("review.empty.history.title")} description={text("review.empty.history.body")} onAction={onPractice} />}
         </div>
       ) : (
         <div className="mt-7 space-y-3">
@@ -1663,8 +1720,8 @@ export function Review({ practiceState, onBookmark, onPractice }: { practiceStat
             const question = questionMap.get(id)
             if (!question) return null
             const domain = domainMap[question.domain]
-            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domain.short} · {question.difficulty}</div><h2 className="mt-2 font-display text-lg font-bold leading-7" {...questionBankContentProps()}>{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>Correct:</strong> <span {...questionBankContentProps()}>{question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}</span><p className="mt-2 text-muted-foreground" {...questionBankContentProps()}>{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label="Toggle bookmark"><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
-          }) : <EmptyState title={filter === "bookmarks" ? "No bookmarks yet" : "No missed questions yet"} description={filter === "bookmarks" ? "Bookmark questions during an attempt or from a finished attempt." : "Start a practice set to build your review queue."} onAction={onPractice} />}
+            return <Card key={id} className="shadow-none"><CardContent className="p-5"><div className="flex items-start gap-4"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: domain.soft, color: domain.color }}><domain.icon className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{domainShortLabel(text, domain.id)} · <span {...questionBankContentProps()}>{question.difficulty}</span></div><h2 className="mt-2 font-display text-lg font-bold leading-7" {...questionBankContentProps()}>{question.prompt}</h2><div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-6"><strong>{text("review.correctLabel")}</strong> <span {...questionBankContentProps()}>{question.correctAnswers.map((answer) => question.options.find((option) => option.id === answer)?.text).join("; ")}</span><p className="mt-2 text-muted-foreground" {...questionBankContentProps()}>{question.explanation}</p></div></div><Button variant="ghost" size="icon" onClick={() => onBookmark(id)} aria-label={text("review.toggleBookmark")}><Bookmark className={cn("h-4 w-4", practiceState.bookmarks.includes(id) && "fill-primary text-primary")} /></Button></div></CardContent></Card>
+          }) : <EmptyState title={filter === "bookmarks" ? text("review.empty.bookmarks.title") : text("review.empty.missed.title")} description={filter === "bookmarks" ? text("review.empty.bookmarks.body") : text("review.empty.missed.body")} onAction={onPractice} />}
         </div>
       )}
     </div>
@@ -1672,33 +1729,35 @@ export function Review({ practiceState, onBookmark, onPractice }: { practiceStat
 }
 
 function EmptyState({ title, description, onAction }: { title: string; description: string; onAction: () => void }) {
-  return <div className="rounded-xl border border-dashed bg-muted/30 px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><BookOpen className="h-5 w-5" /></div><h2 className="mt-4 font-display text-lg font-bold">{title}</h2><p className="mt-2 text-sm text-muted-foreground">{description}</p><Button className="mt-5" onClick={onAction}>Start practice</Button></div>
+  const { text } = useLocalization()
+  return <div className="rounded-xl border border-dashed bg-muted/30 px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-muted text-muted-foreground"><BookOpen className="h-5 w-5" /></div><h2 className="mt-4 font-display text-lg font-bold">{title}</h2><p className="mt-2 text-sm text-muted-foreground">{description}</p><Button className="mt-5" onClick={onAction}>{text("review.start")}</Button></div>
 }
 
 function Resources({ onPractice }: { onPractice: () => void }) {
+  const { text } = useLocalization()
   const steps = [
-    { number: "01", title: "Establish the agentic foundation", description: "Learn the plan–act–evaluate lifecycle, GitHub-native accountability, task boundaries, and the difference between guidance and policy.", resource: "Foundations of Agentic AI in GitHub", url: "https://learn.microsoft.com/en-us/training/modules/foundations-agentic-ai/", domains: "Domains 1 & 6" },
-    { number: "02", title: "Design the architecture and SDLC", description: "Practice structured plans, autonomy levels, PR governance, observability, Actions handoffs, and recovery paths.", resource: "Designing Agent Architecture and SDLC Integration", url: "https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/", domains: "Domains 1, 4 & 5" },
-    { number: "03", title: "Configure tools, MCP, and execution", description: "Work through custom agents, tool scope, MCP servers, allowlists, cloud setup, CLI automation, credentials, and firewalls.", resource: "Tooling, MCP, and Agent Execution Environments", url: "https://learn.microsoft.com/en-us/training/modules/agent-tooling-mcp-execution-environments/", domains: "Domain 2" },
-    { number: "04", title: "Evaluate, govern, and recover", description: "Use tests, scans, logs, artifacts, session state, rulesets, hooks, approvals, and audit events as evidence and controls.", resource: "Official GH-600 study guide", url: "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600", domains: "Domains 3–6" },
+    { number: "01", title: text("resources.step1.title"), description: text("resources.step1.description"), resource: "Foundations of Agentic AI in GitHub", url: "https://learn.microsoft.com/en-us/training/modules/foundations-agentic-ai/", domains: text("resources.step1.domains") },
+    { number: "02", title: text("resources.step2.title"), description: text("resources.step2.description"), resource: "Designing Agent Architecture and SDLC Integration", url: "https://learn.microsoft.com/en-us/training/modules/design-agent-architecture-integration/", domains: text("resources.step2.domains") },
+    { number: "03", title: text("resources.step3.title"), description: text("resources.step3.description"), resource: "Tooling, MCP, and Agent Execution Environments", url: "https://learn.microsoft.com/en-us/training/modules/agent-tooling-mcp-execution-environments/", domains: text("resources.step3.domains") },
+    { number: "04", title: text("resources.step4.title"), description: text("resources.step4.description"), resource: "Official GH-600 study guide", url: "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-600", domains: text("resources.step4.domains") },
   ]
   return (
     <div>
       <section className="hero-grid border-b bg-surface">
         <div className="container grid gap-8 py-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-end lg:py-18">
-          <div><Eyebrow>GH-600 study path</Eyebrow><h1 className="section-title text-4xl lg:text-5xl">Learn the blueprint. Practice the decisions.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">Follow a focused route through the official learning material, then use practice modes and answer review to strengthen each exam domain.</p></div>
-          <div className="rounded-xl border border-border bg-card p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-success" /><p className="text-sm leading-6 text-muted-foreground"><strong className="text-foreground">Published exam profile:</strong> expertise operating, integrating, supervising, and governing agents in production-grade SDLC workflows, with GitHub as the system of record and control plane.</p></div></div>
+          <div className="min-w-0"><Eyebrow>{text("resources.eyebrow")}</Eyebrow><h1 className="section-title text-4xl lg:text-5xl">{text("resources.title")}</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">{text("resources.body")}</p></div>
+          <div className="rounded-xl border border-border bg-card p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-success" /><p className="text-sm leading-6 text-muted-foreground"><strong className="text-foreground">{text("resources.profile.label")}</strong> {text("resources.profile.body")}</p></div></div>
         </div>
       </section>
       <section className="container max-w-5xl py-14 lg:py-18">
-        <div><Eyebrow>Recommended sequence</Eyebrow><h2 className="section-title">A focused route through the material.</h2></div>
+        <div className="min-w-0"><Eyebrow>{text("resources.sequence.eyebrow")}</Eyebrow><h2 className="section-title">{text("resources.sequence.title")}</h2></div>
         <div className="mt-8 space-y-4">
           {steps.map((step) => (
-            <Card key={step.number} className="shadow-none"><CardContent className="grid gap-5 p-6 sm:grid-cols-[56px_1fr_auto] sm:items-center"><div className="font-display text-2xl font-extrabold text-brand-bright">{step.number}</div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-bold">{step.title}</h3><Badge variant="secondary">{step.domains}</Badge></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.description}</p><a href={step.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">{step.resource} <ExternalLink className="h-3.5 w-3.5" /></a></div><FileText className="hidden h-5 w-5 text-muted-foreground sm:block" /></CardContent></Card>
+            <Card key={step.number} className="shadow-none"><CardContent className="grid gap-5 p-6 sm:grid-cols-[56px_1fr_auto] sm:items-center"><div className="font-display text-2xl font-extrabold text-brand-bright">{step.number}</div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-bold">{step.title}</h3><Badge variant="secondary">{step.domains}</Badge></div><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.description}</p><a href={step.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline" lang="en">{step.resource} <ExternalLink className="h-3.5 w-3.5" /></a></div><FileText className="hidden h-5 w-5 text-muted-foreground sm:block" /></CardContent></Card>
           ))}
         </div>
       </section>
-      <section className="container border-t py-14 text-center lg:py-16"><h2 className="font-display text-3xl font-extrabold tracking-tight">Ready to test the first pass?</h2><p className="mx-auto mt-3 max-w-xl text-muted-foreground">Use a full exam to establish your baseline, then alternate focused drills with answer review.</p><Button size="lg" className="mt-6" onClick={onPractice}>Choose a practice mode <ArrowRight className="h-4 w-4" /></Button></section>
+      <section className="container border-t py-14 text-center lg:py-16"><h2 className="font-display text-3xl font-extrabold tracking-tight">{text("resources.cta.title")}</h2><p className="mx-auto mt-3 max-w-xl text-muted-foreground">{text("resources.cta.body")}</p><Button size="lg" className="mt-6" onClick={onPractice}>{text("resources.cta.button")} <ArrowRight className="h-4 w-4" /></Button></section>
     </div>
   )
 }
@@ -1708,12 +1767,13 @@ function Eyebrow({ children }: { children: ReactNode }) {
 }
 
 function Footer() {
+  const { text } = useLocalization()
   return (
     <footer className="border-t bg-surface">
       <div className="container flex flex-col gap-5 py-8 sm:flex-row sm:items-center sm:justify-between">
         <Brand />
-        <p className="max-w-xl text-xs leading-5 text-muted-foreground">Unofficial study aid. Not affiliated with or endorsed by Microsoft or GitHub. GH-600, GitHub, and Copilot are trademarks of their respective owners.</p>
-        <a href="https://learn.microsoft.com/en-us/credentials/certifications/agentic-ai-developer/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-brand-bright hover:underline"><Github className="h-4 w-4" /> Agentic AI Developer</a>
+        <p className="max-w-xl text-xs leading-5 text-muted-foreground">{text("footer.disclaimer")}</p>
+        <a href="https://learn.microsoft.com/en-us/credentials/certifications/agentic-ai-developer/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-brand-bright hover:underline" lang="en"><Github className="h-4 w-4" /> Agentic AI Developer</a>
       </div>
     </footer>
   )

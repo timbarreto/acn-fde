@@ -53,10 +53,18 @@ export type PracticeSyncStatus =
   | { kind: "attention" }
   | { kind: "signing-out" }
 
-export interface PracticeSyncNotification {
-  kind: "sync-rejected"
-  message: string
-}
+export type SyncRejectionReason =
+  | "unsupported_schema_version"
+  | "practice_state_too_large"
+  | "unsupported_media_type"
+  | "malformed_json"
+  | "invalid_practice_state"
+  | "generic"
+
+export type PracticeSyncNotification =
+  | { kind: "first-sync-rejected" }
+  | { kind: "sign-out-sync-rejected" }
+  | { kind: "sync-rejected"; reason: SyncRejectionReason }
 
 export interface BrowserPracticeStateSnapshot {
   envelope: PracticeStateEnvelope
@@ -901,8 +909,7 @@ export function createBrowserPracticeStateStore({
           error: surfacedError,
           firstSyncRejected: true,
           notification: {
-            kind: "sync-rejected",
-            message: "Your practice state could not be synced to the account. It remains protected on this device, but sign-out could not finish.",
+            kind: "sign-out-sync-rejected",
           },
         })
       }
@@ -2309,38 +2316,34 @@ function isPermanentSyncRejection(error: unknown) {
   return error instanceof PracticeApiError && [400, 413, 415].includes(error.status)
 }
 
-function syncRejectionNotification(error: unknown): PracticeSyncNotification {
+function syncRejectionReason(error: unknown): SyncRejectionReason {
   const practiceError = error instanceof PracticeApiError ? error : null
-  const detail = (() => {
-    switch (practiceError?.code) {
-      case "unsupported_schema_version":
-        return "This app version could not sync the latest changes."
-      case "practice_state_too_large":
-        return "The latest changes were too large to sync."
-      case "unsupported_media_type":
-        return "The sync service did not accept the practice-state format."
-      case "malformed_json":
-        return "The sync service could not read the latest changes."
-      case "invalid_practice_state":
-        return "The latest changes were not valid."
-      default:
-        return practiceError?.status === 413
-          ? "The latest changes were too large to sync."
-          : practiceError?.status === 415
-            ? "The sync service did not accept the practice-state format."
-            : "The latest changes could not be synced."
-    }
-  })()
+  switch (practiceError?.code) {
+    case "unsupported_schema_version":
+    case "practice_state_too_large":
+    case "unsupported_media_type":
+    case "malformed_json":
+    case "invalid_practice_state":
+      return practiceError.code
+    default:
+      return practiceError?.status === 413
+        ? "practice_state_too_large"
+        : practiceError?.status === 415
+          ? "unsupported_media_type"
+          : "generic"
+  }
+}
+
+function syncRejectionNotification(error: unknown): PracticeSyncNotification {
   return {
     kind: "sync-rejected",
-    message: `${detail} The last synced practice state has been restored.`,
+    reason: syncRejectionReason(error),
   }
 }
 
 function firstSyncRejectionNotification(): PracticeSyncNotification {
   return {
-    kind: "sync-rejected",
-    message: "Your practice state could not be synced to the account, so sign-in was ended. Your guest practice remains saved on this device.",
+    kind: "first-sync-rejected",
   }
 }
 

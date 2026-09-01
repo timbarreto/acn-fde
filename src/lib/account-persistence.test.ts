@@ -315,7 +315,7 @@ describe("subject-isolated browser practice-state store", () => {
       envelope: guest,
       firstSyncRejected: true,
       notification: {
-        message: expect.stringContaining("guest practice remains saved"),
+        kind: "first-sync-rejected",
       },
     })
   })

@@ -11,8 +11,20 @@ connection and stores practice state only in this browser under the versioned
 guest key. Clearing this site's browser data removes it.
 
 The Account page remains useful to a guest: it shows that state is saved on the
-device, downloads an export, resets the visible guest practice state, and offers
-GitHub sign-in without prompting anywhere else in the application.
+device, downloads an export, resets the visible guest practice state, offers
+GitHub sign-in without prompting anywhere else in the application, and includes
+the compact interface-language selector.
+
+## Interface language
+
+The candidate interface is available in English, Spanish, and German. Account
+stores the choice in this browser only. It is not part of practice state, does
+not require sign-in, and is never synchronized to an account or another device.
+
+The GH-600 question bank stays in English, including prompts, options,
+objectives, explanations, and source labels. Practice setup states that
+boundary before you choose a mode. Official product and credential names stay
+in their published English form.
 
 ## Account practice
 
