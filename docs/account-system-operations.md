@@ -154,7 +154,27 @@ The real command applies additive PostgreSQL migrations first and D1 migrations
 second, verifies both native ledgers, builds a commit-tagged Linux AMD64 image,
 pushes and resolves its immutable digest, rechecks the active Worker, then uses
 an immediate singleton rollout. Frontend assets ship through the Worker's
-`ASSETS` binding; there is no separate frontend deployment.
+`ASSETS` binding.
+
+### Frontend-only release
+
+When only browser assets need to ship, use:
+
+```bash
+npm run production:deploy:frontend -- --dry-run
+npm run production:deploy:frontend
+```
+
+Cloudflare deploys static assets and Worker code as one Worker version; it does
+not support an independently activated asset version for this application.
+This command therefore rebuilds account-mode assets and uploads the checked-out
+Worker atomically, but passes `--containers-rollout none`. It does not prompt
+for a Neon connection, run PostgreSQL or D1 migrations, build or push a CoreEx
+image, or update Container instances. It verifies clean `main`, exact
+`origin/main`, pinned Node and Wrangler versions, the Cloudflare account, strict
+deployment safety, and an unchanged active CoreEx image. Use the full production
+release whenever Worker, Container, D1, or PostgreSQL changes must ship
+together.
 
 After deployment, the script checks the SPA and anonymous
 `GET /api/practice-state` every five seconds for one minute. Healthy production

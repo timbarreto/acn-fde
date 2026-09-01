@@ -12,6 +12,7 @@
     "production:prepare": "node scripts/production/prepare.ts",
     "production:prime": "node scripts/production/prime.ts",
     "production:deploy": "node scripts/production/deploy.ts",
+    "production:deploy:frontend": "node scripts/production/deploy-frontend.ts",
     "lint": "eslint .",
     "test": "vitest run",
     "test:worker": "vitest run --config vitest.worker.config.ts",

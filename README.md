@@ -380,6 +380,22 @@ info` response for the immutable digest before it succeeds or begins recovery.
 `npm run production:prepare` remains available when an
 operator deliberately needs only the resumable database-preparation phase.
 
+For a frontend-only release that must not run database migrations, build or
+push a CoreEx image, or restart Container instances, use:
+
+```bash
+npm run production:deploy:frontend -- --dry-run
+npm run production:deploy:frontend
+```
+
+Cloudflare publishes static assets as part of a Worker version, so this still
+uploads the checked-out Worker code and configuration atomically with the
+assets. The script uses Wrangler's `--containers-rollout none`, verifies the
+pinned branch, tools, account, and active production state, builds account-mode
+assets, performs a strict dry run, and confirms that the active CoreEx image is
+unchanged. Use the full release path whenever Worker, Container, D1, or
+PostgreSQL changes must ship together.
+
 If application deployment fails after changing the Worker or Container, the
 command restores the captured Worker version and retained image—or removes a
 partially created first Container—and verifies both. It never reverses either
