@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { spawnSync } from "node:child_process"
@@ -178,13 +179,21 @@ function validateConfiguration(
 export function frontendDeployArguments(
   release: string,
   dryRun: boolean,
+  outputDirectory?: string,
 ): string[] {
+  const outputArguments: string[] = []
+  if (dryRun) {
+    if (!outputDirectory)
+      throw new Error("dry-run output directory is required")
+    outputArguments.push("--outdir", outputDirectory)
+  }
   return [
     "deploy",
     ...(dryRun ? ["--dry-run"] : []),
     "--strict",
     "--containers-rollout",
     "none",
+    ...outputArguments,
     ...(dryRun
       ? []
       : [
@@ -194,6 +203,22 @@ export function frontendDeployArguments(
           `Frontend release ${release}`,
         ]),
   ]
+}
+
+export function assertProductionStateUnchanged(
+  previousVersion: string,
+  currentVersion: string,
+  previousImage: string,
+  currentImage: string,
+): void {
+  if (currentVersion !== previousVersion)
+    throw new Error(
+      `active Worker changed before frontend deployment (${previousVersion} -> ${currentVersion})`,
+    )
+  if (currentImage !== previousImage)
+    throw new Error(
+      `CoreEx image changed before frontend deployment (${previousImage} -> ${currentImage})`,
+    )
 }
 
 async function main(): Promise<void> {
@@ -253,11 +278,18 @@ async function main(): Promise<void> {
     ACN_FDE_FULL_STACK: "false",
     ACN_FDE_INTEGRATION: "false",
   })
-  wrangler(
-    repository,
-    config,
-    ...frontendDeployArguments(release, true),
+  const dryRunDirectory = mkdtempSync(
+    path.join(tmpdir(), "acn-fde-frontend-deploy-"),
   )
+  try {
+    wrangler(
+      repository,
+      config,
+      ...frontendDeployArguments(release, true, dryRunDirectory),
+    )
+  } finally {
+    rmSync(dryRunDirectory, { recursive: true, force: true })
+  }
 
   process.stdout.write(
     `Frontend deployment target: ${target.branch} at ${release}\nPrevious Worker version: ${previousVersion}\nCoreEx image: ${previousImage}\nProduction account assets: built and validated\nContainer rollout: none\n`,
@@ -269,10 +301,13 @@ async function main(): Promise<void> {
   }
 
   const currentVersion = activeWorkerVersion(target, repository, config)
-  if (currentVersion !== previousVersion)
-    throw new Error(
-      `active Worker changed before frontend deployment (${previousVersion} -> ${currentVersion})`,
-    )
+  const currentImage = activeContainerImage(target, repository, config)
+  assertProductionStateUnchanged(
+    previousVersion,
+    currentVersion,
+    previousImage,
+    currentImage,
+  )
 
   wrangler(
     repository,
